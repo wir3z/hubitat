@@ -1,0 +1,31 @@
+{
+  "packageName": "OwnTracks",
+  "author": "Lyle Pakula",
+  "minimumHEVersion": "0.0",
+  "licenseFile": "https://opensource.org/licenses/LGPL-2.0",
+  "dateReleased": "2023-12-30",
+  "category": "Convenience",
+  "tags": "Presence & Location",
+  "apps": [
+    {
+      "id": "9197099c-9560-4983-abdd-b594a8472a75",
+      "name": "OwnTracks",
+      "namespace": "lpakula",
+      "location": "https://raw.githubusercontent.com/wir3z/owntracks-hubitat/main/OwnTracks%20App.groovy",
+      "required": true,
+      "oauth": true,
+      "primary": true,
+      "version": "1.5.0"
+    }
+  ],
+  "drivers": [
+    {
+      "id": "a6150d8c-a032-4409-9737-0a48eab7ad82",
+      "name": "OwnTracks Driver",
+      "namespace": "lpakula",
+      "location": "https://raw.githubusercontent.com/wir3z/owntracks-hubitat/main/OwnTracks%20Driver.groovy",
+      "required": true,
+      "version": "1.5.0"
+    }
+  ]
+}
