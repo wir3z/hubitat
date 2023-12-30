@@ -1,7 +1,7 @@
 # Owntracks
 OwnTracks app connects your OwnTracks mobile app to Hubitat Elevation for virtual presence triggers
 
-Hubitat forum discussion page:  https://community.hubitat.com/t/release-owntracks/130821
+For discussion and more information, visit the Hubitat Community <a href="https://community.hubitat.com/t/release-owntracks/130821" target="_blank">[RELEASE] OwnTracks</a>.
 
 
 ## Hubitat Installation and Setup
