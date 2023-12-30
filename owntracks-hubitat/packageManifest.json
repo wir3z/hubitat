@@ -11,7 +11,7 @@
       "id": "9197099c-9560-4983-abdd-b594a8472a75",
       "name": "OwnTracks",
       "namespace": "lpakula",
-      "location": "https://raw.githubusercontent.com/wir3z/owntracks-hubitat/main/OwnTracks%20App.groovy",
+      "location": "https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20App.groovy",
       "required": true,
       "oauth": true,
       "primary": true,
@@ -23,7 +23,7 @@
       "id": "a6150d8c-a032-4409-9737-0a48eab7ad82",
       "name": "OwnTracks Driver",
       "namespace": "lpakula",
-      "location": "https://raw.githubusercontent.com/wir3z/owntracks-hubitat/main/OwnTracks%20Driver.groovy",
+      "location": "https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20Driver.groovy",
       "required": true,
       "version": "1.5.0"
     }
