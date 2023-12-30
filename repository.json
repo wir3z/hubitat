@@ -1,0 +1,14 @@
+{
+  "author": "Lyle Pakula",
+  "gitHubUrl": "https://github.com/wir3z",
+  "payPalUrl": "https://www.paypal.com/donate/?hosted_button_id=U7BEWKKS6RBJ2",
+  "packages": [
+    {
+      "id": "01ae3fea-6b6a-4c58-8981-10140b1fefc8",
+      "name": "OwnTracks",
+      "category": "Convenience",
+      "location": "https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/packageManifest.json",
+      "description": "Connects OwnTracks mobile app to Hubitat"
+    }
+  ]
+}
