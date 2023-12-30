@@ -27,7 +27,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.5.0" }
+def appVersion() { return "1.5.1" }
 
 @Field String CHILDPREFIX = "OwnTracks - "
 @Field String MQTT_TOPIC_PREFIX = "owntracks"
@@ -77,6 +77,7 @@ def mainPage() {
     //enable OAuth in the app settings or this call will fail
     try{
         if (!state.accessToken) {
+            initialize()
             createAccessToken()
         }
     }
@@ -387,6 +388,7 @@ def clearRegionFields() {
 
 def installed() {
     log.info("Installed")
+    initialize()
     updated()
 }
 
