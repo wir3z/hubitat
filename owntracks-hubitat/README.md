@@ -1,6 +1,8 @@
 # Owntracks
 OwnTracks app connects your OwnTracks mobile app to Hubitat Elevation for virtual presence triggers
 
+Hubitat forum discussion page:  https://community.hubitat.com/t/release-owntracks/130821
+
 
 ## Hubitat Installation and Setup
 1. Click 'Drivers Code' and the '+ New driver' button on the top right of the screen.
