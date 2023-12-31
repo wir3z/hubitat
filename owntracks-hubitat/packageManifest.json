@@ -14,7 +14,7 @@
       "required": true,
       "oauth": true,
       "primary": true,
-      "version": "1.5.3"
+      "version": "1.5.4"
     }
   ],
   "drivers": [
@@ -24,7 +24,7 @@
       "namespace": "lpakula",
       "location": "https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20Driver.groovy",
       "required": true,
-      "version": "1.5.1"
+      "version": "1.5.2"
     }
   ]
 }

@@ -75,7 +75,7 @@
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.5.1" }
+def driverVersion() { return "1.5.2" }
 
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -84,7 +84,12 @@ def driverVersion() { return "1.5.1" }
 @Field static final Map LOCATION_PERMISION = [ "0": "Background - Fine", "-1": "Background - Coarse", "-2": "Foreground - Fine", "-3": "Foreground - Coarse", "-4": "Disabled" ]
 
 metadata {
-  definition (name: "OwnTracks Driver", namespace: "lpakula", author: "Lyle Pakula", importUrl: "") {
+  definition (
+      name: "OwnTracks Driver", 
+      namespace: "lpakula", 
+      author: "Lyle Pakula", 
+      importUrl: "https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20Driver.groovy"
+  ) {
         capability "Actuator"
         capability "Presence Sensor"
 

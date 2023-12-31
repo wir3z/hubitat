@@ -27,7 +27,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.5.3" }
+def appVersion() { return "1.5.4" }
 
 @Field String CHILDPREFIX = "OwnTracks - "
 @Field String MQTT_TOPIC_PREFIX = "owntracks"
@@ -50,7 +50,7 @@ definition(
     namespace: "lpakula",
     author: "Lyle Pakula",
     description: "OwnTracks app connects your OwnTracks mobile app to Hubitat Elevation for virtual presence triggers",
-    importUrl: "",
+    importUrl: "https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20App.groovy",
     category: "",
     iconUrl: "",
     iconX2Url: "",
@@ -958,6 +958,7 @@ private def createChild (name) {
     logDescriptionText("Creating OwnTracks Device: $name:$DNI")
     try{
         addChildDevice("lpakula", "OwnTracks Driver", DNI, ["name": "${CHILDPREFIX}${name}", isComponent: false])
+        state.members.find {it.name==name}.id = DNI
         logDescriptionText("Child Device Successfully Created")
     }
     catch (e) {
