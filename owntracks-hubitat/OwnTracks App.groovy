@@ -27,7 +27,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.5.1" }
+def appVersion() { return "1.5.2" }
 
 @Field String CHILDPREFIX = "OwnTracks - "
 @Field String MQTT_TOPIC_PREFIX = "owntracks"
@@ -100,15 +100,11 @@ def mainPage() {
             }
 
             section(getFormat("box", "Mobile App Configuration")) {
-                if (!state.home) {
-                    configureUsersHome()
-                } else {
-                    input "syncMobileSettings", "enum", multiple: true, required:false, title:"Select family member(s) to update location, display and region settings on the next location update", options: state.members.name.sort()
-                    input "restartMobileApp", "enum", multiple: true, required:false, title:"Select family member(s) to restart their mobile app on next location update", options: state.members.name.sort()
-                    href(title: "Regions", description: "", style: "page", page: "configureRegions")
-                    href(title: "Location", description: "", style: "page", page: "configureLocation")
-                    href(title: "Display", description: "", style: "page", page: "configureDisplay")
-                }
+                input "syncMobileSettings", "enum", multiple: true, required:false, title:"Select family member(s) to update location, display and region settings on the next location update", options: state.members.name.sort()
+                input "restartMobileApp", "enum", multiple: true, required:false, title:"Select family member(s) to restart their mobile app on next location update", options: state.members.name.sort()
+                href(title: "Regions", description: "", style: "page", page: "configureRegions")
+                href(title: "Location", description: "", style: "page", page: "configureLocation")
+                href(title: "Display", description: "", style: "page", page: "configureDisplay")
             }
 
             section(getFormat("box", "Logging")) {
@@ -145,7 +141,7 @@ def installationInstructions() {
 
 def configureUsersHome() {
     input "enabledMembers", "enum", multiple: true, required:false, title:"Select family member(s)", options: state.members.name.sort()
-    input "homePlace", "enum", multiple: false, required:true, title:"Select your 'Home' place.  Use '$HUBITAT_LOCATION' to enter a location.", options: [ "$HUBITAT_LOCATION" ] + (state.places ? state.places.desc.sort() : []), submitOnChange: true
+    input "homePlace", "enum", multiple: false, title:"Select your 'Home' place.  Use '$HUBITAT_LOCATION' to enter a location.", options: [ "$HUBITAT_LOCATION" ] + (state.places ? state.places.desc.sort() : []), submitOnChange: true
     if (homePlace == HUBITAT_LOCATION) {
         input "homeName", "text", title: "'Home' name", required: true, defaultValue: "Home"
         input name: "homeGeoFence", type: "number", title: "Distance from home location to indicate 'present' (${DEFAULT_RADIUS}-1000m)", required: true, range: "${DEFAULT_RADIUS}..1000", defaultValue: DEFAULT_RADIUS
@@ -157,7 +153,7 @@ def configureUsersHome() {
     }
     input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, 750=default", required: false, defaultValue: "750", options: ['0':'disabled','250':'250 meters','500':'500 meters','750':'750 meters','1000':'1000 meters']
     input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: true
-    input name: "driverInaccurateLocationFilter", type: "number", title: "Child device will ignore locations if the accuracy is greater than the given meters, Recommended=50", required: true, range: "0..2000", defaultValue: 50
+    input name: "driverInaccurateLocationFilter", type: "number", title: "Child device will ignore locations if the accuracy is greater than the given meters, Recommended=50", range: "0..2000", defaultValue: 50
 }
 
 def configureRecorder() {
@@ -962,7 +958,6 @@ private def createChild (name) {
     logDescriptionText("Creating OwnTracks Device: $name:$DNI")
     try{
         addChildDevice("lpakula", "OwnTracks Driver", DNI, ["name": "${CHILDPREFIX}${name}", isComponent: false])
-        state.members.find {it.name==name}.id = DNI
         logDescriptionText("Child Device Successfully Created")
     }
     catch (e) {
