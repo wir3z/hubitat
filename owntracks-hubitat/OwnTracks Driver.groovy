@@ -15,7 +15,7 @@
  *  Connects OwnTracks push events to virtual presence drivers.
  *
  *  Author: Lyle Pakula (lpakula)
- *  Date: 2023-12-29
+ *  Date: 2023-12-31
  *
  *  // events are received with the following structure
  *  For 'Location':
@@ -75,7 +75,7 @@
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.5.0" }
+def driverVersion() { return "1.5.1" }
 
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -211,19 +211,22 @@ Boolean generatePresenceEvent(data) {
         }
         if (data?.bo == 1) {
             sendEvent( name: "batteryOptimizations", value: "Optimized/Restricted" )
-            logWarn("App settting: 'App battery usage' is 'Optimized' or 'Restricted'.  Please change to 'Unrestricted'")
+            logDebug("App settting: 'App battery usage' is 'Optimized' or 'Restricted'.  Please change to 'Unrestricted'")
+            //logWarn("App settting: 'App battery usage' is 'Optimized' or 'Restricted'.  Please change to 'Unrestricted'")
         } else {
             device.deleteCurrentState('batteryOptimizations')
         }
         if (data?.hib == 1) {
             sendEvent( name: "hiberateAllowed", value: "App can pause" )
-            logWarn("App setting: 'Pause app activity if unused' is 'Enabled'.  Please change to 'Disabled'")
+            logDebug("App setting: 'Pause app activity if unused' is 'Enabled'.  Please change to 'Disabled'")
+            //logWarn("App setting: 'Pause app activity if unused' is 'Enabled'.  Please change to 'Disabled'")
         } else {
             device.deleteCurrentState('hiberateAllowed')
         }
         if (data?.loc != 0) {
             sendEvent( name: "locationPermissions", value: LOCATION_PERMISION["${data?.loc}"])
-            logWarn("Location permisions currently set to '${LOCATION_PERMISION["${data?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
+            logDebug("Location permisions currently set to '${LOCATION_PERMISION["${data?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
+            //logWarn("Location permisions currently set to '${LOCATION_PERMISION["${data?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
         } else {
             device.deleteCurrentState('locationPermissions')
         }
