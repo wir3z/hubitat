@@ -1,0 +1,35 @@
+---
+# Machine image tags listed at https://circleci.com/developer/machine/image/android
+version: 2.1
+
+setup: true
+
+orbs:
+  continuation: circleci/continuation@0.3.1
+
+jobs:
+  check-if-forked:
+    docker:
+      - image: cimg/base:stable
+    resource_class: small
+    steps:
+      - checkout
+      - run:
+          name: Evaluate whether running within repo or as forked PR
+          command: |
+            if [ -z "$CIRCLE_PR_REPONAME" ] #If this exists then it's a forked PR
+            then
+              echo "In internal contribution flow"
+              echo '{}' | jq '.' > pipeline-params.json
+            else
+               echo "In OSS contribution flow - $CIRCLE_PR_USERNAME $CIRCLE_PR_REPONAME"
+              echo '{}' | jq '. += { "oss-contribution-flow" : true}' >  pipeline-params.json
+            fi
+
+      - continuation/continue:
+          parameters: pipeline-params.json
+          configuration_path: .circleci/continue-config.yml
+workflows:
+  always-run:
+    jobs:
+      - check-if-forked

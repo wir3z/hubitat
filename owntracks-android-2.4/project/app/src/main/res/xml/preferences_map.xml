@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    app:title="@string/preferencesMap">
+
+        <androidx.preference.SwitchPreferenceCompat
+            android:defaultValue="@bool/valShowRegionsOnMap"
+            app:iconSpaceReserved="false"
+            app:key="@string/preferenceKeyShowRegionsOnMap"
+            app:summary="@string/preferencesShowRegionsOnMapSummary"
+            app:title="@string/preferencesShowRegionsOnMap" />
+
+        <androidx.preference.SwitchPreferenceCompat
+            android:defaultValue="@bool/valEnableMapRotation"
+            app:iconSpaceReserved="false"
+            app:key="@string/preferenceKeyEnableMapRotation"
+            app:summary="@string/preferencesEnableMapRotationSummary"
+            app:title="@string/preferencesEnableMapRotation" />
+
+
+</PreferenceScreen>
