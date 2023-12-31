@@ -19,7 +19,7 @@
  *  Recorder:       https://github.com/owntracks/recorder
  *
  *  Author: Lyle Pakula (lpakula)
- *  Date: 2023-12-29
+ *  Date: 2023-12-31
  */
 
 import groovy.transform.Field
@@ -27,7 +27,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.5.2" }
+def appVersion() { return "1.5.3" }
 
 @Field String CHILDPREFIX = "OwnTracks - "
 @Field String MQTT_TOPIC_PREFIX = "owntracks"
@@ -393,10 +393,10 @@ def uninstalled() {
 }
 
 def initialize() {
-    state.accessToken = ""
-    state.members = []
-    state.home = []
-    state.places = []
+    if (state.accessToken == null) state.accessToken = ""
+    if (state.members == null) state.members = []
+    if (state.home == null) state.home = []
+    if (state.places == null) state.places = []
 }
 
 def updated() {
