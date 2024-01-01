@@ -27,7 +27,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.5.5" }
+def appVersion() { return "1.5.6" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -148,17 +148,25 @@ def installationInstructions() {
             paragraph ("This integration requires the <a href='https://owntracks.org/' target='_blank'>OwnTracks</a> app to be installed on your mobile device.\r\n\r\n" +
                        "     <b>Mobile App Configuration</b>\r" +
                        "     1. Open the OwnTracks app on the mobile device, and configure the following fields:\r" +
+                       "          <b>Android</b>\r" +
                        "          <i>Preferences -> Connection\r" +
                        "                 Mode -> HTTP \r" +
                        "                 Host -> <a href='${extUri}'>${extUri}</a> \r" +
                        "                 Identification ->\r" +
                        "                        Username -> Name of the particular user \r" +
                        "                        Password -> Not Used  \r" +
-                       "                        Device ID -> Optional extra descriptor (IE: 'Phone').  If using OwnTracks recorder, it would be desirable to keep this device ID common across device changes, since it logs 'username/deviceID'. \r" +
+                       "                        Device ID -> Optional extra descriptor (IE: 'Phone').  If using OwnTracks recorder, it would be desirable\r" +
+                       "                                               to keep this device ID common across device changes, since it logs 'username/deviceID'. \r" +
                        "                        Tracker ID -> Not Used \r" +
                        "            Preferences -> Advanced\r" +
                        "                Remote commands -> Selected\r" +
                        "                Remote configuration -> Selected</i>\r\n\r\n" +
+                       "          <b>iOS</b>\r" +
+                       "          <i>Tap (i) top left, and select 'Settings'\r" +
+                       "                 Mode -> HTTP \r" +
+                       "                 URL -> <a href='${extUri}'>${extUri}</a> \r" +
+                       "                 User ID -> Name of the particular user \r" +
+                       "                 cmd -> Selected</i>\r\n\r\n" +
                        "     2. Click the 'Manual Update' button in the app to register the device with the Hubitat App."          
                       )
         }

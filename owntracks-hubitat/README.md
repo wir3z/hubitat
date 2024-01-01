@@ -15,6 +15,7 @@ For discussion and more information, visit the Hubitat Community <a href="https:
 1.  This integration requires the Owntracks app to be installed on your mobile device:  https://owntracks.org/
 
     - Open the OwnTracks app on the mobile device, and configure the following fields:
+	    ### Android
         - Preferences -> Connection
             - Mode -> HTTP
             - Host -> <Hubitat Cloud API link - click the 'Mobile App Installation Instructions' box in the Hubitat Owntracks App to get the link>
@@ -26,6 +27,12 @@ For discussion and more information, visit the Hubitat Community <a href="https:
             - Preferences -> Advanced
                 - Remote commands -> Selected
                 - Remote configuration -> Selected
+	    ### iOS
+        - Tap (i) top left, and select 'Settings'
+            - Mode -> HTTP
+            - URL -> <Hubitat Cloud API link - click the 'Mobile App Installation Instructions' box in the Hubitat Owntracks App to get the link>
+			- User ID -> Name of the particular user
+			- cmd -> Selected
     - Click the 'Manual Update' button in the app to register the device with the Hubitat App.  
 
 ## Hubitat App Configuration
