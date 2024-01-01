@@ -33,6 +33,7 @@ For discussion and more information, visit the Hubitat Community <a href="https:
             - URL -> <Hubitat Cloud API link - click the 'Mobile App Installation Instructions' box in the Hubitat Owntracks App to get the link>
 			- User ID -> Name of the particular user
 			- cmd -> Selected
+			
     - Click the 'Manual Update' button in the app to register the device with the Hubitat App.  
 
 ## Hubitat App Configuration
