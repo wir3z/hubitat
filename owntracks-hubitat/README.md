@@ -18,7 +18,7 @@ For discussion and more information, visit the Hubitat Community <a href="https:
 	    ### Android
         - Preferences -> Connection
             - Mode -> HTTP
-            - Host -> <Hubitat Cloud API link - click the 'Mobile App Installation Instructions' box in the Hubitat Owntracks App to get the link>
+            - Host -> Hubitat Cloud API link - click the 'Mobile App Installation Instructions' box in the Hubitat Owntracks App to get the link
             - Identification ->
                 - Username -> Name of the particular user
                 - Password -> Not Used
@@ -30,7 +30,7 @@ For discussion and more information, visit the Hubitat Community <a href="https:
 	    ### iOS
         - Tap (i) top left, and select 'Settings'
             - Mode -> HTTP
-            - URL -> <Hubitat Cloud API link - click the 'Mobile App Installation Instructions' box in the Hubitat Owntracks App to get the link>
+            - URL -> Hubitat Cloud API link - click the 'Mobile App Installation Instructions' box in the Hubitat Owntracks App to get the link
 			- User ID -> Name of the particular user
 			- cmd -> Selected
 			
