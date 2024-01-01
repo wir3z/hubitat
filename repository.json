@@ -7,6 +7,7 @@
       "id": "01ae3fea-6b6a-4c58-8981-10140b1fefc8",
       "name": "OwnTracks",
       "category": "Convenience",
+	  "tags": "Presence & Location",
       "location": "https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/packageManifest.json",
       "description": "Connects OwnTracks mobile app to Hubitat"
     }
