@@ -19,7 +19,7 @@
  *  Recorder:       https://github.com/owntracks/recorder
  *
  *  Author: Lyle Pakula (lpakula)
- *  Date: 2023-12-31
+ *  Date: 2024-01-01
  */
 
 import groovy.transform.Field
@@ -27,23 +27,43 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.5.4" }
+def appVersion() { return "1.5.5" }
 
-@Field String CHILDPREFIX = "OwnTracks - "
-@Field String MQTT_TOPIC_PREFIX = "owntracks"
-@Field String HUBITAT_LOCATION = "[Hubitat Location]"
-@Field Number DEFAULT_RADIUS = 75
-@Field Number INVALID_COORDINATE = 999
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
 @Field static final Map TRIGGER_TYPE = [ "p": "Ping", "c": "Region", "r": "Report Location", "u": "Manual" ]
 @Field static final Map TOPIC_FORMAT = [ 0: "topicSource", 1: "userName", 2: "deviceID", 3: "eventType" ]
+@Field static final Map LOCATOR_PRIORITY = [ 0: "NO_POWER (best accuracy with zero power consumption)", 1: "LOW_POWER (city level accuracy)", 2: "BALANCED_POWER (block level accuracy based on Wifi/Cell)", 3: "HIGH_POWER (most accurate accuracy based on GPS)" ]
 //@Field static final Map DYNAMIC_INTERVALS = [ "pegLocatorFastestIntervalToInterval": false, "locatorPriority": 3, "locatorDisplacement": 50, "locatorInterval": 60 ]
 @Field static final Map DYNAMIC_INTERVALS = [ "pegLocatorFastestIntervalToInterval": false, "locatorPriority": 3 ]
-
 //@Field static final Map MONITORING_MODES = [ -1: "Quiet (no events published)", 0: "Manual (user triggered events)", 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
 @Field static final Map MONITORING_MODES = [ 0: "Manual (user triggered events)", 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
-@Field static final Map LOCATOR_PRIORITY = [ 0: "NO_POWER (best accuracy with zero power consumption)", 1: "LOW_POWER (city level accuracy)", 2: "BALANCED_POWER (block level accuracy based on Wifi/Cell)", 3: "HIGH_POWER (most accurate accuracy based on GPS)" ]
+
+// Main defaults
+@Field String CHILDPREFIX = "OwnTracks - "
+@Field String MQTT_TOPIC_PREFIX = "owntracks"
+@Field String HUBITAT_LOCATION = "[Hubitat Location]"
+@Field Number INVALID_COORDINATE = 999
+@Field Number  DEFAULT_RADIUS = 75
+// Mobile app location defaults
+@Field String  DEFAULT_monitoring = "1"
+@Field String  DEFAULT_locatorPriority = "2"
+@Field Number  DEFAULT_moveModeLocatorInterval = 30
+@Field Number  DEFAULT_locatorDisplacement = 50
+@Field Number  DEFAULT_locatorInterval = 60
+@Field Number  DEFAULT_ignoreInaccurateLocations = 150
+@Field Number  DEFAULT_ignoreStaleLocations = 7.0
+@Field Number  DEFAULT_ping = 30
+@Field Boolean DEFAULT_pegLocatorFastestIntervalToInterval = true
+// Mobile app display defaults
+@Field Boolean DEFAULT_imageCards = false
+@Field Boolean DEFAULT_replaceTIDwithUsername = true
+@Field Boolean DEFAULT_notificationEvents = true
+@Field Boolean DEFAULT_pubExtendedData = true
+@Field Boolean DEFAULT_enableMapRotation = true
+@Field Boolean DEFAULT_showRegionsOnMap = true
+@Field Boolean DEFAULT_notificationLocation = false
+@Field Boolean DEFAULT_notificationGeocoderErrors = false
 
 definition(
     name: "OwnTracks",
@@ -68,16 +88,18 @@ preferences {
     page(name: "addRegions")
     page(name: "editRegions")
     page(name: "deleteRegions")
+    page(name: "deleteMembers")
 }
 
 def mainPage() {
-    // clear the region fields
-    clearRegionFields()
+    // clear the setting fields
+    clearSettingFields()
+    // initialize all fields if they are undefined
+    initialize()
     def oauthStatus = ""
     //enable OAuth in the app settings or this call will fail
     try{
         if (!state.accessToken) {
-            initialize()
             createAccessToken()
         }
     }
@@ -111,6 +133,10 @@ def mainPage() {
                 input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: true
                 input name: "debugOutput", type: "bool", title: "Enable Debug Logging", defaultValue: false
             }
+            
+            section(getFormat("box", "Delete family member(s)")) {
+                href(title: "Delete Family Members", description: "", style: "page", page: "deleteMembers")
+            }
         }
     }
 }
@@ -141,7 +167,9 @@ def installationInstructions() {
 
 def configureUsersHome() {
     input "enabledMembers", "enum", multiple: true, required:false, title:"Select family member(s)", options: state.members.name.sort()
-    input "homePlace", "enum", multiple: false, title:"Select your 'Home' place.  Use '$HUBITAT_LOCATION' to enter a location.", options: [ "$HUBITAT_LOCATION" ] + (state.places ? state.places.desc.sort() : []), submitOnChange: true
+    input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: true
+    input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: false
+    input "homePlace", "enum", multiple: false, title:"Select your 'Home' place.  Use '$HUBITAT_LOCATION' to enter a location.", options: [ "$HUBITAT_LOCATION" ] + (state.places ? state.places.desc.sort() : []), defaultValue: HUBITAT_LOCATION, submitOnChange: true
     if (homePlace == HUBITAT_LOCATION) {
         input "homeName", "text", title: "'Home' name", required: true, defaultValue: "Home"
         input name: "homeGeoFence", type: "number", title: "Distance from home location to indicate 'present' (${DEFAULT_RADIUS}-1000m)", required: true, range: "${DEFAULT_RADIUS}..1000", defaultValue: DEFAULT_RADIUS
@@ -175,16 +203,16 @@ def configureLocation() {
             input name: "updateMobileLocation", type: "bool", title: "<b>Update all user's mobile app location settings on next location update</b>", defaultValue: false, submitOnChange: true
         }
         section(getFormat("line", "")) {
-            input name: "monitoring", type: "enum", title: "Location reporting mode, Recommended=Significant", required: true, options: MONITORING_MODES, defaultValue: "1", submitOnChange: true
-            input name: "locatorPriority", type: "enum", title: "Source/power setting for location updates, Recommended=Balanced Power", required: true, options: LOCATOR_PRIORITY, defaultValue: "2"
+            input name: "monitoring", type: "enum", title: "Location reporting mode, Recommended=${MONITORING_MODES[DEFAULT_monitoring]}", required: true, options: MONITORING_MODES, defaultValue: DEFAULT_monitoring, submitOnChange: true
+            input name: "locatorPriority", type: "enum", title: "Source/power setting for location updates, Recommended=${LOCATOR_PRIORITY[DEFAULT_locatorPriority]}", required: true, options: LOCATOR_PRIORITY, defaultValue: DEFAULT_locatorPriority
             if (monitoring == "2") {
-                input name: "moveModeLocatorInterval", type: "number", title: "How often should locations be sent from the device while in 'Move' mode (seconds), Recommended=30", required: true, range: "2..3600", defaultValue: 30
+                input name: "moveModeLocatorInterval", type: "number", title: "How often should locations be sent from the device while in 'Move' mode (seconds), Recommended=${DEFAULT_moveModeLocatorInterval}", required: true, range: "2..3600", defaultValue: DEFAULT_moveModeLocatorInterval
                 // assign the typical app defaults for other monitoring modes
-                if (!locatorDisplacement) app.updateSetting("locatorDisplacement",[value:"500",type:"number"])
-                if (!locatorInterval) app.updateSetting("locatorInterval",[value:"900",type:"number"])
+                if (!locatorDisplacement) app.updateSetting("locatorDisplacement",[value: DEFAULT_locatorDisplacement, type: "number"])
+                if (!locatorInterval) app.updateSetting("locatorInterval",[value: DEFAULT_locatorInterval, type: "number"])
             } else {
-                input name: "locatorDisplacement", type: "number", title: "How far the device travels (meters) before receiving another location update, Recommended=50  <i><b>This value needs to be less than the minimum configured region radius for automations to trigger'</b></i>", required: true, range: "0..1000", defaultValue: 50
-                input name: "locatorInterval", type: "number", title: "Device will not report location updates faster than this interval (seconds) unless moving.  When moving, Android uses this 'locatorInterval/6' or '5-seconds' (whichever is greater, unless 'locatorInterval' is less than 5-seconds, then 'locatorInterval' is used), Recommended=60  <i><b>Requires the device to move the above distance, otherwise no update is sent</b></i>", required: true, range: "0..3600", defaultValue: 60
+                input name: "locatorDisplacement", type: "number", title: "How far the device travels (meters) before receiving another location update, Recommended=50  <i><b>This value needs to be less than the minimum configured region radius for automations to trigger'</b></i>", required: true, range: "0..1000", defaultValue: DEFAULT_locatorDisplacement
+                input name: "locatorInterval", type: "number", title: "Device will not report location updates faster than this interval (seconds) unless moving.  When moving, Android uses this 'locatorInterval/6' or '5-seconds' (whichever is greater, unless 'locatorInterval' is less than 5-seconds, then 'locatorInterval' is used), Recommended=60  <i><b>Requires the device to move the above distance, otherwise no update is sent</b></i>", required: true, range: "0..3600", defaultValue: DEFAULT_locatorInterval
                 // IE:  locatorInterval=0-seconds,   then locations every 0-seconds  if moved locatorDisplacement meters
                 //      locatorInterval=5-seconds,   then locations every 5-seconds  if moved locatorDisplacement meters
                 //      locatorInterval=10-seconds,  then locations every 5-seconds  if moved locatorDisplacement meters
@@ -194,13 +222,13 @@ def configureLocation() {
                 //      locatorInterval=120-seconds, then locations every 20-seconds if moved locatorDisplacement meters
                 //      locatorInterval=240-seconds, then locations every 40-seconds if moved locatorDisplacement meters
                 // assign the app defaults for move monitoring modes - we will use a larger interval in case the user accidentally switches to 'move mode'
-                if (!moveModeLocatorInterval) app.updateSetting("moveModeLocatorInterval",[value:"30",type:"number"])
+                if (!moveModeLocatorInterval) app.updateSetting("moveModeLocatorInterval",[value: DEFAULT_moveModeLocatorInterval, type: "number"])
             }
 
-            input name: "ignoreInaccurateLocations", type: "number", title: "Do not send a location if the accuracy is greater than the given meters, Recommended=150", required: true, range: "0..2000", defaultValue: 150
-            input name: "ignoreStaleLocations", type: "decimal", title: "Number of days after which location updates from friends are assumed stale and removed, Recommended=7.0", required: true, range: "0.0..7.0", defaultValue: 7.0
-            input name: "ping", type: "number", title: "Device will send a location interval at this heart beat interval (minutes), Recommended=30", required: true, range: "15..60", defaultValue: 30
-            input name: "pegLocatorFastestIntervalToInterval", type: "bool", title: "Request that the location provider deliver updates no faster than the requested locator interval, Recommended 'selected'", defaultValue: true
+            input name: "ignoreInaccurateLocations", type: "number", title: "Do not send a location if the accuracy is greater than the given meters, Recommended=${DEFAULT_ignoreInaccurateLocations}", required: true, range: "0..2000", defaultValue: DEFAULT_ignoreInaccurateLocations
+            input name: "ignoreStaleLocations", type: "decimal", title: "Number of days after which location updates from friends are assumed stale and removed, Recommended=${DEFAULT_ignoreStaleLocations}", required: true, range: "0.0..7.0", defaultValue: DEFAULT_ignoreStaleLocations
+            input name: "ping", type: "number", title: "Device will send a location interval at this heart beat interval (minutes), Recommended=${DEFAULT_ping}", required: true, range: "15..60", defaultValue: DEFAULT_ping
+            input name: "pegLocatorFastestIntervalToInterval", type: "bool", title: "Request that the location provider deliver updates no faster than the requested locator interval, Recommended '${DEFAULT_pegLocatorFastestIntervalToInterval}'", defaultValue: DEFAULT_pegLocatorFastestIntervalToInterval
         }
     }
 }
@@ -211,14 +239,14 @@ def configureDisplay() {
             input name: "updateMobileDisplay", type: "bool", title: "<b>Update all user's mobile app display settings on next location update</b>", defaultValue: false, submitOnChange: true
         }
         section(getFormat("line", "")) {
-            input name: "imageCards", type: "bool", title: "Display user thumbnails on the map.  Needs to have a 'user.jpg' image of maximum resolution 192x192 pixels uploaded to the 'Settings->File Manager'", defaultValue: false
-            input name: "replaceTIDwithUsername", type: "bool", title: "Replace the 'TID' (tracker ID) with 'username' for displaying a name on the map and recorder", defaultValue: true
-            input name: "notificationEvents", type: "bool", title: "Notify about received events", defaultValue: true
-            input name: "pubExtendedData", type: "bool", title: "Include extended data in location reports", defaultValue: true
-            input name: "enableMapRotation", type: "bool", title: "Allow the map to be rotated", defaultValue: true
-            input name: "showRegionsOnMap", type: "bool", title: "Display the region pins/bubbles on the map", defaultValue: true
-            input name: "notificationLocation", type: "bool", title: "Show last reported location in ongoing notification banner", defaultValue: false
-            input name: "notificationGeocoderErrors", type: "bool", title: "Display Geocoder errors in the notification banner", defaultValue: false
+            input name: "imageCards", type: "bool", title: "Display user thumbnails on the map.  Needs to have a 'user.jpg' image of maximum resolution 192x192 pixels uploaded to the 'Settings->File Manager'", defaultValue: DEFAULT_imageCards
+            input name: "replaceTIDwithUsername", type: "bool", title: "Replace the 'TID' (tracker ID) with 'username' for displaying a name on the map and recorder", defaultValue: DEFAULT_replaceTIDwithUsername
+            input name: "notificationEvents", type: "bool", title: "Notify about received events", defaultValue: DEFAULT_notificationEvents
+            input name: "pubExtendedData", type: "bool", title: "Include extended data in location reports", defaultValue: DEFAULT_pubExtendedData
+            input name: "enableMapRotation", type: "bool", title: "Allow the map to be rotated", defaultValue: DEFAULT_enableMapRotation
+            input name: "showRegionsOnMap", type: "bool", title: "Display the region pins/bubbles on the map", defaultValue: DEFAULT_showRegionsOnMap
+            input name: "notificationLocation", type: "bool", title: "Show last reported location in ongoing notification banner", defaultValue: DEFAULT_notificationLocation
+            input name: "notificationGeocoderErrors", type: "bool", title: "Display Geocoder errors in the notification banner", defaultValue: DEFAULT_notificationGeocoderErrors
         }
     }
 }
@@ -303,6 +331,23 @@ def deleteRegions() {
     }
 }
 
+def deleteMembers() {
+    return dynamicPage(name: "deleteMembers", title: "", nextPage: "mainPage") {
+        section(getFormat("box", "Delete Family Member(s)")) {
+            if (state.submit) {
+                paragraph "<b>${appButtonHandler("deleteMembersButton")}</b>"
+                state.submit = ""
+            }
+            input "deleteFamilyMembers", "enum", multiple: true, required:false, title:"Select family member(s) to delete.", options: state.members.name.sort(), submitOnChange: true
+            
+            paragraph("<b>NOTE: Selected user(s) will be deleted from the app and their corresponding child device will be removed.  Ensure no automations are dependent on their device before proceeding!</b>")
+            if (deleteFamilyMembers) {
+                input name: "deleteMembersButton", type: "button", title: "Delete", state: "submit"
+            }
+        }
+    }
+}
+
 String appButtonHandler(btn) {
     def success = false
     switch (btn) {
@@ -356,6 +401,17 @@ String appButtonHandler(btn) {
             logWarn(result)
             success = true
         break
+        case "deleteMembersButton":
+            deleteFamilyMembers.each { name ->
+                deleteIndex = state.members.findIndexOf {it.name==name}
+                def deviceWrapper = getChildDevice(state.members[deleteIndex].id)
+                deleteChildDevice(deviceWrapper.deviceNetworkId)
+                state.members.remove(deleteIndex)               
+            }
+            result = "Deleting family members '${deleteFamilyMembers}'"
+            logWarn(result)
+            app.removeSetting("deleteFamilyMembers")
+        break
         default:
             result = ""
             logWarn ("Unhandled button: $btn")
@@ -365,7 +421,7 @@ String appButtonHandler(btn) {
     // clear the fields and force the users to update
     if (success) {
         // clear the region fields
-        clearRegionFields()
+        clearSettingFields()
         // force an update of all users
         setWaypointUpdateFlag([ "name":"" ])
     }
@@ -373,13 +429,14 @@ String appButtonHandler(btn) {
     return (result)
 }
 
-def clearRegionFields() {
-    // clear the region fields
+def clearSettingFields() {
+    // clear the setting fields
     app.removeSetting("regionName")
     app.removeSetting("regionRadius")
     app.removeSetting("regionLat")
     app.removeSetting("regionLon")
     state.previousRegionName = ""
+    app.removeSetting("deleteFamilyMembers")    
 }
 
 def installed() {
@@ -393,10 +450,30 @@ def uninstalled() {
 }
 
 def initialize() {
+    // initialize the system states if undefined
     if (state.accessToken == null) state.accessToken = ""
     if (state.members == null) state.members = []
     if (state.home == null) state.home = []
     if (state.places == null) state.places = []
+    
+    // assign the defaults to the mobile app settings in case the user doesn't click into those screens
+    if (monitoring == null) app.updateSetting("monitoring", [value: DEFAULT_monitoring, type: "enum"])
+    if (locatorPriority == null) app.updateSetting("locatorPriority", [value: DEFAULT_locatorPriority, type: "enum"])
+    if (moveModeLocatorInterval == null) app.updateSetting("moveModeLocatorInterval", [value: DEFAULT_moveModeLocatorInterval, type: "number"])
+    if (locatorDisplacement == null) app.updateSetting("locatorDisplacement", [value: DEFAULT_locatorDisplacement, type: "number"])
+    if (locatorInterval == null) app.updateSetting("locatorInterval", [value: DEFAULT_locatorInterval, type: "number"])
+    if (ignoreInaccurateLocations == null) app.updateSetting("ignoreInaccurateLocations", [value: DEFAULT_ignoreInaccurateLocations, type: "number"])
+    if (ignoreStaleLocations == null) app.updateSetting("ignoreStaleLocations", [value: DEFAULT_ignoreStaleLocations, type: "number"])
+    if (ping == null) app.updateSetting("ping", [value: DEFAULT_ping, type: "number"])
+    if (pegLocatorFastestIntervalToInterval == null) app.updateSetting("pegLocatorFastestIntervalToInterval", [value: DEFAULT_pegLocatorFastestIntervalToInterval, type: "bool"])
+    if (imageCards == null) app.updateSetting("imageCards", [value: DEFAULT_imageCards, type: "bool"])
+    if (replaceTIDwithUsername == null) app.updateSetting("replaceTIDwithUsername", [value: DEFAULT_replaceTIDwithUsername, type: "bool"])
+    if (notificationEvents == null) app.updateSetting("notificationEvents", [value: DEFAULT_notificationEvents, type: "bool"])
+    if (pubExtendedData == null) app.updateSetting("pubExtendedData", [value: DEFAULT_pubExtendedData, type: "bool"])
+    if (enableMapRotatio == null) app.updateSetting("enableMapRotatio", [value: DEFAULT_enableMapRotation, type: "bool"])
+    if (showRegionsOnMap == null) app.updateSetting("showRegionsOnMap", [value: DEFAULT_showRegionsOnMap, type: "bool"])
+    if (notificationLocation == null) app.updateSetting("notificationLocation", [value: DEFAULT_notificationLocation, type: "bool"])
+    if (notificationGeocoderErrors == null) app.updateSetting("notificationGeocoderErrors", [value: DEFAULT_notificationGeocoderErrors, type: "bool"])
 }
 
 def updated() {
@@ -467,6 +544,11 @@ def refresh() {
 def childGetLocationAccuracyFilter() {
     // return with the location accuracy filter
     return (driverInaccurateLocationFilter)
+}
+
+def childGetWarnOnNonOptimalSettings() {
+    // return with the log setting
+    return (warnOnMemberSettings)
 }
 
 def splitTopic(topic) {
@@ -546,7 +628,11 @@ def webhookEventHandler() {
                     break
                 }
             } else {
-                logWarn("User: '${sourceName}' not enabled.  Run setup to enable member.")
+                if (warnOnDisabledMember) {
+                    logWarn("User: '${sourceName}' not enabled.  Run setup to enable member.")
+                } else {
+                    logDebug("User: '${sourceName}' not enabled.  Run setup to enable member.")
+                }
             }
         }
     }

@@ -36,6 +36,10 @@ Open the Owntracks app.
 		- Lists the 'Mobile App Configuration', above, with the Cloud API link.
 	- Select family member(s):  
 		- Once a mobile device has connected to the Cloud API link, it will be populated in this list, but is disabled.  Select the user to enable presence detection.
+    - Display a warning in the logs if a family member reports a location but is not enabled:
+		- If enabled, a warning will be disabled each time a member reports a location, but is not selected.
+    - Display a warning in the logs if a family member app settings are not configured for optimal operation:
+		- If enabled, a warning will be displayed each time a user reports a location with non-optimal phone settings.
 	- Select your 'Home' place. Use '[Hubitat Location]' to enter a location: 
 		- Select the region where 'Home' is for presence detection.  
 		- Use '[Hubitat Location]' to use the hub location.  Enter a name for "home" as well as the geofence in meters.
@@ -98,6 +102,9 @@ Open the Owntracks app.
 		
 3. Logging
 - Enable logging.
+
+4. Delete family member(s)
+- Deletes selected family members from the app and their corresponding child device.  Ensure no automations are dependent on their device before proceeding.
 
 ## Hubitat Driver Configuration
 Once a user has been enabled in the app, a device with the name 'Owntracks - USERNAME' will be created.

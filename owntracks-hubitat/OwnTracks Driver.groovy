@@ -15,7 +15,7 @@
  *  Connects OwnTracks push events to virtual presence drivers.
  *
  *  Author: Lyle Pakula (lpakula)
- *  Date: 2023-12-31
+ *  Date: 2023-01-01
  *
  *  // events are received with the following structure
  *  For 'Location':
@@ -75,7 +75,7 @@
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.5.2" }
+def driverVersion() { return "1.5.3" }
 
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -199,39 +199,33 @@ Boolean generatePresenceEvent(data) {
         }
         descriptionText = device.displayName +  " is at " + currentLocation
 
-
         // process the additional setting information
         sendEvent( name: "wifi", value: (data?.wifi ? "on" : "off") )
         if (data?.wifi == 0) {
             logDebug("Phone has WiFi turned off.  Please turn WiFi on.")
-            //logWarn("Phone has WiFi turned off.  Please turn WiFi on.")
         }
         // only display the extra phone fields if they are in a non-optimal state
         if (data?.ps == 1) {
             sendEvent( name: "batterySaver", value: "on" )
             logDebug("Phone is currently in battery saver mode")
-            //logWarn("Phone is currently in battery saver mode")
         } else {
             device.deleteCurrentState('batterySaver')
         }
         if (data?.bo == 1) {
             sendEvent( name: "batteryOptimizations", value: "Optimized/Restricted" )
-            logDebug("App settting: 'App battery usage' is 'Optimized' or 'Restricted'.  Please change to 'Unrestricted'")
-            //logWarn("App settting: 'App battery usage' is 'Optimized' or 'Restricted'.  Please change to 'Unrestricted'")
+            logNonOptimalSettings("App settting: 'App battery usage' is 'Optimized' or 'Restricted'.  Please change to 'Unrestricted'")
         } else {
             device.deleteCurrentState('batteryOptimizations')
         }
         if (data?.hib == 1) {
             sendEvent( name: "hiberateAllowed", value: "App can pause" )
-            logDebug("App setting: 'Pause app activity if unused' is 'Enabled'.  Please change to 'Disabled'")
-            //logWarn("App setting: 'Pause app activity if unused' is 'Enabled'.  Please change to 'Disabled'")
+            logNonOptimalSettings("App setting: 'Pause app activity if unused' is 'Enabled'.  Please change to 'Disabled'")
         } else {
             device.deleteCurrentState('hiberateAllowed')
         }
         if (data?.loc != 0) {
             sendEvent( name: "locationPermissions", value: LOCATION_PERMISION["${data?.loc}"])
-            logDebug("Location permisions currently set to '${LOCATION_PERMISION["${data?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
-            //logWarn("Location permisions currently set to '${LOCATION_PERMISION["${data?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
+            logNonOptimalSettings("Location permisions currently set to '${LOCATION_PERMISION["${data?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
         } else {
             device.deleteCurrentState('locationPermissions')
         }
@@ -306,3 +300,13 @@ private logWarn(msg) {
 private logError(msg) {
     log.error "$device.displayName: $msg"
 }
+
+private logNonOptimalSettings(msg) {
+    if (parent.childGetWarnOnNonOptimalSettings()) {
+        logWarn(msg)
+    } else {
+        logDebug(msg)
+    }
+}    
+    
+    
