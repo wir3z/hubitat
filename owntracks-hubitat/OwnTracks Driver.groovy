@@ -1,5 +1,5 @@
 /**
- *  Copyright 2023 Lyle Pakula
+ *  Copyright 2024 Lyle Pakula
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -15,7 +15,7 @@
  *  Connects OwnTracks push events to virtual presence drivers.
  *
  *  Author: Lyle Pakula (lpakula)
- *  Date: 2023-01-01
+ *  Date: 2024-01-02
  *
  *  // events are received with the following structure
  *  For 'Location':
@@ -75,7 +75,7 @@
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.5.3" }
+def driverVersion() { return "1.5.4" }
 
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -102,6 +102,8 @@ metadata {
         attribute "lastSpeed", "number"
         attribute "distanceFromHome", "number"
         attribute "wifi", "string"
+        attribute "lat", "number"
+        attribute "lon", "number"      
 
         attribute "batterySaver", "string"
         attribute "hiberateAllowed", "string"
@@ -111,7 +113,7 @@ metadata {
 }
 
 preferences {
-    input name: "presenceTileBatteryField", type: "enum", title: "What is displayed on the presence tile battery field", required: true, options: PRESENCE_TILE_BATTERY_FIELD, defaultValue: "1"
+    input name: "presenceTileBatteryField", type: "enum", title: "What is displayed on the presence tile battery field", required: true, options: PRESENCE_TILE_BATTERY_FIELD, defaultValue: "0"
 
     input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: true
     input name: "logLocationChanges", type: "bool", title: "Enable Logging of location changes", defaultValue: false
@@ -162,6 +164,8 @@ def updatePresence(data) {
         if (previousPresence != memberPresence) {
             state.sinceTime = data.tst
         }
+        sendEvent (name: "lat", value: data.lat)        
+        sendEvent (name: "lon", value: data.lon)        
     } else {
         // echo back the past value
         memberPresence = previousPresence
