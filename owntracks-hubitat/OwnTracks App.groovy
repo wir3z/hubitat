@@ -27,7 +27,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.5.6" }
+def appVersion() { return "1.5.7" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -413,7 +413,11 @@ String appButtonHandler(btn) {
             deleteFamilyMembers.each { name ->
                 deleteIndex = state.members.findIndexOf {it.name==name}
                 def deviceWrapper = getChildDevice(state.members[deleteIndex].id)
-                deleteChildDevice(deviceWrapper.deviceNetworkId)
+                try {
+                    deleteChildDevice(deviceWrapper.deviceNetworkId)
+                } catch(e) {
+                    logDebug("Device for ${name} does not exist.")
+                }
                 state.members.remove(deleteIndex)               
             }
             result = "Deleting family members '${deleteFamilyMembers}'"
@@ -1061,7 +1065,13 @@ private def createChild (name) {
 }
 
 private removeChildDevices(delete) {
-    delete.each { deleteChildDevice(it.deviceNetworkId) }
+    delete.each { 
+        try {
+            deleteChildDevice(it.deviceNetworkId) 
+        } catch(e) {
+            logDebug("Device ${it} does not exist.")
+        }        
+    }
 }
 
 def haversine(lat1, lon1, lat2, lon2) {
