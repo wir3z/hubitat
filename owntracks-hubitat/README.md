@@ -115,8 +115,11 @@ Open the Owntracks app.
 - Deletes selected family members from the app and their corresponding child device.  Ensure no automations are dependent on their device before proceeding.
 
 ## Hubitat Driver Configuration
-Once a user has been enabled in the app, a device with the name 'Owntracks - USERNAME' will be created.
-
-In the device preferences, select what is displayed in the 'battery' field which is displayed at the top of the presence tile from the pulldown menu.
-This can be battery voltage, location, distance from home, etc.
+- Once a user has been enabled in the app, a device with the name 'Owntracks - USERNAME' will be created.
+- What is displayed on the presence tile battery field:
+	- Select what is displayed in the 'battery' field which is displayed at the top of the presence tile from the pull-down menu. This can be battery voltage, location, distance from home, etc.
+- Display extended location attributes:
+	- Displays additional location attributes (latitude, longitude, accuracy, etc.)
+- Enable Logging of location changes:
+	- Logs an entry when a change in user location occurs
 

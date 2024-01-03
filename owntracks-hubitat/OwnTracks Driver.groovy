@@ -75,8 +75,9 @@
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.5.4" }
+def driverVersion() { return "1.5.5" }
 
+@Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
 @Field static final Map TRIGGER_TYPE = [ "p": "Ping", "c": "Region", "r": "Report Location", "u": "Manual" ]
@@ -102,18 +103,32 @@ metadata {
         attribute "lastSpeed", "number"
         attribute "distanceFromHome", "number"
         attribute "wifi", "string"
-        attribute "lat", "number"
-        attribute "lon", "number"      
 
         attribute "batterySaver", "string"
         attribute "hiberateAllowed", "string"
         attribute "batteryOptimizations", "string"
         attribute "locationPermissions", "string"
+
+        // extended attributes
+        attribute "batteryPercent", "number"
+        attribute "lat", "number"
+        attribute "lon", "number"
+        attribute "accuracy", "number"
+        attribute "verticalAccuracy", "number"
+        attribute "altitude", "number"
+        attribute "sourceTopic", "string"
+        attribute "dataConnection", "string"
+        attribute "batteryStatus", "string"
+        attribute "BSSID", "string"
+        attribute "SSID", "string"
+        attribute "triggerSource", "string"
+        attribute "monitoringMode", "string"
     }
 }
 
 preferences {
     input name: "presenceTileBatteryField", type: "enum", title: "What is displayed on the presence tile battery field", required: true, options: PRESENCE_TILE_BATTERY_FIELD, defaultValue: "0"
+    input name: "displayExtendedAttributes", type: "bool", title: "Display extended location attributes", defaultValue: true
 
     input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: true
     input name: "logLocationChanges", type: "bool", title: "Enable Logging of location changes", defaultValue: false
@@ -128,6 +143,22 @@ def installed() {
 
 def updated() {
     logDescriptionText("${device.name}: Location Tracker User Driver has been Updated")
+    // remove the extended attributes if not enabled
+    if (!displayExtendedAttributes) {
+        device.deleteCurrentState('batteryPercent')
+        device.deleteCurrentState('lat')
+        device.deleteCurrentState('lon')
+        device.deleteCurrentState('accuracy')
+        device.deleteCurrentState('verticalAccuracy')
+        device.deleteCurrentState('altitude')
+        device.deleteCurrentState('sourceTopic')
+        device.deleteCurrentState('dataConnection')
+        device.deleteCurrentState('batteryStatus')
+        device.deleteCurrentState('BSSID')
+        device.deleteCurrentState('SSID')
+        device.deleteCurrentState('triggerSource')
+        device.deleteCurrentState('monitoringMode')
+    }
 }
 
 def arrived() {
@@ -164,8 +195,22 @@ def updatePresence(data) {
         if (previousPresence != memberPresence) {
             state.sinceTime = data.tst
         }
-        sendEvent (name: "lat", value: data.lat)        
-        sendEvent (name: "lon", value: data.lon)        
+        // display the extended attributes if they were received
+        if (displayExtendedAttributes) {
+            if (data?.batt)  sendEvent (name: "batteryPercent", value: data.batt)                  else device.deleteCurrentState('batteryPercent')
+            if (data?.lat)   sendEvent (name: "lat", value: data.lat)                              else device.deleteCurrentState('lat')
+            if (data?.lon)   sendEvent (name: "lon", value: data.lon)                              else device.deleteCurrentState('lon')
+            if (data?.acc)   sendEvent (name: "accuracy", value: data.acc)                         else device.deleteCurrentState('accuracy')
+            if (data?.vac)   sendEvent (name: "verticalAccuracy", value: data.vac)                 else device.deleteCurrentState('verticalAccuracy')
+            if (data?.alt)   sendEvent (name: "altitude", value: data.alt)                         else device.deleteCurrentState('altitude')
+            if (data?.topic) sendEvent (name: "sourceTopic", value: data.topic)                    else device.deleteCurrentState('sourceTopic')
+            if (data?.bs)    sendEvent (name: "batteryStatus", value: BATTERY_STATUS[data.bs])     else device.deleteCurrentState('dataConnection')
+            if (data?.conn)  sendEvent (name: "dataConnection", value: DATA_CONNECTION[data.conn]) else device.deleteCurrentState('batteryStatus')
+            if (data?.BSSID) sendEvent (name: "BSSID", value: data.BSSID)                          else device.deleteCurrentState('BSSID')
+            if (data?.SSID)  sendEvent (name: "SSID", value: data.SSID)                            else device.deleteCurrentState('SSID')
+            if (data?.t)     sendEvent (name: "triggerSource", value: TRIGGER_TYPE[data.t])        else device.deleteCurrentState('triggerSource')
+            if (data?.m)     sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])    else device.deleteCurrentState('monitoringMode')
+        }
     } else {
         // echo back the past value
         memberPresence = previousPresence
@@ -312,5 +357,3 @@ private logNonOptimalSettings(msg) {
         logDebug(msg)
     }
 }    
-    
-    
