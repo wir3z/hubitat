@@ -19,7 +19,7 @@
  *  Recorder:       https://github.com/owntracks/recorder
  *
  *  Author: Lyle Pakula (lpakula)
- *  Date: 2024-01-01
+ *  Date: 2024-01-05
  */
 
 import groovy.transform.Field
@@ -27,7 +27,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.5.7" }
+def appVersion() { return "1.6.0" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -40,11 +40,13 @@ def appVersion() { return "1.5.7" }
 @Field static final Map MONITORING_MODES = [ 0: "Manual (user triggered events)", 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
 
 // Main defaults
-@Field String CHILDPREFIX = "OwnTracks - "
-@Field String MQTT_TOPIC_PREFIX = "owntracks"
-@Field String HUBITAT_LOCATION = "[Hubitat Location]"
-@Field Number INVALID_COORDINATE = 999
+@Field String  CHILDPREFIX = "OwnTracks - "
+@Field String  MQTT_TOPIC_PREFIX = "owntracks"
+@Field String  HUBITAT_LOCATION = "[Hubitat Location]"
+@Field Number  INVALID_COORDINATE = 999
 @Field Number  DEFAULT_RADIUS = 75
+@Field Number  DEFAULT_driverInaccurateLocationFilter = 50
+@Field Number  DEFAULT_regionHighAccuracyRadius = 750
 // Mobile app location defaults
 @Field String  DEFAULT_monitoring = "1"
 @Field String  DEFAULT_locatorPriority = "2"
@@ -115,6 +117,8 @@ def mainPage() {
     	    section("<h2>${oauthStatus}</h2>") {
             }
         } else {
+            section(getFormat("title", "OwnTracks Version ${appVersion()}")) {
+            }            
             section(getFormat("box", "Installation")) {
                 href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
                 configureUsersHome()
@@ -174,22 +178,32 @@ def installationInstructions() {
 }
 
 def configureUsersHome() {
+    if (state.imperialUnits != imperialUnits) {
+        state.imperialUnits = imperialUnits
+        // preload the settings field with the proper units
+        app.updateSetting("locatorDisplacement", [value: displayMFtVal(state.locatorDisplacement), type: "number"])
+        app.updateSetting("ignoreInaccurateLocations", [value: displayMFtVal(state.ignoreInaccurateLocations), type: "number"])
+        app.updateSetting("homeGeoFence", [value: displayMFtVal(state.homeGeoFence), type: "number"])
+        app.updateSetting("driverInaccurateLocationFilter", [value: displayMFtVal(state.driverInaccurateLocationFilter), type: "number"])
+    }
     input "enabledMembers", "enum", multiple: true, required:false, title:"Select family member(s)", options: state.members.name.sort()
     input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: true
     input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: false
+    input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: false, submitOnChange: true
     input "homePlace", "enum", multiple: false, title:"Select your 'Home' place.  Use '$HUBITAT_LOCATION' to enter a location.", options: [ "$HUBITAT_LOCATION" ] + (state.places ? state.places.desc.sort() : []), defaultValue: HUBITAT_LOCATION, submitOnChange: true
     if (homePlace == HUBITAT_LOCATION) {
         input "homeName", "text", title: "'Home' name", required: true, defaultValue: "Home"
-        input name: "homeGeoFence", type: "number", title: "Distance from home location to indicate 'present' (${DEFAULT_RADIUS}-1000m)", required: true, range: "${DEFAULT_RADIUS}..1000", defaultValue: DEFAULT_RADIUS
+        input name: "homeGeoFence", type: "number", title: "Distance from home location to indicate 'present' (${DEFAULT_RADIUS}-${displayMFtVal(1000)}${getSmallUnits()})", required: true, range: "${DEFAULT_RADIUS}..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_RADIUS)
         input name: "useHubLocation", type: "bool", title: "Use hub location for 'Home' geofence: ${location.getLatitude()},${location.getLongitude()}", defaultValue: false, submitOnChange: true
         if (!useHubLocation) {
             input name: "homeLat", type: "double", title: "Home Latitude", required: true, range: "-90.0..90.0", defaultValue: location.getLatitude()
             input name: "homeLon", type: "double", title: "Home Longitude", required: true, range: "-180.0..180.0", defaultValue: location.getLongitude()
         }
     }
-    input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, 750=default", required: false, defaultValue: "750", options: ['0':'disabled','250':'250 meters','500':'500 meters','750':'750 meters','1000':'1000 meters']
+    input "homeSSID", "string", title:"Select your 'Home' WiFi SSID (optional).  Used to prevent devices from being 'non-present' if currently connected to this WiFi access point.", defaultValue: ""
+    input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", required: false, defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? ['0':'disabled','250':'820 ft','500':'1640 ft','750':'2460 ft','1000':'3280 ft'] : ['0':'disabled','250':'250 m','500':'500 m','750':'750 m','1000':'1000 m'])
     input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: true
-    input name: "driverInaccurateLocationFilter", type: "number", title: "Child device will ignore locations if the accuracy is greater than the given meters, Recommended=50", range: "0..2000", defaultValue: 50
+    input name: "driverInaccurateLocationFilter", type: "number", title: "Child device will ignore locations if the accuracy is greater than the given (${getSmallUnits()}), Recommended=${displayMFtVal(DEFAULT_driverInaccurateLocationFilter)}", range: "0..${displayMFtVal(2000)}", defaultValue: displayMFtVal(DEFAULT_driverInaccurateLocationFilter)
 }
 
 def configureRecorder() {
@@ -208,7 +222,7 @@ def configureRecorder() {
 def configureLocation() {
     return dynamicPage(name: "configureLocation", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Location Configuration")) {
-            input name: "updateMobileLocation", type: "bool", title: "<b>Update all user's mobile app location settings on next location update</b>", defaultValue: false, submitOnChange: true
+            input name: "updateMobileLocation", type: "bool", title: "<b>Update all user's mobile app location settings on next location update</b>", defaultValue: false
         }
         section(getFormat("line", "")) {
             input name: "monitoring", type: "enum", title: "Location reporting mode, Recommended=${MONITORING_MODES[DEFAULT_monitoring]}", required: true, options: MONITORING_MODES, defaultValue: DEFAULT_monitoring, submitOnChange: true
@@ -219,7 +233,7 @@ def configureLocation() {
                 if (!locatorDisplacement) app.updateSetting("locatorDisplacement",[value: DEFAULT_locatorDisplacement, type: "number"])
                 if (!locatorInterval) app.updateSetting("locatorInterval",[value: DEFAULT_locatorInterval, type: "number"])
             } else {
-                input name: "locatorDisplacement", type: "number", title: "How far the device travels (meters) before receiving another location update, Recommended=50  <i><b>This value needs to be less than the minimum configured region radius for automations to trigger'</b></i>", required: true, range: "0..1000", defaultValue: DEFAULT_locatorDisplacement
+                input name: "locatorDisplacement", type: "number", title: "How far the device travels (${getSmallUnits()}) before receiving another location update, Recommended=${displayMFtVal(DEFAULT_locatorDisplacement)}  <i><b>This value needs to be less than the minimum configured region radius for automations to trigger'</b></i>", required: true, range: "0..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_locatorDisplacement)
                 input name: "locatorInterval", type: "number", title: "Device will not report location updates faster than this interval (seconds) unless moving.  When moving, Android uses this 'locatorInterval/6' or '5-seconds' (whichever is greater, unless 'locatorInterval' is less than 5-seconds, then 'locatorInterval' is used), Recommended=60  <i><b>Requires the device to move the above distance, otherwise no update is sent</b></i>", required: true, range: "0..3600", defaultValue: DEFAULT_locatorInterval
                 // IE:  locatorInterval=0-seconds,   then locations every 0-seconds  if moved locatorDisplacement meters
                 //      locatorInterval=5-seconds,   then locations every 5-seconds  if moved locatorDisplacement meters
@@ -233,7 +247,7 @@ def configureLocation() {
                 if (!moveModeLocatorInterval) app.updateSetting("moveModeLocatorInterval",[value: DEFAULT_moveModeLocatorInterval, type: "number"])
             }
 
-            input name: "ignoreInaccurateLocations", type: "number", title: "Do not send a location if the accuracy is greater than the given meters, Recommended=${DEFAULT_ignoreInaccurateLocations}", required: true, range: "0..2000", defaultValue: DEFAULT_ignoreInaccurateLocations
+            input name: "ignoreInaccurateLocations", type: "number", title: "Do not send a location if the accuracy is greater than the given (${getSmallUnits()}), Recommended=${displayMFtVal(DEFAULT_ignoreInaccurateLocations)}", required: true, range: "0..${displayMFtVal(2000)}", defaultValue: displayMFtVal(DEFAULT_ignoreInaccurateLocations)
             input name: "ignoreStaleLocations", type: "decimal", title: "Number of days after which location updates from friends are assumed stale and removed, Recommended=${DEFAULT_ignoreStaleLocations}", required: true, range: "0.0..7.0", defaultValue: DEFAULT_ignoreStaleLocations
             input name: "ping", type: "number", title: "Device will send a location interval at this heart beat interval (minutes), Recommended=${DEFAULT_ping}", required: true, range: "15..60", defaultValue: DEFAULT_ping
             input name: "pegLocatorFastestIntervalToInterval", type: "bool", title: "Request that the location provider deliver updates no faster than the requested locator interval, Recommended '${DEFAULT_pegLocatorFastestIntervalToInterval}'", defaultValue: DEFAULT_pegLocatorFastestIntervalToInterval
@@ -261,6 +275,8 @@ def configureDisplay() {
 
 def configureRegions() {
     return dynamicPage(name: "configureRegions", title: "", nextPage: "mainPage") {
+        // clear the setting fields
+        clearSettingFields()        
         section(getFormat("box", "Regions Configuration")) {
             input name: "updateMobileRegions", type: "bool", title: "<b>Update all user's mobile app regions on next location update</b>", defaultValue: false, submitOnChange: true
         }
@@ -283,7 +299,7 @@ def addRegions() {
                 state.submit = ""
             }
             input "regionName", "text", title: "Name of region", required: false, submitOnChange: true
-            input name: "regionRadius", type: "number", title: "Detection radius for region", required: false, range: "50..1000", defaultValue: DEFAULT_RADIUS
+            input name: "regionRadius", type: "number", title: "Detection radius for region (${getSmallUnits()})", required: false, range: "${displayMFtVal(50)}..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_RADIUS)
             input name: "regionLat", type: "double", title: "Region Latitude", required: false, range: "-90.0..90.0", defaultValue: location.getLatitude()
             input name: "regionLon", type: "double", title: "Region Longitude", required: false, range: "-180.0..180.0", defaultValue: location.getLongitude()
 
@@ -306,14 +322,14 @@ def editRegions() {
                 // get the place map and assign the current values
                 def foundPlace = state.places.find {it.desc==regionName}
                 app.updateSetting("regionName",[value:foundPlace.desc,type:"text"])
-                app.updateSetting("regionRadius",[value:foundPlace.rad,type:"number"])
+                app.updateSetting("regionRadius",[value:displayMFtVal(foundPlace.rad.toInteger()),type:"number"])
                 app.updateSetting("regionLat",[value:foundPlace.lat,type:"double"])
                 app.updateSetting("regionLon",[value:foundPlace.lon,type:"double"])
                 // save the name in so we can retrieve the values should it get changed below
                 state.previousRegionName = regionName
 
                 input name: "regionName", type: "text", title: "Region Name", required: true
-                input name: "regionRadius", type: "number", title: "Detection radius for region", required: true, range: "50..1000"
+                input name: "regionRadius", type: "number", title: "Detection radius for region (${getSmallUnits()})", required: true, range: "${displayMFtVal(50)}..${displayMFtVal(1000)}"
                 input name: "regionLat", type: "double", title: "Region Latitude", required: true, range: "-90.0..90.0"
                 input name: "regionLon", type: "double", title: "Region Longitude", required: true, range: "-180.0..180.0"
 
@@ -372,7 +388,7 @@ String appButtonHandler(btn) {
                     logWarn(result)
                 } else {
                     // create the waypoint map - NOTE: the app keys off the "tst" field as a unique identifier
-                    def newPlace = [ "_type": "waypoint", "desc": "${regionName}", "lat": "${regionLat}", "lon": "${regionLon}", "rad": "${regionRadius}", "tst": "${(now()/1000).toInteger()}" ]
+                    def newPlace = [ "_type": "waypoint", "desc": "${regionName}", "lat": "${regionLat}", "lon": "${regionLon}", "rad": "${convertToMeters(regionRadius)}", "tst": "${(now()/1000).toInteger()}" ]
                     // add the new place
                     state.places << newPlace
                     logDescriptionText("Added place: ${newPlace}")
@@ -385,7 +401,7 @@ String appButtonHandler(btn) {
             // find the existing place to update.
             def foundPlace = state.places.find {it.desc==state.previousRegionName}
             // create the updated waypoint map - NOTE: the app keys off the "tst" field as a unique identifier
-            def newPlace = [ "_type": "waypoint", "desc": "${regionName}", "lat": "${regionLat}", "lon": "${regionLon}", "rad": "${regionRadius}", "tst": "${foundPlace.tst}" ]
+            def newPlace = [ "_type": "waypoint", "desc": "${regionName}", "lat": "${regionLat}", "lon": "${regionLon}", "rad": "${convertToMeters(regionRadius)}", "tst": "${foundPlace.tst}" ]
             // overwrite the existing place
             foundPlace << newPlace
             result = "Updating region '${newPlace}'"
@@ -467,6 +483,11 @@ def initialize() {
     if (state.members == null) state.members = []
     if (state.home == null) state.home = []
     if (state.places == null) state.places = []
+    if (state.locatorDisplacement == null) state.locatorDisplacement = DEFAULT_locatorDisplacement
+    if (state.ignoreInaccurateLocations == null) state.ignoreInaccurateLocations = DEFAULT_ignoreInaccurateLocations
+    if (state.homeGeoFence == null) state.homeGeoFence = DEFAULT_RADIUS
+    if (state.driverInaccurateLocationFilter == null) state.driverInaccurateLocationFilter = DEFAULT_driverInaccurateLocationFilter
+    if (state.imperialUnits == null) state.imperialUnits = false
     
     // assign the defaults to the mobile app settings in case the user doesn't click into those screens
     if (monitoring == null) app.updateSetting("monitoring", [value: DEFAULT_monitoring, type: "enum"])
@@ -534,6 +555,12 @@ def updated() {
     app.updateSetting("updateMobileLocation",[value:false,type:"bool"])
     app.updateSetting("updateMobileDisplay",[value:false,type:"bool"])
     app.updateSetting("updateMobileRegions",[value:false,type:"bool"])
+    
+    // save the values to allow for imperial/metric selection
+    state.locatorDisplacement             = convertToMeters(locatorDisplacement)
+    state.ignoreInaccurateLocations       = convertToMeters(ignoreInaccurateLocations)
+    state.driverInaccurateLocationFilter  = convertToMeters(driverInaccurateLocationFilter)
+    state.homeGeoFence                    = convertToMeters(homeGeoFence)
 
     // store the home information
     if (homePlace == HUBITAT_LOCATION) {
@@ -579,9 +606,12 @@ def webhookEventHandler() {
     String sourceDeviceID = request.headers.'X-limit-d'
     // default to an empty payload
     result = []
-
-    // catch the exception if a webhook comes in without being configured properly
-    if (!sourceName || !sourceDeviceID) {
+    
+    // catch the exception if no message was sent
+    if (!request.body) {
+        logError("Username: '${sourceName}' / Device ID: '${sourceDeviceID}' reported no data from the OwnTracks app, aborting.")
+    } else if (!sourceName || !sourceDeviceID) {
+        // catch the exception if a webhook comes in without being configured properly
         logWarn("Username: '${sourceName}' / Device ID: '${sourceDeviceID}' not configured in the OwnTracks app, aborting.")
     } else {
         // strip the [] around these values
@@ -711,6 +741,8 @@ def updateDevicePresence(member, data) {
         }
         // pass in our home name to the driver
         data.homeName = state.home.name
+        // pass the home SSID to the driver
+        data.homeSSID = homeSSID
         // update the child information
         deviceWrapper.generatePresenceEvent(data)
     } catch(e) {
@@ -780,7 +812,7 @@ private def getDistanceFromHome(data) {
 private def logDistanceTraveledAndElapsedTime(member, data) {
     // log the elapsed distance and time between location events
     try {
-        logDebug ("${app.label}: Delta between location events, member: ${member.name}, Distance: ${haversine(data.lat.toDouble(), data.lon.toDouble(), member.latitude.toDouble(), member.longitude.toDouble()).round(3)*1000} m, Time: ${data.tst-member.timeStamp} s")
+        logDebug ("${app.label}: Delta between location events, member: ${member.name}, Distance: ${displayMFtVal(haversine(data.lat.toDouble(), data.lon.toDouble(), member.latitude.toDouble(), member.longitude.toDouble()).round(3)*1000)} ${getSmallUnits()}, Time: ${data.tst-member.timeStamp} s")
     } catch(e) {
         // only gets here on a first time user
     }
@@ -1086,6 +1118,32 @@ def haversine(lat1, lon1, lat2, lon2) {
     def Double c = 2 * Math.asin(Math.sqrt(a))
     def Double d = R * c
     return(d)
+}
+
+def displayKmMiVal(float val) {
+    return (imperialUnits ? (val*0.621371).round(3) : val.round(3))
+}
+
+def displayMFtVal(float val) {
+    // round up and convert to an integer
+    return (imperialUnits ? (val*3.28084).round(0).toInteger() : val.toInteger())
+}
+
+def convertToMeters(float val) {
+    // round up and convert to an integer
+    return (imperialUnits ? (val*0.3048).round(0).toInteger() : val.toInteger())
+}
+
+def getLargeUnits() {
+    return (imperialUnits ? "mi" : "km")
+}
+
+def getSmallUnits() {
+    return (imperialUnits ? "ft" : "m")
+}
+
+def getVelocityUnits() {
+    return (imperialUnits ? "mph" : "kph")
 }
 
 mappings {

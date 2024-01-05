@@ -48,9 +48,12 @@ Open the Owntracks app.
 		- If enabled, a warning will be disabled each time a member reports a location, but is not selected.
     - Display a warning in the logs if a family member app settings are not configured for optimal operation:
 		- If enabled, a warning will be displayed each time a user reports a location with non-optimal phone settings.
+	- Display imperial units instead of metric units
+		- If enabled, all units in the Hubitat app and driver will be displayed in imperial units (mph, mi, ft) instead of metric units (kph, km, m)
 	- Select your 'Home' place. Use '[Hubitat Location]' to enter a location: 
 		- Select the region where 'Home' is for presence detection.  
 		- Use '[Hubitat Location]' to use the hub location.  Enter a name for "home" as well as the geofence in meters.
+	- Select your 'Home' WiFi SSID (optional).  Used to prevent devices from being 'non-present' if currently connected to this WiFi access point.
 	- Enable high accuracy reporting when location is between region radius and this value:
 		- When a user is between the home geofence radius and this radius, the app will switch the user to use high accuracy/high frequency reporting to ensure presence triggers operate correctly.
 	- High accuracy reporting is used for home region only when selected, all regions if not selected

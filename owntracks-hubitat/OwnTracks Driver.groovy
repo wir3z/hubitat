@@ -15,7 +15,7 @@
  *  Connects OwnTracks push events to virtual presence drivers.
  *
  *  Author: Lyle Pakula (lpakula)
- *  Date: 2024-01-02
+ *  Date: 2024-01-05
  *
  *  // events are received with the following structure
  *  For 'Location':
@@ -75,7 +75,7 @@
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.5.5" }
+def driverVersion() { return "1.6.0" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -138,6 +138,7 @@ preferences {
 def installed() {
     log.info "${device.name}: Location Tracker User Driver Installed"
     state.sinceTime = now()
+    state.driverVersion = driverVersion()
     updated()
 }
 
@@ -173,43 +174,53 @@ def departed() {
     logDescriptionText("$descriptionText")
 }
 
-def updatePresence(data) {
+def updatePresence(data, allowAttributeDelete) {
     def previousPresence = device.currentValue('presence')
 
     // invalidate the time stamp if our accuracy is poor
     if (data.acc > parent.childGetLocationAccuracyFilter()) {
         data.tst = 0
-        logDebug("Suppressing location event due to location accuracy of ${data.acc} m > ${parent.childGetLocationAccuracyFilter()} m")
+        logDebug("Suppressing location event due to location accuracy of ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits()} > ${parent.childGetLocationAccuracyFilter()} ${parent.getSmallUnits()}")
     }
-
+    
     // only update if the incoming packet was of valid accuracy
     if (data.tst != 0) {
         // only update the presence for 'home'
         if (data.inregions.find {it==data.homeName}) {
             memberPresence = "present"
         } else {
-            memberPresence = "not present"
+            // check if we have a defined home SSID that we are currently connected, to prevent the "non present"
+            if ((data.homeSSID != "") && (device.currentValue("SSID") != null)) {
+                if (data.homeSSID != device.currentValue("SSID")) {
+                    memberPresence = "not present"
+                } else {
+                    // keep the present status
+                    memberPresence = "present"
+                }
+            } else {
+                memberPresence = "not present"
+            }
         }
 
         // only update the time if there was a state change
         if (previousPresence != memberPresence) {
             state.sinceTime = data.tst
         }
-        // display the extended attributes if they were received
+        // display the extended attributes if they were received, but only allow them to be removed on non-tranisition events
         if (displayExtendedAttributes) {
-            if (data?.batt)  sendEvent (name: "batteryPercent", value: data.batt)                  else device.deleteCurrentState('batteryPercent')
-            if (data?.lat)   sendEvent (name: "lat", value: data.lat)                              else device.deleteCurrentState('lat')
-            if (data?.lon)   sendEvent (name: "lon", value: data.lon)                              else device.deleteCurrentState('lon')
-            if (data?.acc)   sendEvent (name: "accuracy", value: data.acc)                         else device.deleteCurrentState('accuracy')
-            if (data?.vac)   sendEvent (name: "verticalAccuracy", value: data.vac)                 else device.deleteCurrentState('verticalAccuracy')
-            if (data?.alt)   sendEvent (name: "altitude", value: data.alt)                         else device.deleteCurrentState('altitude')
-            if (data?.topic) sendEvent (name: "sourceTopic", value: data.topic)                    else device.deleteCurrentState('sourceTopic')
-            if (data?.bs)    sendEvent (name: "batteryStatus", value: BATTERY_STATUS[data.bs])     else device.deleteCurrentState('dataConnection')
-            if (data?.conn)  sendEvent (name: "dataConnection", value: DATA_CONNECTION[data.conn]) else device.deleteCurrentState('batteryStatus')
-            if (data?.BSSID) sendEvent (name: "BSSID", value: data.BSSID)                          else device.deleteCurrentState('BSSID')
-            if (data?.SSID)  sendEvent (name: "SSID", value: data.SSID)                            else device.deleteCurrentState('SSID')
-            if (data?.t)     sendEvent (name: "triggerSource", value: TRIGGER_TYPE[data.t])        else device.deleteCurrentState('triggerSource')
-            if (data?.m)     sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])    else device.deleteCurrentState('monitoringMode')
+            if (data?.batt)  sendEvent (name: "batteryPercent", value: data.batt)                        else if (allowAttributeDelete) device.deleteCurrentState('batteryPercent')
+            if (data?.lat)   sendEvent (name: "lat", value: data.lat)                                    else if (allowAttributeDelete) device.deleteCurrentState('lat')
+            if (data?.lon)   sendEvent (name: "lon", value: data.lon)                                    else if (allowAttributeDelete) device.deleteCurrentState('lon')
+            if (data?.acc)   sendEvent (name: "accuracy", value: parent.displayMFtVal(data.acc))         else if (allowAttributeDelete) device.deleteCurrentState('accuracy')
+            if (data?.vac)   sendEvent (name: "verticalAccuracy", value: parent.displayMFtVal(data.vac)) else if (allowAttributeDelete) device.deleteCurrentState('verticalAccuracy')
+            if (data?.alt)   sendEvent (name: "altitude", value: parent.displayMFtVal(data.alt))         else if (allowAttributeDelete) device.deleteCurrentState('altitude')
+            if (data?.topic) sendEvent (name: "sourceTopic", value: data.topic)                          else if (allowAttributeDelete) device.deleteCurrentState('sourceTopic')
+            if (data?.bs)    sendEvent (name: "batteryStatus", value: BATTERY_STATUS[data.bs])           else if (allowAttributeDelete) device.deleteCurrentState('batteryStatus')
+            if (data?.conn)  sendEvent (name: "dataConnection", value: DATA_CONNECTION[data.conn])       else if (allowAttributeDelete) device.deleteCurrentState('dataConnection')
+            if (data?.BSSID) sendEvent (name: "BSSID", value: data.BSSID)                                else if (allowAttributeDelete) device.deleteCurrentState('BSSID')
+            if (data?.SSID)  sendEvent (name: "SSID", value: data.SSID)                                  else if (allowAttributeDelete) device.deleteCurrentState('SSID')
+            if (data?.t)     sendEvent (name: "triggerSource", value: TRIGGER_TYPE[data.t])              else if (allowAttributeDelete) device.deleteCurrentState('triggerSource')
+            if (data?.m)     sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])          else if (allowAttributeDelete) device.deleteCurrentState('monitoringMode')
         }
     } else {
         // echo back the past value
@@ -221,19 +232,24 @@ def updatePresence(data) {
 }
 
 Boolean generatePresenceEvent(data) {
-//    logDebug("Member Data: $data")
-    logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${data.currentDistanceFromHome.toFloat().round(3)} km from Home, Battery: ${data.batt}%, Velocity: ${data.vel} kph, accuracy: ${data.acc.toInteger()} m, Location: ${data.lat},${data.lon}")
+    // update the driver version if necessary
+    if (state.driverVersion != driverVersion()) {
+        state.driverVersion = driverVersion()
+    }
+    
+    //logDebug("Member Data: $data")
+    logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, Battery: ${data.batt}%, Velocity: ${(data?.vel ? parent.displayKmMiVal(data.vel) : null)} ${parent.getVelocityUnits()}, accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: ${data.lat},${data.lon}")
 
     // if we have a push event, there is limited data to process
     if (data._type == "transition") {
         // check if we need to update the presence
-        memberPresence = updatePresence(data)
+        memberPresence = updatePresence(data, false)
         currentLocation = (( data.event == "enter" ) ? "arrived $data.desc" : "left $data.desc")
         descriptionText = device.displayName +  " has " + currentLocation
         logDescriptionText("$descriptionText")
     } else {
         // check if we need to update the presence
-        memberPresence = updatePresence(data)
+        memberPresence = updatePresence(data, true)
 
         // if we are in a region stored in the app
         if (data.inregions) {
@@ -244,7 +260,7 @@ Boolean generatePresenceEvent(data) {
             // remove the trailing comma
             currentLocation = locationList.substring(0, locationList.length() - 1)
         } else {
-            currentLocation = "${data.currentDistanceFromHome.toFloat().round(1)} km from Home"
+            currentLocation = "${parent.displayKmMiVal(data.currentDistanceFromHome).round(1)} ${parent.getLargeUnits()} from Home"
         }
         descriptionText = device.displayName +  " is at " + currentLocation
 
@@ -295,31 +311,31 @@ Boolean generatePresenceEvent(data) {
         sendEvent( name: "since", value: sinceDate )
         sendEvent( name: "location", value: currentLocation )
         sendEvent (name: "presence", value: memberPresence, descriptionText: descriptionText)
-        sendEvent( name: "distanceFromHome", value:  data.currentDistanceFromHome )
-        if (data.vel) sendEvent( name: "lastSpeed", value:  data.vel.toInteger() )
+        sendEvent( name: "distanceFromHome", value:  parent.displayKmMiVal(data.currentDistanceFromHome) )
+        if (data?.vel) sendEvent( name: "lastSpeed", value:  parent.displayKmMiVal(data.vel).toInteger() )
 
         // we are using the battery field on the presence tile for selectable display
         switch (presenceTileBatteryField) {
             case "0":
-                batteryField = (data.batt ? "Battery " + data.batt + "%" : "")
+                batteryField = (data?.batt ? "Battery " + data.batt + "%" : "")
             break
             case "1":
                 batteryField = currentLocation + " - " + tileDate
             break
             case "2":
-                batteryField = data.currentDistanceFromHome + " km from Home"
+                batteryField = parent.displayKmMiVal(data.currentDistanceFromHome) + " ${parent.getLargeUnits()} from Home"
             break
             case "3":
-                batteryField = (data.vel ? data.vel + " kph" : "")
+                batteryField = (data?.vel ? parent.displayKmMiVal(data.vel) + " ${parent.getVelocityUnits()}" : "")
             break
             case "4":
-                batteryField = (data.bs ? BATTERY_STATUS[data.bs] : "")
+                batteryField = (data?.bs ? BATTERY_STATUS[data.bs] : "")
             break
             case "5":
-                batteryField = (data.conn ? DATA_CONNECTION[data.conn] : "")
+                batteryField = (data?.conn ? DATA_CONNECTION[data.conn] : "")
             break
             case "6":
-                batteryField = (data.t ? TRIGGER_TYPE[data.t] : "")
+                batteryField = (data?.t ? TRIGGER_TYPE[data.t] : "")
             break
         }
 
