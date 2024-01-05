@@ -75,7 +75,7 @@
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.0" }
+def driverVersion() { return "1.6.1" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -191,11 +191,12 @@ def updatePresence(data, allowAttributeDelete) {
         } else {
             // check if we have a defined home SSID that we are currently connected, to prevent the "non present"
             if ((data.homeSSID != "") && (device.currentValue("SSID") != null)) {
-                if (data.homeSSID != device.currentValue("SSID")) {
-                    memberPresence = "not present"
-                } else {
+                // check if we match the SSID list
+                if (isSSIDMatch(data.homeSSID)) {
                     // keep the present status
                     memberPresence = "present"
+                } else {
+                    memberPresence = "not present"
                 }
             } else {
                 memberPresence = "not present"
@@ -229,6 +230,18 @@ def updatePresence(data, allowAttributeDelete) {
 
     // return with the updated presence
     return (memberPresence)
+}
+
+def isSSIDMatch(dataString) {
+    result = false
+    // split the list in tokens, and trim the leading/trailing whitespace
+    SSIDList = dataString.split(',')
+    SSIDList.each { SSID ->
+        if (SSID.trim() == device.currentValue("SSID")) {
+            result = true
+        }
+    }
+    return (result)
 }
 
 Boolean generatePresenceEvent(data) {

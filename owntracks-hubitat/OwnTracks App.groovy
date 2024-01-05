@@ -27,7 +27,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.6.0" }
+def appVersion() { return "1.6.1" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -193,14 +193,14 @@ def configureUsersHome() {
     input "homePlace", "enum", multiple: false, title:"Select your 'Home' place.  Use '$HUBITAT_LOCATION' to enter a location.", options: [ "$HUBITAT_LOCATION" ] + (state.places ? state.places.desc.sort() : []), defaultValue: HUBITAT_LOCATION, submitOnChange: true
     if (homePlace == HUBITAT_LOCATION) {
         input "homeName", "text", title: "'Home' name", required: true, defaultValue: "Home"
-        input name: "homeGeoFence", type: "number", title: "Distance from home location to indicate 'present' (${DEFAULT_RADIUS}-${displayMFtVal(1000)}${getSmallUnits()})", required: true, range: "${DEFAULT_RADIUS}..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_RADIUS)
+        input name: "homeGeoFence", type: "number", title: "Distance from home location to indicate 'present' (${displayMFtVal(DEFAULT_RADIUS)}-${displayMFtVal(1000)}${getSmallUnits()})", required: true, range: "${displayMFtVal(DEFAULT_RADIUS)}..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_RADIUS)
         input name: "useHubLocation", type: "bool", title: "Use hub location for 'Home' geofence: ${location.getLatitude()},${location.getLongitude()}", defaultValue: false, submitOnChange: true
         if (!useHubLocation) {
             input name: "homeLat", type: "double", title: "Home Latitude", required: true, range: "-90.0..90.0", defaultValue: location.getLatitude()
             input name: "homeLon", type: "double", title: "Home Longitude", required: true, range: "-180.0..180.0", defaultValue: location.getLongitude()
         }
     }
-    input "homeSSID", "string", title:"Select your 'Home' WiFi SSID (optional).  Used to prevent devices from being 'non-present' if currently connected to this WiFi access point.", defaultValue: ""
+    input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas (optional).  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point.", defaultValue: ""
     input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", required: false, defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? ['0':'disabled','250':'820 ft','500':'1640 ft','750':'2460 ft','1000':'3280 ft'] : ['0':'disabled','250':'250 m','500':'500 m','750':'750 m','1000':'1000 m'])
     input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: true
     input name: "driverInaccurateLocationFilter", type: "number", title: "Child device will ignore locations if the accuracy is greater than the given (${getSmallUnits()}), Recommended=${displayMFtVal(DEFAULT_driverInaccurateLocationFilter)}", range: "0..${displayMFtVal(2000)}", defaultValue: displayMFtVal(DEFAULT_driverInaccurateLocationFilter)
@@ -566,9 +566,9 @@ def updated() {
     if (homePlace == HUBITAT_LOCATION) {
         // using a locally entered location
         if (useHubLocation) {
-            state.home = [ name:homeName, geofence:(homeGeoFence/1000), latitude:location.getLatitude(), longitude:location.getLongitude() ]
+            state.home = [ name:homeName, geofence:(state.homeGeoFence/1000), latitude:location.getLatitude(), longitude:location.getLongitude() ]
         } else {
-            state.home = [ name:homeName, geofence:(homeGeoFence/1000), latitude:homeLat, longitude:homeLon ]
+            state.home = [ name:homeName, geofence:(state.homeGeoFence/1000), latitude:homeLat, longitude:homeLon ]
         }
     } else {
         // using a place returned from the device regions
@@ -1120,18 +1120,18 @@ def haversine(lat1, lon1, lat2, lon2) {
     return(d)
 }
 
-def displayKmMiVal(float val) {
-    return (imperialUnits ? (val*0.621371).round(3) : val.round(3))
+def displayKmMiVal(val) {
+    return (imperialUnits ? (val.toFloat()*0.621371).round(3) : val.toFloat().round(3))
 }
 
-def displayMFtVal(float val) {
+def displayMFtVal(val) {
     // round up and convert to an integer
-    return (imperialUnits ? (val*3.28084).round(0).toInteger() : val.toInteger())
+    return (imperialUnits ? (val.toFloat()*3.28084).round(0).toInteger() : val.toInteger())
 }
 
-def convertToMeters(float val) {
+def convertToMeters(val) {
     // round up and convert to an integer
-    return (imperialUnits ? (val*0.3048).round(0).toInteger() : val.toInteger())
+    return (imperialUnits ? (val.toFloat()*0.3048).round(0).toInteger() : val.toInteger())
 }
 
 def getLargeUnits() {

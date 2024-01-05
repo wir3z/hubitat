@@ -53,7 +53,7 @@ Open the Owntracks app.
 	- Select your 'Home' place. Use '[Hubitat Location]' to enter a location: 
 		- Select the region where 'Home' is for presence detection.  
 		- Use '[Hubitat Location]' to use the hub location.  Enter a name for "home" as well as the geofence in meters.
-	- Select your 'Home' WiFi SSID (optional).  Used to prevent devices from being 'non-present' if currently connected to this WiFi access point.
+	- Enter your 'Home' WiFi SSID(s), separated by commas (optional).  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point.
 	- Enable high accuracy reporting when location is between region radius and this value:
 		- When a user is between the home geofence radius and this radius, the app will switch the user to use high accuracy/high frequency reporting to ensure presence triggers operate correctly.
 	- High accuracy reporting is used for home region only when selected, all regions if not selected
