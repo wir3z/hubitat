@@ -27,7 +27,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.6.1" }
+def appVersion() { return "1.6.2" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -45,7 +45,6 @@ def appVersion() { return "1.6.1" }
 @Field String  HUBITAT_LOCATION = "[Hubitat Location]"
 @Field Number  INVALID_COORDINATE = 999
 @Field Number  DEFAULT_RADIUS = 75
-@Field Number  DEFAULT_driverInaccurateLocationFilter = 50
 @Field Number  DEFAULT_regionHighAccuracyRadius = 750
 // Mobile app location defaults
 @Field String  DEFAULT_monitoring = "1"
@@ -53,7 +52,7 @@ def appVersion() { return "1.6.1" }
 @Field Number  DEFAULT_moveModeLocatorInterval = 30
 @Field Number  DEFAULT_locatorDisplacement = 50
 @Field Number  DEFAULT_locatorInterval = 60
-@Field Number  DEFAULT_ignoreInaccurateLocations = 150
+@Field Number  DEFAULT_ignoreInaccurateLocations = 50
 @Field Number  DEFAULT_ignoreStaleLocations = 7.0
 @Field Number  DEFAULT_ping = 30
 @Field Boolean DEFAULT_pegLocatorFastestIntervalToInterval = true
@@ -126,8 +125,8 @@ def mainPage() {
             }
 
             section(getFormat("box", "Mobile App Configuration")) {
-                input "syncMobileSettings", "enum", multiple: true, required:false, title:"Select family member(s) to update location, display and region settings on the next location update", options: state.members.name.sort()
-                input "restartMobileApp", "enum", multiple: true, required:false, title:"Select family member(s) to restart their mobile app on next location update", options: state.members.name.sort()
+                input "syncMobileSettings", "enum", multiple: true, required:false, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: enabledMembers.sort()
+                input "restartMobileApp", "enum", multiple: true, required:false, title:"Select family member(s) to restart their mobile app on next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: enabledMembers.sort()
                 href(title: "Regions", description: "", style: "page", page: "configureRegions")
                 href(title: "Location", description: "", style: "page", page: "configureLocation")
                 href(title: "Display", description: "", style: "page", page: "configureDisplay")
@@ -184,9 +183,8 @@ def configureUsersHome() {
         app.updateSetting("locatorDisplacement", [value: displayMFtVal(state.locatorDisplacement), type: "number"])
         app.updateSetting("ignoreInaccurateLocations", [value: displayMFtVal(state.ignoreInaccurateLocations), type: "number"])
         app.updateSetting("homeGeoFence", [value: displayMFtVal(state.homeGeoFence), type: "number"])
-        app.updateSetting("driverInaccurateLocationFilter", [value: displayMFtVal(state.driverInaccurateLocationFilter), type: "number"])
     }
-    input "enabledMembers", "enum", multiple: true, required:false, title:"Select family member(s)", options: state.members.name.sort()
+    input "enabledMembers", "enum", multiple: true, required:false, title:"Select family member(s)", options: state.members.name.sort(), submitOnChange: true
     input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: true
     input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: false
     input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: false, submitOnChange: true
@@ -203,13 +201,13 @@ def configureUsersHome() {
     input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas (optional).  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point.", defaultValue: ""
     input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", required: false, defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? ['0':'disabled','250':'820 ft','500':'1640 ft','750':'2460 ft','1000':'3280 ft'] : ['0':'disabled','250':'250 m','500':'500 m','750':'750 m','1000':'1000 m'])
     input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: true
-    input name: "driverInaccurateLocationFilter", type: "number", title: "Child device will ignore locations if the accuracy is greater than the given (${getSmallUnits()}), Recommended=${displayMFtVal(DEFAULT_driverInaccurateLocationFilter)}", range: "0..${displayMFtVal(2000)}", defaultValue: displayMFtVal(DEFAULT_driverInaccurateLocationFilter)
 }
 
 def configureRecorder() {
     return dynamicPage(name: "configureRecorder", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Recorder Configuration")) {
-            input name: "recorderURL", type: "text", title: "HTTP URL for the optional <a href='https://owntracks.org/booklet/clients/recorder/' target='_blank'>OwnTracks Recorder</a> for local tracking.", defaultValue: ""
+            paragraph("Configure the <a href='https://owntracks.org/booklet/clients/recorder/' target='_blank'>OwnTracks Recorder</a> (optional) for local tracking.")
+            input name: "recorderURL", type: "text", title: "HTTP URL of the OwnTracks Recorder.  It will be in the format <b>'http://enter.your.recorder.ip:8083/pub'</b>, assuming using the default port of 8083.", defaultValue: ""
             input name: "enableRecorder", type: "bool", title: "Enable location updates to be sent to the Recorder URL", defaultValue: false
         }
         section() {
@@ -222,9 +220,6 @@ def configureRecorder() {
 def configureLocation() {
     return dynamicPage(name: "configureLocation", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Location Configuration")) {
-            input name: "updateMobileLocation", type: "bool", title: "<b>Update all user's mobile app location settings on next location update</b>", defaultValue: false
-        }
-        section(getFormat("line", "")) {
             input name: "monitoring", type: "enum", title: "Location reporting mode, Recommended=${MONITORING_MODES[DEFAULT_monitoring]}", required: true, options: MONITORING_MODES, defaultValue: DEFAULT_monitoring, submitOnChange: true
             input name: "locatorPriority", type: "enum", title: "Source/power setting for location updates, Recommended=${LOCATOR_PRIORITY[DEFAULT_locatorPriority]}", required: true, options: LOCATOR_PRIORITY, defaultValue: DEFAULT_locatorPriority
             if (monitoring == "2") {
@@ -258,9 +253,6 @@ def configureLocation() {
 def configureDisplay() {
     return dynamicPage(name: "configureDisplay", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Display Configuration")) {
-            input name: "updateMobileDisplay", type: "bool", title: "<b>Update all user's mobile app display settings on next location update</b>", defaultValue: false, submitOnChange: true
-        }
-        section(getFormat("line", "")) {
             input name: "imageCards", type: "bool", title: "Display user thumbnails on the map.  Needs to have a 'user.jpg' image of maximum resolution 192x192 pixels uploaded to the 'Settings->File Manager'", defaultValue: DEFAULT_imageCards
             input name: "replaceTIDwithUsername", type: "bool", title: "Replace the 'TID' (tracker ID) with 'username' for displaying a name on the map and recorder", defaultValue: DEFAULT_replaceTIDwithUsername
             input name: "notificationEvents", type: "bool", title: "Notify about received events", defaultValue: DEFAULT_notificationEvents
@@ -278,10 +270,7 @@ def configureRegions() {
         // clear the setting fields
         clearSettingFields()        
         section(getFormat("box", "Regions Configuration")) {
-            input name: "updateMobileRegions", type: "bool", title: "<b>Update all user's mobile app regions on next location update</b>", defaultValue: false, submitOnChange: true
-        }
-        section(getFormat("line", "")) {
-            input "getMobileRegions", "enum", multiple: true, required:false, title:"Select family member(s) to retrieve their region list on next location update", options: state.members.name.sort()
+            input "getMobileRegions", "enum", multiple: true, required:false, title:"Select family member(s) to retrieve their region list on next location update.  Their regions will be merged into the list stored in the Hubitat app.", options: enabledMembers.sort()
         }
         section(getFormat("line", "")) {
             href(title: "Add Regions", description: "", style: "page", page: "addRegions")
@@ -486,7 +475,6 @@ def initialize() {
     if (state.locatorDisplacement == null) state.locatorDisplacement = DEFAULT_locatorDisplacement
     if (state.ignoreInaccurateLocations == null) state.ignoreInaccurateLocations = DEFAULT_ignoreInaccurateLocations
     if (state.homeGeoFence == null) state.homeGeoFence = DEFAULT_RADIUS
-    if (state.driverInaccurateLocationFilter == null) state.driverInaccurateLocationFilter = DEFAULT_driverInaccurateLocationFilter
     if (state.imperialUnits == null) state.imperialUnits = false
     
     // assign the defaults to the mobile app settings in case the user doesn't click into those screens
@@ -503,7 +491,7 @@ def initialize() {
     if (replaceTIDwithUsername == null) app.updateSetting("replaceTIDwithUsername", [value: DEFAULT_replaceTIDwithUsername, type: "bool"])
     if (notificationEvents == null) app.updateSetting("notificationEvents", [value: DEFAULT_notificationEvents, type: "bool"])
     if (pubExtendedData == null) app.updateSetting("pubExtendedData", [value: DEFAULT_pubExtendedData, type: "bool"])
-    if (enableMapRotatio == null) app.updateSetting("enableMapRotatio", [value: DEFAULT_enableMapRotation, type: "bool"])
+    if (enableMapRotation == null) app.updateSetting("enableMapRotation", [value: DEFAULT_enableMapRotation, type: "bool"])
     if (showRegionsOnMap == null) app.updateSetting("showRegionsOnMap", [value: DEFAULT_showRegionsOnMap, type: "bool"])
     if (notificationLocation == null) app.updateSetting("notificationLocation", [value: DEFAULT_notificationLocation, type: "bool"])
     if (notificationGeocoderErrors == null) app.updateSetting("notificationGeocoderErrors", [value: DEFAULT_notificationGeocoderErrors, type: "bool"])
@@ -538,13 +526,9 @@ def updated() {
             member.restartApp = true
         }
         // if the configuration has changed, trigger the member update
-        if (updateMobileLocation || syncSettings) {
+        if (syncSettings) {
             member.updateLocation = true
-        }
-        if (updateMobileDisplay || syncSettings) {
             member.updateDisplay = true
-        }
-        if (updateMobileRegions || syncSettings) {
             member.updateWaypoints = true
         }
     }
@@ -552,14 +536,10 @@ def updated() {
     app.updateSetting("restartMobileApp",[value:"",type:"enum"])
     app.updateSetting("syncMobileSettings",[value:"",type:"enum"])
     app.updateSetting("getMobileRegions",[value:"",type:"enum"])
-    app.updateSetting("updateMobileLocation",[value:false,type:"bool"])
-    app.updateSetting("updateMobileDisplay",[value:false,type:"bool"])
-    app.updateSetting("updateMobileRegions",[value:false,type:"bool"])
     
     // save the values to allow for imperial/metric selection
     state.locatorDisplacement             = convertToMeters(locatorDisplacement)
     state.ignoreInaccurateLocations       = convertToMeters(ignoreInaccurateLocations)
-    state.driverInaccurateLocationFilter  = convertToMeters(driverInaccurateLocationFilter)
     state.homeGeoFence                    = convertToMeters(homeGeoFence)
 
     // store the home information
@@ -578,11 +558,6 @@ def updated() {
 }
 
 def refresh() {
-}
-
-def childGetLocationAccuracyFilter() {
-    // return with the location accuracy filter
-    return (driverInaccurateLocationFilter)
 }
 
 def childGetWarnOnNonOptimalSettings() {
@@ -606,7 +581,7 @@ def webhookEventHandler() {
     String sourceDeviceID = request.headers.'X-limit-d'
     // default to an empty payload
     result = []
-    
+
     // catch the exception if no message was sent
     if (!request.body) {
         logError("Username: '${sourceName}' / Device ID: '${sourceDeviceID}' reported no data from the OwnTracks app, aborting.")
@@ -739,8 +714,6 @@ def updateDevicePresence(member, data) {
                 data.inregions << state.home.name
             }
         }
-        // pass in our home name to the driver
-        data.homeName = state.home.name
         // pass the home SSID to the driver
         data.homeSSID = homeSSID
         // update the child information
@@ -753,16 +726,15 @@ def updateDevicePresence(member, data) {
 def checkRegionConfiguration(member, data) {
     // if we configured the high accuracy region
     if (regionHighAccuracyRadius) {
+        def closestWaypointRadius = 0
+        def closestWaypointDistance = -1
+        
         // check if we need to apply this to the home region only, or all regions
         if (regionHighAccuracyRadiusHomeOnly) {
             // only switch to faster reporting when near home
             closestWaypointDistance = (getDistanceFromHome(data)*1000).toDouble()
             closestWaypointRadius = (state.home.geofence*1000).toDouble()
         } else {
-            // loop through all the waypoints to see if we need to change our power/reporting interval
-            def closestWaypointRadius = 0
-            def closestWaypointDistance = -1
-
              // loop through all the waypoints, and find the one that is closet to the location
             state.places.each { waypoint->
                 // check our distance from the waypoint
@@ -773,6 +745,13 @@ def checkRegionConfiguration(member, data) {
                     closestWaypointRadius = waypoint.rad.toDouble()
                 }
             }
+        }
+
+        // catch the exception if no regions have been defined
+        if ((closestWaypointDistance == null) || (closestWaypointRadius == null)) {
+            closestWaypointRadius = 0
+            closestWaypointDistance = -1
+            logWarn("Home region is undefined.  Run setup to configure the 'Home' location") 
         }
 
         // check if we are within our region radius, or greater than the radius + regionHighAccuracyRadius

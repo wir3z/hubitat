@@ -58,25 +58,22 @@ Open the Owntracks app.
 		- When a user is between the home geofence radius and this radius, the app will switch the user to use high accuracy/high frequency reporting to ensure presence triggers operate correctly.
 	- High accuracy reporting is used for home region only when selected, all regions if not selected
 		- If selected, then high accuracy reporting only occurs in the geofence around home.  If deselected, high accuracy reporting will be used on all regions.  Note:  This will increase battery consumption.
-    - Child device will ignore locations if the accuracy is greater than the given meters		
-		- Adds a 2-tier location accuracy filter.  A larger value is configured in the mobile app to ensure it calls home, a smaller value is configured here to prevent false presence triggers due to bad accuracy
 	- Enable recorder
 		- Add the link to the optional Owntracks recorder:  https://owntracks.org/booklet/clients/recorder/
+		- HTTP URL of the OwnTracks Recorder will be in the format 'http://enter.your.recorder.ip:8083/pub', assuming using the default port of 8083.
 		- For user cards to be used in the recorder, a JSON user card needs to be saved to: 'STORAGEDIR/cards/USER/USER.json' on the recorder, where 'USER' is the member name.
 		- A user card can be created by:
 			- Enable debug logging for the OwnTracks app, trigger a manual location, and save the JSON from the debug message of: 
 			  'OwnTracks: For recorder cards, save this JSON to 'STORAGEDIR/cards/...' to a file named 'USER.json'.  
 
 2. Mobile App Configuration
-	NOTE: For settings to be sent to the device, 'Remote configuration' must be enabled in the mobile app.
-	- Select family member(s) to update location, display and region settings on the next location update
+	NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or 'cmd' (iOS) must be enabled in the mobile app.
+	- Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.
 		- Selected users will get pushed region, location and display settings on their next location update.
-	- Select family member(s) to restart their mobile app on next location update
+	- Select family member(s) to restart their mobile app on next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.
 		- Selected users will have their mobile app reset on their next location update.
 	a. Regions
-		- Update all user's mobile app regions settings on next location update
-			- All the regions will be sent to all devices as they report their location
-		- Select family member(s) to retrieve their region list on next location update
+		- Select family member(s) to retrieve their region list on next location update. Their regions will be merged into the list stored in the Hubitat app.
 			- Select user(s) that you wish to retrieve their regions when they report their location.
 		- Add Regions:
 			- Enter the name, detection radius and coordinates.  Click on the screen to expose the 'Save' button.
@@ -92,13 +89,9 @@ Open the Owntracks app.
 			- Click the 'Next' button to leave the screen, or abandon changes if 'Delete' was not pressed.
 			NOTE:  Android Build 420412000 does not delete the region remotely.  Their name will be changed to '-DELETED-', and will need to be manually deleted from each device.
 	b. Location
-		- Update all user's mobile app location settings on next location update
-			- All the location settings will be sent to all devices as they report their location
 		- Using the defaults gives best balance of battery life and accuracy.  If 'Enable high accuracy reporting when location is between region radius and this value' was enabled on the main screen,
 			the device will be switched to 'HIGH_POWER' mode with 'Request that the location provider updates no faster than the requested locater interval' when the mobile device is within that region.
 	c. Display
-		- Update all user's mobile app display settings on next location update
-			- All the display settings will be sent to all devices as they report their location
 		- Display user thumbnails on the map.  Needs to have a 'user.jpg' image of maximum resolution 192x192 pixels uploaded to the 'Settings->File Manager'
 			- Sends back each user's thumbnail picture when the send their location report.
 		- Replace the 'TID' (tracker ID) with 'username' for displaying a name on the map and recorder

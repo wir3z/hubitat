@@ -41,7 +41,6 @@
  *      m:1, 						    // identifies the monitoring mode at which the message is constructed (significant=1, move=2)
  *
  *      // added to packet
- *      homeName:Home,
  *      currentDistanceFromHome:0.234,
  *
  *      // added in the sided load APK
@@ -67,7 +66,6 @@
  *      desc:Home
  *
  *      // added to packet
- *      homeName:Home,
  *      currentDistanceFromHome:0.234,
  *  ]
  **/
@@ -75,7 +73,7 @@
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.1" }
+def driverVersion() { return "1.6.2" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -177,16 +175,10 @@ def departed() {
 def updatePresence(data, allowAttributeDelete) {
     def previousPresence = device.currentValue('presence')
 
-    // invalidate the time stamp if our accuracy is poor
-    if (data.acc > parent.childGetLocationAccuracyFilter()) {
-        data.tst = 0
-        logDebug("Suppressing location event due to location accuracy of ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits()} > ${parent.childGetLocationAccuracyFilter()} ${parent.getSmallUnits()}")
-    }
-    
     // only update if the incoming packet was of valid accuracy
     if (data.tst != 0) {
         // only update the presence for 'home'
-        if (data.inregions.find {it==data.homeName}) {
+        if (data.currentDistanceFromHome == 0) {
             memberPresence = "present"
         } else {
             // check if we have a defined home SSID that we are currently connected, to prevent the "non present"
@@ -249,9 +241,9 @@ Boolean generatePresenceEvent(data) {
     if (state.driverVersion != driverVersion()) {
         state.driverVersion = driverVersion()
     }
-    
+
     //logDebug("Member Data: $data")
-    logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, Battery: ${data.batt}%, Velocity: ${(data?.vel ? parent.displayKmMiVal(data.vel) : null)} ${parent.getVelocityUnits()}, accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: ${data.lat},${data.lon}")
+    logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: ${data.lat},${data.lon}")
 
     // if we have a push event, there is limited data to process
     if (data._type == "transition") {
@@ -301,9 +293,9 @@ Boolean generatePresenceEvent(data) {
         } else {
             device.deleteCurrentState('hiberateAllowed')
         }
-        if (data?.loc != 0) {
+        if (data?.loc > 0) {
             sendEvent( name: "locationPermissions", value: LOCATION_PERMISION["${data?.loc}"])
-            logNonOptimalSettings("Location permisions currently set to '${LOCATION_PERMISION["${data?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
+            logNonOptimalSettings("Location permissions currently set to '${LOCATION_PERMISION["${data?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
         } else {
             device.deleteCurrentState('locationPermissions')
         }
