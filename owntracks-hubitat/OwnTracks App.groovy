@@ -27,7 +27,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.6.2" }
+def appVersion() { return "1.6.3" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -125,8 +125,8 @@ def mainPage() {
             }
 
             section(getFormat("box", "Mobile App Configuration")) {
-                input "syncMobileSettings", "enum", multiple: true, required:false, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: enabledMembers.sort()
-                input "restartMobileApp", "enum", multiple: true, required:false, title:"Select family member(s) to restart their mobile app on next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: enabledMembers.sort()
+                input "syncMobileSettings", "enum", multiple: true, required:false, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
+                input "restartMobileApp", "enum", multiple: true, required:false, title:"Select family member(s) to restart their mobile app on next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
                 href(title: "Regions", description: "", style: "page", page: "configureRegions")
                 href(title: "Location", description: "", style: "page", page: "configureLocation")
                 href(title: "Display", description: "", style: "page", page: "configureDisplay")
@@ -270,7 +270,7 @@ def configureRegions() {
         // clear the setting fields
         clearSettingFields()        
         section(getFormat("box", "Regions Configuration")) {
-            input "getMobileRegions", "enum", multiple: true, required:false, title:"Select family member(s) to retrieve their region list on next location update.  Their regions will be merged into the list stored in the Hubitat app.", options: enabledMembers.sort()
+            input "getMobileRegions", "enum", multiple: true, required:false, title:"Select family member(s) to retrieve their region list on next location update.  Their regions will be merged into the list stored in the Hubitat app.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
         }
         section(getFormat("line", "")) {
             href(title: "Add Regions", description: "", style: "page", page: "addRegions")
