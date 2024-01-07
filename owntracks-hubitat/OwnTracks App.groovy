@@ -127,8 +127,8 @@ def mainPage() {
             section(getFormat("box", "Installation")) {
                 href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
                 href(title: "Creating User Thumbnail Instructions", description: "", style: "page", page: "thumbnailCreationInstructions")
-                configureUsersHome()
                 href(title: "Enable OwnTracks Recorder (Optional)", description: "", style: "page", page: "configureRecorder")
+                configureUsersHome()
             }
 
             section(getFormat("box", "Mobile App Configuration")) {
