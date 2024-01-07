@@ -23,6 +23,7 @@
  *  Changelog:
  *  Version    Date            Changes
  *  1.6.4      2024-01-07      - Fixed location option defaults not being displayed.  Push the hubitat location to the region list for each mobile user. Added instructions for thumbnail, card and recorder installation.
+ *  1.6.5      2024-01-07      - Added secondary hub link.
  *
  */
 
@@ -31,7 +32,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.6.4" }
+def appVersion() { return "1.6.5" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -88,6 +89,7 @@ preferences {
     page(name: "installationInstructions")
     page(name: "thumbnailCreationInstructions")
     page(name: "configureRecorder")
+    page(name: "configureSecondaryHub")
     page(name: "recorderInstallationInstructions")
     page(name: "configureLocation")
     page(name: "configureDisplay")
@@ -128,6 +130,7 @@ def mainPage() {
                 href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
                 href(title: "Creating User Thumbnail Instructions", description: "", style: "page", page: "thumbnailCreationInstructions")
                 href(title: "Enable OwnTracks Recorder (Optional)", description: "", style: "page", page: "configureRecorder")
+                href(title: "Link Secondary Hub (Optional)", description: "", style: "page", page: "configureSecondaryHub")
                 configureUsersHome()
             }
 
@@ -282,10 +285,25 @@ def configureRecorder() {
         section(getFormat("box", "Recorder Configuration")) {
             paragraph("The <a href='https://owntracks.org/booklet/clients/recorder/' target='_blank'>OwnTracks Recorder</a> (optional) can be installed for local tracking.")
             input name: "recorderURL", type: "text", title: "HTTP URL of the OwnTracks Recorder.  It will be in the format <b>'http://enter.your.recorder.ip:8083/pub'</b>, assuming using the default port of 8083.", defaultValue: ""
-            input name: "enableRecorder", type: "bool", title: "Enable location updates to be sent to the Recorder URL", defaultValue: false
+            input name: "enableRecorder", type: "bool", title: "Enable location updates to be sent to the Recorder URL", defaultValue: false, submitOnChange: true
+            if (!recorderURL) {
+                app.updateSetting("enableRecorder",[value: false, type: "bool"])
+            }
         }
         section() {
             href(title: "Installing OwnTracks Recorder and Configuring User Card Instructions", description: "", style: "page", page: "recorderInstallationInstructions")
+        }
+    }
+}
+
+def configureSecondaryHub() {
+    return dynamicPage(name: "configureSecondaryHub", title: "", nextPage: "mainPage") {
+        section(getFormat("box", "Secondary Hub Configuration")) {
+            input name: "secondaryHubURL", type: "text", title: "Host URL of the Seconday Hub from the OwnTracks app 'Mobile App Installation Instructions' page.", defaultValue: ""
+            input name: "enableSecondaryHub", type: "bool", title: "Enable location updates to be sent to the secondary hub URL", defaultValue: false, submitOnChange: true
+            if (!secondaryHubURL) {
+                app.updateSetting("enableSecondaryHub",[value: false, type: "bool"])
+            }
         }
     }
 }
@@ -709,6 +727,12 @@ def webhookEventHandler() {
                         updateDevicePresence(findMember, data)
                         // return with the rest of the users positions and waypoints if pending
                         result = sendUpdate(findMember, data)
+                    
+                        // Pass the location to a secondary hub with OwnTracks running
+                        if (secondaryHubURL && enableSecondaryHub) {
+                            def postParams = [ uri: secondaryHubURL, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
+                            asynchttpPost("httpCallbackMethod", postParams)
+                        }
 
                         // if the country code was not defined, replace with with hub timezone country
                         if (!data.cc) { data.cc = location.getTimeZone().getID().substring(0, 2).toUpperCase() }
@@ -717,7 +741,7 @@ def webhookEventHandler() {
                         // if we have the OwnTracks recorder configured, and the timestamp is valid, pass the location data to it
                         if (recorderURL && enableRecorder && (data.tst != 0)) {
                             def postParams = [ uri: recorderURL, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
-                            asynchttpPost("recorderCallbackMethod", postParams)
+                            asynchttpPost("httpCallbackMethod", postParams)
                         }
                     break
                     case "waypoint":
@@ -758,11 +782,11 @@ def parsePostHeaders(postHeaders) {
     return (newHeaders)
 }
 
-def recorderCallbackMethod(response, data) {
+def httpCallbackMethod(response, data) {
     if (response.status == 200) {
-        logDebug "Posted successfully to OwnTracks recorder URL."
+        logDebug "Posted successfully to OwnTracks URL."
     } else {
-        logWarn "OwnTracks Recorder HTTP response: ${response.status}"
+        logWarn "OwnTracks HTTP response: ${response.status}, with error: ${response.getErrorMessage()}"
     }
 }
 

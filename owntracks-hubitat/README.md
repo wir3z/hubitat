@@ -64,6 +64,11 @@ Open the Owntracks app.
 		- The optional Owntracks recorder:  https://owntracks.org/booklet/clients/recorder/ can be installed for local tracking.
 		- HTTP URL of the OwnTracks Recorder will be in the format 'http://enter.your.recorder.ip:8083/pub', assuming using the default port of 8083.
 		- Follow the directions on the page 'Installing OwnTracks Recorder and Configuring User Card Instructions' to install OwnTrack Recorder and configure user cards.
+		- When 'Enable location updates to be sent to the Recorder URL' is selected, incoming mobile locations are mirrored to the above URL. 
+	- Link Secondary Hub (Optional)
+		- Allows location updates to be sent to a secondary hub running the OwnTracks app.
+		- Enter the host URL of the Seconday Hub from the OwnTracks app 'Mobile App Installation Instructions' page.
+		- When 'Enable location updates to be sent to the secondary hub URL' is selected, incoming mobile locations are mirrored to the above URL. 
 
 2. Mobile App Configuration
 	NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or 'cmd' (iOS) must be enabled in the mobile app.
