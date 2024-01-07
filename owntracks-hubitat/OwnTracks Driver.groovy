@@ -73,7 +73,7 @@
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.2" }
+def driverVersion() { return "1.6.3" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -300,8 +300,8 @@ Boolean generatePresenceEvent(data) {
             device.deleteCurrentState('locationPermissions')
         }
 
-        // only log if there was a location change and log changes is enabled
-        if (device.currentValue("location") != currentLocation) {
+        // only log if there was a valid time, a location change and log changes is enabled
+        if ((data.tst != 0) && (device.currentValue("location") != currentLocation)) {
             if (logLocationChanges) log.info "$descriptionText"
             state.sinceTime = data.tst
         }
