@@ -2,9 +2,10 @@
   "packageName": "OwnTracks",
   "author": "Lyle Pakula",
   "minimumHEVersion": "0.0",
-  "dateReleased": "2023-12-30",
-  "category": "Convenience",
-  "tags": "Presence & Location",
+  "dateReleased": "2023-01-07",
+  "releaseNotes":"v1.6.4 - Fixed location option defaults not being displayed.  Push the hubitat location to the region list for each mobile user.  Moved SSID from the extended attributes block.  Added instructions for thumbnail, card and recorder installation.\n",
+  "documentationLink":"https://github.com/wir3z/hubitat/blob/main/owntracks-hubitat/README.md",
+  "communityLink":"https://community.hubitat.com/t/release-owntracks/130821",
   "apps": [
     {
       "id": "9197099c-9560-4983-abdd-b594a8472a75",
@@ -14,7 +15,7 @@
       "required": true,
       "oauth": true,
       "primary": true,
-      "version": "1.6.3"
+      "version": "1.6.4"
     }
   ],
   "drivers": [
@@ -24,7 +25,7 @@
       "namespace": "lpakula",
       "location": "https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20Driver.groovy",
       "required": true,
-      "version": "1.6.3"
+      "version": "1.6.4"
     }
   ]
 }

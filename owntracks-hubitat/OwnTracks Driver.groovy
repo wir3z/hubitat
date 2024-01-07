@@ -14,8 +14,6 @@
  *
  *  Connects OwnTracks push events to virtual presence drivers.
  *
- *  Author: Lyle Pakula (lpakula)
- *  Date: 2024-01-05
  *
  *  // events are received with the following structure
  *  For 'Location':
@@ -68,12 +66,20 @@
  *      // added to packet
  *      currentDistanceFromHome:0.234,
  *  ]
+ *
+ *
+ *  Author: Lyle Pakula (lpakula)
+ *
+ *  Changelog:
+ *  Version    Date            Changes
+ *  1.6.4      2024-01-07      - Moved SSID from the extended attributes block.
+ *
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.3" }
+def driverVersion() { return "1.6.4" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -154,7 +160,6 @@ def updated() {
         device.deleteCurrentState('dataConnection')
         device.deleteCurrentState('batteryStatus')
         device.deleteCurrentState('BSSID')
-        device.deleteCurrentState('SSID')
         device.deleteCurrentState('triggerSource')
         device.deleteCurrentState('monitoringMode')
     }
@@ -211,10 +216,11 @@ def updatePresence(data, allowAttributeDelete) {
             if (data?.bs)    sendEvent (name: "batteryStatus", value: BATTERY_STATUS[data.bs])           else if (allowAttributeDelete) device.deleteCurrentState('batteryStatus')
             if (data?.conn)  sendEvent (name: "dataConnection", value: DATA_CONNECTION[data.conn])       else if (allowAttributeDelete) device.deleteCurrentState('dataConnection')
             if (data?.BSSID) sendEvent (name: "BSSID", value: data.BSSID)                                else if (allowAttributeDelete) device.deleteCurrentState('BSSID')
-            if (data?.SSID)  sendEvent (name: "SSID", value: data.SSID)                                  else if (allowAttributeDelete) device.deleteCurrentState('SSID')
             if (data?.t)     sendEvent (name: "triggerSource", value: TRIGGER_TYPE[data.t])              else if (allowAttributeDelete) device.deleteCurrentState('triggerSource')
             if (data?.m)     sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])          else if (allowAttributeDelete) device.deleteCurrentState('monitoringMode')
         }
+        // needed for the presence detection check
+        if (data?.SSID)  sendEvent (name: "SSID", value: data.SSID)
     } else {
         // echo back the past value
         memberPresence = previousPresence

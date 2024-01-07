@@ -19,7 +19,11 @@
  *  Recorder:       https://github.com/owntracks/recorder
  *
  *  Author: Lyle Pakula (lpakula)
- *  Date: 2024-01-05
+ *
+ *  Changelog:
+ *  Version    Date            Changes
+ *  1.6.4      2024-01-07      - Fixed location option defaults not being displayed.  Push the hubitat location to the region list for each mobile user. Added instructions for thumbnail, card and recorder installation.
+ *
  */
 
 import groovy.transform.Field
@@ -27,7 +31,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.6.3" }
+def appVersion() { return "1.6.4" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -47,8 +51,8 @@ def appVersion() { return "1.6.3" }
 @Field Number  DEFAULT_RADIUS = 75
 @Field Number  DEFAULT_regionHighAccuracyRadius = 750
 // Mobile app location defaults
-@Field String  DEFAULT_monitoring = "1"
-@Field String  DEFAULT_locatorPriority = "2"
+@Field Number  DEFAULT_monitoring = 1
+@Field Number  DEFAULT_locatorPriority = 2
 @Field Number  DEFAULT_moveModeLocatorInterval = 30
 @Field Number  DEFAULT_locatorDisplacement = 50
 @Field Number  DEFAULT_locatorInterval = 60
@@ -82,7 +86,9 @@ definition(
 preferences {
     page(name: "mainPage")
     page(name: "installationInstructions")
+    page(name: "thumbnailCreationInstructions")
     page(name: "configureRecorder")
+    page(name: "recorderInstallationInstructions")
     page(name: "configureLocation")
     page(name: "configureDisplay")
     page(name: "configureRegions")
@@ -120,8 +126,9 @@ def mainPage() {
             }            
             section(getFormat("box", "Installation")) {
                 href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
+                href(title: "Creating User Thumbnail Instructions", description: "", style: "page", page: "thumbnailCreationInstructions")
                 configureUsersHome()
-                href(title: "Enable Recorder", description: "", style: "page", page: "configureRecorder")
+                href(title: "Enable OwnTracks Recorder (Optional)", description: "", style: "page", page: "configureRecorder")
             }
 
             section(getFormat("box", "Mobile App Configuration")) {
@@ -176,6 +183,73 @@ def installationInstructions() {
     }
 }
 
+def thumbnailCreationInstructions() {
+    return dynamicPage(name: "thumbnailCreationInstructions", title: "", nextPage: "mainPage") {
+        section(getFormat("box", "Creating User Thumbnail Instructions")) {
+            paragraph ("Creating User Thumbnails on the OwnTracks Mobile App and optional OwnTracks Recorder.\r\n\r\n" +
+                       "     1. Create a thumbnail for the user at a maximum resolution 192x192 pixels in JPG format using your computer.\r" +
+                       "     2. Name the thumbnail 'MyUser.jpg' where 'MyUser' is the same name as the user name entered in the mobile app.\r" +
+                       "     3. In Hubitat:\r" +
+                       "          a. Navigate to 'Settings->File Manager'.\r" +
+                       "          b. Select '+ Choose' and select the 'MyUser.jpg' that was created above.\r" +
+                       "          c. Select 'Upload'.\r" +
+                       "          d. Repeat for any additional users.\r" +
+                       "     4. In the OwnTracks Hubitat app:\r" +
+                       "          a. Select 'Display', and enable the 'Display user thumbnails on the map.' and then 'Done'.\r" +
+                       "          b. Select all users in the 'Select family member(s) to update location, display and region settings on the next location update.' box, and then 'Done'.\r" +
+                       "     5. In the OwnTracks Mobile app:\r" +
+                       "          a. Select the manual location button, top right of the map screen.  User thumbnails should now populate on the mobile app map.\r"
+                      )
+        }
+    }
+}
+
+def recorderInstallationInstructions() {
+    return dynamicPage(name: "recorderInstallationInstructions", title: "", nextPage: "configureRecorder") {
+        section(getFormat("box", "Installing and configuring the OwnTracks Recorder using Docker")) {
+            paragraph ("<b>NOTE:</b>  Instructions assume that Docker has already been installed and is operational.  Replace <b>[HOME_PATH]</b> with your installation specific docker path.  For OpenSUSE, the <b>[HOME_PATH]</b> is '<b>/var/lib</b>'.  Other installations may have a different home path.\r\n\r\n" +
+                       "For the source code and instructions, navigate to <a href='https://github.com/owntracks/docker-recorder/' target='_blank'>OwnTracks Recorder GitHub</a> \r\n\r\n" +
+                       "     1. Install OwnTracks Recorder:\r" +
+                       "          a. docker pull owntracks/recorder\r\n\r\n" +
+                       "     2. Configure OwnTracks Recorder:\r" +
+                       "          a. docker volume create recorder_store\r" +
+                       "          b. docker volume create config\r" +
+                       "          c. Copy (or create if non-existant) the 'recorder.conf' file to '/<b>[HOME_PATH]</b>/docker/volumes/config/_data', which contains the following:\r\n\r\n" +
+                       "                 Mode -> HTTP \r" +
+                       "                 OTR_STORAGEDIR=\"/<b>[HOME_PATH]</b>/docker/volumes/recorder_store/_data\"\r" +
+                       "                 OTR_PORT=0\r" +
+                       "                 OTR_HTTPHOST=\"0.0.0.0\"\r" +
+                       "                 OTR_HTTPPORT=8083\r" +
+                       "                 OTR_TOPICS=\"owntracks/#\"\r" +
+                       "                 OTR_SERVERLABEL=\"OwnTracks\"\r\n\r\n" +
+                       "          d. docker run -d --restart always --name=owntracks -p 8083:8083 -v recorder_store:/store -v config:/config owntracks/recorder\r\n\r\n" +
+                       "     3. The above 'recorder_store' (STORAGEDIR) and 'config' is found here in Docker:\r" +
+                       "          a. /<b>[HOME_PATH]</b>/docker/volumes/recorder_store/_data\r" +
+                       "          b. /<b>[HOME_PATH]</b>/docker/volumes/config/_data\r\n\r\n"
+                      )
+        }
+        section(getFormat("box", "Adding user cards to OwnTracks Recorder")) {
+            paragraph ("1. If user thumbnails have not been added to Hubitat, follow the instructions for 'Creating User Thumbnail Instructions' first:") 
+            href(title: "Creating User Thumbnail Instructions", description: "", style: "page", page: "thumbnailCreationInstructions")
+            paragraph ("2. Select the slider to generate the enabled user's JSON card data in the Hubitat logs:") 
+            input name: "generateMemberCardJSON", type: "bool", title: "Create 'trace' outputs for each enabled member in the Hubitat logs.  Slider will turn off once complete.", defaultValue: false, submitOnChange: true
+            if (generateMemberCardJSON) {
+                logMemberCardJSON()
+                app.updateSetting("generateMemberCardJSON",[value: false, type: "bool"])
+            }
+            paragraph ("3. In the Hubitat log, look for the 'trace' output that looks like this:\r" +
+                       "          For recorder cards, copy the bold JSON text between | |, and save this file to 'STORAGEDIR/cards/MyUser/MyUser.json': \r" + 
+                       "          |<b>'{\"_type\":\"card\",\"name\":\"MyUser\",\"face\":\"....\",\"tid\":\"MyUser\"}'</b>|\r\n\r\n" + 
+                       "4. Save the <b>'{\"_type\":\"card\",\"name\":\"MyUser\",\"face\":\"....\",\"tid\":\"MyUser\"}'</b> (including beginning and end single quotes) to a text file with the name <b>MyUser.json</b>, as listed in step 3.\r\n\r\n" +
+                       "5. To add user cards, copy card file for each user to the following docker path:\r" +
+                       "          /<b>[HOME_PATH]</b>/docker/volumes/recorder_store/_data/cards/<b>MyUser/MyUser</b>.json\r\n\r\n" +
+                       "6. Alternatively, if you choose to have user/device specific cards, you would name the card 'MyUser-Mydevice.json', and save it in the following docker path:\r" +
+                       "          /<b>[HOME_PATH]</b>/docker/volumes/recorder_store/_data/cards/<b>MyUser/Mydevice/MyUser-Mydevice</b>.json\r"
+                      )
+        }
+    }
+}
+
 def configureUsersHome() {
     if (state.imperialUnits != imperialUnits) {
         state.imperialUnits = imperialUnits
@@ -206,13 +280,12 @@ def configureUsersHome() {
 def configureRecorder() {
     return dynamicPage(name: "configureRecorder", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Recorder Configuration")) {
-            paragraph("Configure the <a href='https://owntracks.org/booklet/clients/recorder/' target='_blank'>OwnTracks Recorder</a> (optional) for local tracking.")
+            paragraph("The <a href='https://owntracks.org/booklet/clients/recorder/' target='_blank'>OwnTracks Recorder</a> (optional) can be installed for local tracking.")
             input name: "recorderURL", type: "text", title: "HTTP URL of the OwnTracks Recorder.  It will be in the format <b>'http://enter.your.recorder.ip:8083/pub'</b>, assuming using the default port of 8083.", defaultValue: ""
             input name: "enableRecorder", type: "bool", title: "Enable location updates to be sent to the Recorder URL", defaultValue: false
         }
         section() {
-            paragraph("For user cards to be used in the recorder, a JSON user card needs to be saved to: <b>'STORAGEDIR/cards/USER/USER.json'</b> on the recorder, where <b>'USER'</b> is the member name.")
-            paragraph("Enable debug logging for the OwnTracks app, trigger a manual location, and save the JSON from the debug message of: \r<b>'OwnTracks: For recorder cards, save this JSON to 'STORAGEDIR/cards/...'</b> to a file named 'USER.json'.  \r\rOr use <a href='https://avanc.github.io/owntracks-cards/' target='_blank'>Generate OwnTracks User Card</a> to create and save the JSON card to be stored in the above folder.")
+            href(title: "Installing OwnTracks Recorder and Configuring User Card Instructions", description: "", style: "page", page: "recorderInstallationInstructions")
         }
     }
 }
@@ -478,8 +551,8 @@ def initialize() {
     if (state.imperialUnits == null) state.imperialUnits = false
     
     // assign the defaults to the mobile app settings in case the user doesn't click into those screens
-    if (monitoring == null) app.updateSetting("monitoring", [value: DEFAULT_monitoring, type: "enum"])
-    if (locatorPriority == null) app.updateSetting("locatorPriority", [value: DEFAULT_locatorPriority, type: "enum"])
+    if (monitoring == null) app.updateSetting("monitoring", [value: DEFAULT_monitoring, type: "number"])
+    if (locatorPriority == null) app.updateSetting("locatorPriority", [value: DEFAULT_locatorPriority, type: "number"])
     if (moveModeLocatorInterval == null) app.updateSetting("moveModeLocatorInterval", [value: DEFAULT_moveModeLocatorInterval, type: "number"])
     if (locatorDisplacement == null) app.updateSetting("locatorDisplacement", [value: DEFAULT_locatorDisplacement, type: "number"])
     if (locatorInterval == null) app.updateSetting("locatorInterval", [value: DEFAULT_locatorInterval, type: "number"])
@@ -550,10 +623,25 @@ def updated() {
         } else {
             state.home = [ name:homeName, geofence:(state.homeGeoFence/1000), latitude:homeLat, longitude:homeLon ]
         }
+        // check if we need to add the hubitat home region to the phone regions list
+        addDefaultHomeRegionToRegions()
     } else {
         // using a place returned from the device regions
         findPlace = state.places.find {it.desc==homePlace}
         state.home = [ name:findPlace.desc, latitude:findPlace.lat, longitude:findPlace.lon, geofence:(findPlace.rad.toInteger()/1000) ]
+    }
+}
+
+def addDefaultHomeRegionToRegions() {
+    def foundPlace = state.places.find {it.desc==state.home.name}
+    // add the location to the regions list to be pushed to the user if it isn't already there
+    if (!foundPlace) {
+        app.updateSetting("regionName",[value:state.home.name,type:"text"])
+        app.updateSetting("regionRadius",[value:displayMFtVal((state.home.geofence*1000).toInteger()),type:"number"])
+        app.updateSetting("regionLat",[value:state.home.latitude,type:"double"])
+        app.updateSetting("regionLon",[value:state.home.longitude,type:"double"])
+        appButtonHandler("addButton")
+        clearSettingFields()
     }
 }
 
@@ -921,13 +1009,20 @@ private def getMemberCard(member, data) {
         }
     }
 
-    // for recorder, this debug must be captured and saved to: <STORAGEDIR>/cards/<user>/<user>.json
-    // or use: https://avanc.github.io/owntracks-cards/ to create and save the JSON
-    if (recorderURL) {
-        logDebug("For recorder cards, save this JSON to 'STORAGEDIR/cards/${member.name}/${member.name}.json': '${(new JsonBuilder(card)).toPrettyString()}'")
-    }
-
     return (card)
+}
+
+private def logMemberCardJSON() {
+    // creates "trace" outputs in the Hubitat logs for each user card to be saved into a .JSON file for OwnTracks Recorder
+    settings?.enabledMembers.each { enabledMember->
+        member = state.members.find {it.name==enabledMember}
+        card = getMemberCard(member, ["t":"u"])
+        if (card) {
+            // for recorder, this debug must be captured and saved to: <STORAGEDIR>/cards/<user>/<user>.json
+            // or use: https://avanc.github.io/owntracks-cards/ to create and save the JSON
+            log.trace("For recorder cards, copy the bold JSON text between |  |, and save this file to 'STORAGEDIR/cards/${member.name}/${member.name}.json': |<b>'${(new JsonBuilder(card)).toPrettyString()}'</b>|")
+        }
+    }        
 }
 
 private def sendWaypoints(currentMember) {

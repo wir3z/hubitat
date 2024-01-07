@@ -42,6 +42,8 @@ Open the Owntracks app.
 1. Installation
 	- Mobile App Installation Instructions:  
 		- Lists the 'Mobile App Configuration', above, with the Cloud API link.
+	- Creating User Thumbnail Instructions:  
+		- Directions to create thumbnails for the mobile app and recorder.
 	- Select family member(s):  
 		- Once a mobile device has connected to the Cloud API link, it will be populated in this list, but is disabled.  Select the user to enable presence detection.
     - Display a warning in the logs if a family member reports a location but is not enabled:
@@ -58,13 +60,10 @@ Open the Owntracks app.
 		- When a user is between the home geofence radius and this radius, the app will switch the user to use high accuracy/high frequency reporting to ensure presence triggers operate correctly.
 	- High accuracy reporting is used for home region only when selected, all regions if not selected
 		- If selected, then high accuracy reporting only occurs in the geofence around home.  If deselected, high accuracy reporting will be used on all regions.  Note:  This will increase battery consumption.
-	- Enable recorder
-		- Add the link to the optional Owntracks recorder:  https://owntracks.org/booklet/clients/recorder/
+	- Enable OwnTracks Recorder (Optional)
+		- The optional Owntracks recorder:  https://owntracks.org/booklet/clients/recorder/ can be installed for local tracking.
 		- HTTP URL of the OwnTracks Recorder will be in the format 'http://enter.your.recorder.ip:8083/pub', assuming using the default port of 8083.
-		- For user cards to be used in the recorder, a JSON user card needs to be saved to: 'STORAGEDIR/cards/USER/USER.json' on the recorder, where 'USER' is the member name.
-		- A user card can be created by:
-			- Enable debug logging for the OwnTracks app, trigger a manual location, and save the JSON from the debug message of: 
-			  'OwnTracks: For recorder cards, save this JSON to 'STORAGEDIR/cards/...' to a file named 'USER.json'.  
+		- Follow the directions on the page 'Installing OwnTracks Recorder and Configuring User Card Instructions' to install OwnTrack Recorder and configure user cards.
 
 2. Mobile App Configuration
 	NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or 'cmd' (iOS) must be enabled in the mobile app.
