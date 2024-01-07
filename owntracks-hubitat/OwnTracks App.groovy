@@ -24,6 +24,7 @@
  *  Version    Date            Changes
  *  1.6.4      2024-01-07      - Fixed location option defaults not being displayed.  Push the hubitat location to the region list for each mobile user. Added instructions for thumbnail, card and recorder installation.
  *  1.6.5      2024-01-07      - Added secondary hub link.
+ *  1.6.6      2024-01-07      - Fixed secondary hub link.
  *
  */
 
@@ -717,6 +718,12 @@ def webhookEventHandler() {
                 switch (data._type) {
                     case "location":
                     case "transition":
+                        // Pass the location to a secondary hub with OwnTracks running
+                        if (secondaryHubURL && enableSecondaryHub) {
+                            def postParams = [ uri: secondaryHubURL, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
+                            asynchttpPost("httpCallbackMethod", postParams)
+                        }
+
                         // log the elapsed distance and time
                         logDistanceTraveledAndElapsedTime(findMember, data)
                         // replace the tracker ID with the member name.  NOTE: if the TID is undefined, it will be the last 2-characters of the Device ID
@@ -728,12 +735,6 @@ def webhookEventHandler() {
                         // return with the rest of the users positions and waypoints if pending
                         result = sendUpdate(findMember, data)
                     
-                        // Pass the location to a secondary hub with OwnTracks running
-                        if (secondaryHubURL && enableSecondaryHub) {
-                            def postParams = [ uri: secondaryHubURL, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
-                            asynchttpPost("httpCallbackMethod", postParams)
-                        }
-
                         // if the country code was not defined, replace with with hub timezone country
                         if (!data.cc) { data.cc = location.getTimeZone().getID().substring(0, 2).toUpperCase() }
                         // if the course over ground was not defined, replace distance from home
