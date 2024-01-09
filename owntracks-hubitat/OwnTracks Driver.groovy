@@ -73,13 +73,14 @@
  *  Changelog:
  *  Version    Date            Changes
  *  1.6.4      2024-01-07      - Moved SSID from the extended attributes block.
+ *  1.6.5      2024-01-08      - Added last location time field.  Fixed issue where SSID wasn't getting deleted when WiFi was disconnected.  Moved SSID check from driver to app.
  *
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.4" }
+def driverVersion() { return "1.6.5" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -90,43 +91,44 @@ def driverVersion() { return "1.6.4" }
 
 metadata {
   definition (
-      name: "OwnTracks Driver", 
-      namespace: "lpakula", 
-      author: "Lyle Pakula", 
-      importUrl: "https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20Driver.groovy"
+      name:        "OwnTracks Driver", 
+      namespace:   "lpakula", 
+      author:      "Lyle Pakula", 
+      importUrl:   "https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20Driver.groovy"
   ) {
         capability "Actuator"
         capability "Presence Sensor"
 
-        command "arrived"
-        command "departed"
+        command    "arrived"
+        command    "departed"
 
-        attribute "location", "string"
-        attribute "since", "string"
-        attribute "battery", "string"
-        attribute "lastSpeed", "number"
-        attribute "distanceFromHome", "number"
-        attribute "wifi", "string"
+        attribute  "location", "string"
+        attribute  "since", "string"
+        attribute  "battery", "string"
+        attribute  "lastSpeed", "number"
+        attribute  "distanceFromHome", "number"
+        attribute  "wifi", "string"
+        attribute  "lastLocationtime", "string"
 
-        attribute "batterySaver", "string"
-        attribute "hiberateAllowed", "string"
-        attribute "batteryOptimizations", "string"
-        attribute "locationPermissions", "string"
+        attribute  "batterySaver", "string"
+        attribute  "hiberateAllowed", "string"
+        attribute  "batteryOptimizations", "string"
+        attribute  "locationPermissions", "string"
 
         // extended attributes
-        attribute "batteryPercent", "number"
-        attribute "lat", "number"
-        attribute "lon", "number"
-        attribute "accuracy", "number"
-        attribute "verticalAccuracy", "number"
-        attribute "altitude", "number"
-        attribute "sourceTopic", "string"
-        attribute "dataConnection", "string"
-        attribute "batteryStatus", "string"
-        attribute "BSSID", "string"
-        attribute "SSID", "string"
-        attribute "triggerSource", "string"
-        attribute "monitoringMode", "string"
+        attribute  "batteryPercent", "number"
+        attribute  "lat", "number"
+        attribute  "lon", "number"
+        attribute  "accuracy", "number"
+        attribute  "verticalAccuracy", "number"
+        attribute  "altitude", "number"
+        attribute  "sourceTopic", "string"
+        attribute  "dataConnection", "string"
+        attribute  "batteryStatus", "string"
+        attribute  "BSSID", "string"
+        attribute  "SSID", "string"
+        attribute  "triggerSource", "string"
+        attribute  "monitoringMode", "string"
     }
 }
 
@@ -186,18 +188,7 @@ def updatePresence(data, allowAttributeDelete) {
         if (data.currentDistanceFromHome == 0) {
             memberPresence = "present"
         } else {
-            // check if we have a defined home SSID that we are currently connected, to prevent the "non present"
-            if ((data.homeSSID != "") && (device.currentValue("SSID") != null)) {
-                // check if we match the SSID list
-                if (isSSIDMatch(data.homeSSID)) {
-                    // keep the present status
-                    memberPresence = "present"
-                } else {
-                    memberPresence = "not present"
-                }
-            } else {
-                memberPresence = "not present"
-            }
+            memberPresence = "not present"
         }
 
         // only update the time if there was a state change
@@ -220,7 +211,7 @@ def updatePresence(data, allowAttributeDelete) {
             if (data?.m)     sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])          else if (allowAttributeDelete) device.deleteCurrentState('monitoringMode')
         }
         // needed for the presence detection check
-        if (data?.SSID)  sendEvent (name: "SSID", value: data.SSID)
+        if (data?.SSID)  sendEvent (name: "SSID", value: data.SSID)                                      else if (allowAttributeDelete) device.deleteCurrentState('SSID')
     } else {
         // echo back the past value
         memberPresence = previousPresence
@@ -228,18 +219,6 @@ def updatePresence(data, allowAttributeDelete) {
 
     // return with the updated presence
     return (memberPresence)
-}
-
-def isSSIDMatch(dataString) {
-    result = false
-    // split the list in tokens, and trim the leading/trailing whitespace
-    SSIDList = dataString.split(',')
-    SSIDList.each { SSID ->
-        if (SSID.trim() == device.currentValue("SSID")) {
-            result = true
-        }
-    }
-    return (result)
 }
 
 Boolean generatePresenceEvent(data) {
@@ -251,6 +230,9 @@ Boolean generatePresenceEvent(data) {
     //logDebug("Member Data: $data")
     logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: ${data.lat},${data.lon}")
 
+    // update the last location time
+    sendEvent( name: "lastLocationtime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )
+    
     // if we have a push event, there is limited data to process
     if (data._type == "transition") {
         // check if we need to update the presence
@@ -321,7 +303,7 @@ Boolean generatePresenceEvent(data) {
 
         sendEvent( name: "since", value: sinceDate )
         sendEvent( name: "location", value: currentLocation )
-        sendEvent (name: "presence", value: memberPresence, descriptionText: descriptionText)
+        sendEvent( name: "presence", value: memberPresence, descriptionText: descriptionText)
         sendEvent( name: "distanceFromHome", value:  parent.displayKmMiVal(data.currentDistanceFromHome) )
         if (data?.vel) sendEvent( name: "lastSpeed", value:  parent.displayKmMiVal(data.vel).toInteger() )
 

@@ -25,6 +25,7 @@
  *  1.6.4      2024-01-07      - Fixed location option defaults not being displayed.  Push the hubitat location to the region list for each mobile user. Added instructions for thumbnail, card and recorder installation.
  *  1.6.5      2024-01-07      - Added secondary hub link.
  *  1.6.6      2024-01-07      - Fixed secondary hub link.
+ *  1.6.7      2024-01-08      - Fixed WiFI SSID check that was giving improper "present" when away.
  *
  */
 
@@ -33,7 +34,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.6.6" }
+def appVersion() { return "1.6.7" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -52,6 +53,7 @@ def appVersion() { return "1.6.6" }
 @Field Number  INVALID_COORDINATE = 999
 @Field Number  DEFAULT_RADIUS = 75
 @Field Number  DEFAULT_regionHighAccuracyRadius = 750
+@Field Number  DEFAULT_wifiPresenceKeepRadius = 0.750
 // Mobile app location defaults
 @Field Number  DEFAULT_monitoring = 1
 @Field Number  DEFAULT_locatorPriority = 2
@@ -192,7 +194,7 @@ def thumbnailCreationInstructions() {
         section(getFormat("box", "Creating User Thumbnail Instructions")) {
             paragraph ("Creating User Thumbnails on the OwnTracks Mobile App and optional OwnTracks Recorder.\r\n\r\n" +
                        "     1. Create a thumbnail for the user at a maximum resolution 192x192 pixels in JPG format using your computer.\r" +
-                       "     2. Name the thumbnail 'MyUser.jpg' where 'MyUser' is the same name as the user name entered in the mobile app.\r" +
+                       "     2. Name the thumbnail 'MyUser.jpg' where 'MyUser' is the same name as the user name (case sensitive) entered in the mobile app.\r" +
                        "     3. In Hubitat:\r" +
                        "          a. Navigate to 'Settings->File Manager'.\r" +
                        "          b. Select '+ Choose' and select the 'MyUser.jpg' that was created above.\r" +
@@ -242,13 +244,13 @@ def recorderInstallationInstructions() {
                 app.updateSetting("generateMemberCardJSON",[value: false, type: "bool"])
             }
             paragraph ("3. In the Hubitat log, look for the 'trace' output that looks like this:\r" +
-                       "          For recorder cards, copy the bold JSON text between | |, and save this file to 'STORAGEDIR/cards/MyUser/MyUser.json': \r" + 
-                       "          |<b>'{\"_type\":\"card\",\"name\":\"MyUser\",\"face\":\"....\",\"tid\":\"MyUser\"}'</b>|\r\n\r\n" + 
-                       "4. Save the <b>'{\"_type\":\"card\",\"name\":\"MyUser\",\"face\":\"....\",\"tid\":\"MyUser\"}'</b> (including beginning and end single quotes) to a text file with the name <b>MyUser.json</b>, as listed in step 3.\r\n\r\n" +
+                       "          For recorder cards, copy the bold JSON text between | |, and save this file to 'STORAGEDIR/cards/myuser/myuser.json' (user name is in lower case): \r" + 
+                       "          |<b>{\"_type\":\"card\",\"name\":\"MyUser\",\"face\":\"....\",\"tid\":\"MyUser\"}</b>|\r\n\r\n" + 
+                       "4. Save the <b>{\"_type\":\"card\",\"name\":\"MyUser\",\"face\":\"....\",\"tid\":\"MyUser\"}</b> to a text file with the name <b>myuser.json</b> (user name is in lower case), as listed in step 3.\r\n\r\n" +
                        "5. To add user cards, copy card file for each user to the following docker path:\r" +
-                       "          /<b>[HOME_PATH]</b>/docker/volumes/recorder_store/_data/cards/<b>MyUser/MyUser</b>.json\r\n\r\n" +
-                       "6. Alternatively, if you choose to have user/device specific cards, you would name the card 'MyUser-Mydevice.json', and save it in the following docker path:\r" +
-                       "          /<b>[HOME_PATH]</b>/docker/volumes/recorder_store/_data/cards/<b>MyUser/Mydevice/MyUser-Mydevice</b>.json\r"
+                       "          /<b>[HOME_PATH]</b>/docker/volumes/recorder_store/_data/cards/<b>myuser/myuser</b>.json\r\n\r\n" +
+                       "6. Alternatively, if you choose to have user/device specific cards, you would name the card 'myuser-mydevice.json' (user/device name is in lower case), and save it in the following docker path:\r" +
+                       "          /<b>[HOME_PATH]</b>/docker/volumes/recorder_store/_data/cards/<b>myuser/mydevice/myuser-mydevice</b>.json\r"
                       )
         }
     }
@@ -791,6 +793,22 @@ def httpCallbackMethod(response, data) {
     }
 }
 
+def isSSIDMatch(dataString, deviceID) {
+    result = false
+    // check for matching SSID in the list
+    if (dataString && deviceID.currentValue("SSID")) {
+        // split the list in tokens, and trim the leading/trailing whitespace
+        SSIDList = dataString.split(',')
+        SSIDList.each { SSID ->
+            if (SSID.trim() == deviceID.currentValue("SSID")) {
+                result = true
+            }
+        }
+    }
+    
+    return (result)
+}
+
 def updateDevicePresence(member, data) {
     // save the position and timestamp so we can push to other users
     member.latitude  = data?.lat
@@ -816,7 +834,9 @@ def updateDevicePresence(member, data) {
 
         // append the distance from home to the data packet
         data.currentDistanceFromHome = getDistanceFromHome(data)
-        if (data.currentDistanceFromHome <= state.home.geofence) {
+        
+        // if we are within our home geofence or connected to a listed SSID and within the next geofence
+        if ( (data.currentDistanceFromHome <= state.home.geofence) || ((data.currentDistanceFromHome < DEFAULT_wifiPresenceKeepRadius) && isSSIDMatch(homeSSID, deviceWrapper)) ) {
             data.currentDistanceFromHome = 0.0
             // if there was no defined regions, create a blank list
             if (!data.inregions) {
@@ -827,8 +847,7 @@ def updateDevicePresence(member, data) {
                 data.inregions << state.home.name
             }
         }
-        // pass the home SSID to the driver
-        data.homeSSID = homeSSID
+        
         // update the child information
         deviceWrapper.generatePresenceEvent(data)
     } catch(e) {
@@ -1045,7 +1064,7 @@ private def logMemberCardJSON() {
         if (card) {
             // for recorder, this debug must be captured and saved to: <STORAGEDIR>/cards/<user>/<user>.json
             // or use: https://avanc.github.io/owntracks-cards/ to create and save the JSON
-            log.trace("For recorder cards, copy the bold JSON text between |  |, and save this file to 'STORAGEDIR/cards/${member.name}/${member.name}.json': |<b>'${(new JsonBuilder(card)).toPrettyString()}'</b>|")
+            log.trace("For recorder cards, copy the bold JSON text between |  |, and save this file to 'STORAGEDIR/cards/${member.name}/${member.name}.json': |<b>${(new JsonBuilder(card)).toPrettyString()}</b>|")
         }
     }        
 }
