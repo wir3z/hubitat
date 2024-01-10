@@ -61,7 +61,7 @@ def appVersion() { return "1.6.8" }
 @Field Number  DEFAULT_moveModeLocatorInterval = 30
 @Field Number  DEFAULT_locatorDisplacement = 50
 @Field Number  DEFAULT_locatorInterval = 60
-@Field Number  DEFAULT_ignoreInaccurateLocations = 50
+@Field Number  DEFAULT_ignoreInaccurateLocations = 150
 @Field Number  DEFAULT_ignoreStaleLocations = 7.0
 @Field Number  DEFAULT_ping = 30
 @Field Boolean DEFAULT_pegLocatorFastestIntervalToInterval = true
