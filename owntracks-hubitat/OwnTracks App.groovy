@@ -26,6 +26,7 @@
  *  1.6.5      2024-01-07      - Added secondary hub link.
  *  1.6.6      2024-01-07      - Fixed secondary hub link.
  *  1.6.7      2024-01-08      - Fixed WiFI SSID check that was giving improper "present" when away.
+ *  1.6.8      2024-01-09      - Prevent extra Android diagnostic fields from being sent to mobile devices that do not support them.
  *
  */
 
@@ -34,7 +35,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.6.7" }
+def appVersion() { return "1.6.8" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -834,7 +835,7 @@ def updateDevicePresence(member, data) {
 
         // append the distance from home to the data packet
         data.currentDistanceFromHome = getDistanceFromHome(data)
-        
+    
         // if we are within our home geofence or connected to a listed SSID and within the next geofence
         if ( (data.currentDistanceFromHome <= state.home.geofence) || ((data.currentDistanceFromHome < DEFAULT_wifiPresenceKeepRadius) && isSSIDMatch(homeSSID, deviceWrapper)) ) {
             data.currentDistanceFromHome = 0.0
@@ -1026,8 +1027,16 @@ private def sendMemberPositions(currentMember, data) {
         // don't send the members position back to them
         if (currentMember.name != enabledMember) {
             member = state.members.find {it.name==enabledMember}
-            // populating the tracker ID field with a name allows the name to be displayed in the Friends list and map bubbles
-            positions << [ "_type": "location", "t": "u", "lat": member.latitude, "lon": member.longitude, "tst": member.timeStamp, "tid": member.trackerID, "batt": member.battery, "acc": member.accuracy, "alt": member.altitude, "vel": member.speed, "wifi": member.wifi, "hib": member.hib, "ps": member.ps, "bo": member.bo, "loc": member.loc, "bs": member.bs ]
+            // populating the tracker ID field with a name allows the name to be displayed in the Friends list and map bubbles and load the OwnTrack support parameters
+            def memberLocation = [ "_type": "location", "t": "u", "lat": member.latitude, "lon": member.longitude, "tst": member.timeStamp, "tid": member.trackerID, "batt": member.battery, "acc": member.accuracy, "alt": member.altitude, "vel": member.speed, "bs": member.bs ]
+            // populate the additional data fields if supported by the current member
+            if (currentMember.wifi != null) memberLocation["wifi"] = member.wifi
+            if (currentMember.hib  != null) memberLocation["hib"]  = member.hib
+            if (currentMember.ps   != null) memberLocation["ps"]   = member.ps
+            if (currentMember.bo   != null) memberLocation["bo"]   = member.bo
+            if (currentMember.loc  != null) memberLocation["loc"]  = member.loc
+            
+            positions << memberLocation
             // send the image cards for the user if enabled
             card = getMemberCard(member, data)
             if (card) {
@@ -1081,7 +1090,7 @@ private def sendConfiguration(currentMember) {
     // create the configuration response.  Note: Configuration below are only the HTTP from the exported config.otrc file values based on the build version below
     def configurationList = [
                                 "_type" :                               "configuration",
-                              //"_build" :                              420412000,                           // current mobile app version
+                              //"_build" :                              420412000,                           // current mobile app version (Android)
 
                                 // static configuration
                                 "mode" :                                3,                                   // Endpoint protocol mode: 0=MQTT, 3=HTTP
