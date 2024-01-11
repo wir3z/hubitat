@@ -52,9 +52,9 @@ Open the Owntracks app.
 		- If enabled, a warning will be displayed each time a user reports a location with non-optimal phone settings.
 	- Display imperial units instead of metric units
 		- If enabled, all units in the Hubitat app and driver will be displayed in imperial units (mph, mi, ft) instead of metric units (kph, km, m)
-	- Select your 'Home' place. Use '[Hubitat Location]' to enter a location: 
+	- Select your 'Home' place. Use 'Regions', below, and 'Add Region' to create a home location if the list is empty: 
 		- Select the region where 'Home' is for presence detection.  
-		- Use '[Hubitat Location]' to use the hub location.  Enter a name for "home" as well as the geofence in meters.
+		- If the list is empty, select 'Regions' in the Mobile App Configuration to create a home location.
 	- Enter your 'Home' WiFi SSID(s), separated by commas (optional).  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point.
 	- Enable high accuracy reporting when location is between region radius and this value:
 		- When a user is between the home geofence radius and this radius, the app will switch the user to use high accuracy/high frequency reporting to ensure presence triggers operate correctly.

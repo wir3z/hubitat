@@ -27,6 +27,7 @@
  *  1.6.6      2024-01-07      - Fixed secondary hub link.
  *  1.6.7      2024-01-08      - Fixed WiFI SSID check that was giving improper "present" when away.
  *  1.6.8      2024-01-09      - Prevent extra Android diagnostic fields from being sent to mobile devices that do not support them.
+ *  1.6.9      2024-01-10      - Cleaned up trackerID sent to map.  Removed default hubitat location due to overlap and confusion.
  *
  */
 
@@ -35,7 +36,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.6.8" }
+def appVersion() { return "1.6.9" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -50,8 +51,8 @@ def appVersion() { return "1.6.8" }
 // Main defaults
 @Field String  CHILDPREFIX = "OwnTracks - "
 @Field String  MQTT_TOPIC_PREFIX = "owntracks"
-@Field String  HUBITAT_LOCATION = "[Hubitat Location]"
 @Field Number  INVALID_COORDINATE = 999
+@Field String  DEFAULT_homeName = "Home"
 @Field Number  DEFAULT_RADIUS = 75
 @Field Number  DEFAULT_regionHighAccuracyRadius = 750
 @Field Number  DEFAULT_wifiPresenceKeepRadius = 0.750
@@ -222,7 +223,6 @@ def recorderInstallationInstructions() {
                        "          a. docker volume create recorder_store\r" +
                        "          b. docker volume create config\r" +
                        "          c. Copy (or create if non-existant) the 'recorder.conf' file to '/<b>[HOME_PATH]</b>/docker/volumes/config/_data', which contains the following:\r\n\r\n" +
-                       "                 Mode -> HTTP \r" +
                        "                 OTR_STORAGEDIR=\"/<b>[HOME_PATH]</b>/docker/volumes/recorder_store/_data\"\r" +
                        "                 OTR_PORT=0\r" +
                        "                 OTR_HTTPHOST=\"0.0.0.0\"\r" +
@@ -269,16 +269,7 @@ def configureUsersHome() {
     input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: true
     input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: false
     input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: false, submitOnChange: true
-    input "homePlace", "enum", multiple: false, title:"Select your 'Home' place.  Use '$HUBITAT_LOCATION' to enter a location.", options: [ "$HUBITAT_LOCATION" ] + (state.places ? state.places.desc.sort() : []), defaultValue: HUBITAT_LOCATION, submitOnChange: true
-    if (homePlace == HUBITAT_LOCATION) {
-        input "homeName", "text", title: "'Home' name", required: true, defaultValue: "Home"
-        input name: "homeGeoFence", type: "number", title: "Distance from home location to indicate 'present' (${displayMFtVal(DEFAULT_RADIUS)}-${displayMFtVal(1000)}${getSmallUnits()})", required: true, range: "${displayMFtVal(DEFAULT_RADIUS)}..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_RADIUS)
-        input name: "useHubLocation", type: "bool", title: "Use hub location for 'Home' geofence: ${location.getLatitude()},${location.getLongitude()}", defaultValue: false, submitOnChange: true
-        if (!useHubLocation) {
-            input name: "homeLat", type: "double", title: "Home Latitude", required: true, range: "-90.0..90.0", defaultValue: location.getLatitude()
-            input name: "homeLon", type: "double", title: "Home Longitude", required: true, range: "-180.0..180.0", defaultValue: location.getLongitude()
-        }
-    }
+    input "homePlace", "enum", multiple: false, title:"Select your 'Home' place.  Use 'Regions', below, and 'Add Region' to create a home location if the list is empty.", options: (state.places ? state.places.desc.sort() : [])
     input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas (optional).  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point.", defaultValue: ""
     input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", required: false, defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? ['0':'disabled','250':'820 ft','500':'1640 ft','750':'2460 ft','1000':'3280 ft'] : ['0':'disabled','250':'250 m','500':'500 m','750':'750 m','1000':'1000 m'])
     input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: true
@@ -635,22 +626,13 @@ def updated() {
     // save the values to allow for imperial/metric selection
     state.locatorDisplacement             = convertToMeters(locatorDisplacement)
     state.ignoreInaccurateLocations       = convertToMeters(ignoreInaccurateLocations)
-    state.homeGeoFence                    = convertToMeters(homeGeoFence)
 
     // store the home information
-    if (homePlace == HUBITAT_LOCATION) {
-        // using a locally entered location
-        if (useHubLocation) {
-            state.home = [ name:homeName, geofence:(state.homeGeoFence/1000), latitude:location.getLatitude(), longitude:location.getLongitude() ]
-        } else {
-            state.home = [ name:homeName, geofence:(state.homeGeoFence/1000), latitude:homeLat, longitude:homeLon ]
-        }
-        // check if we need to add the hubitat home region to the phone regions list
-        addDefaultHomeRegionToRegions()
-    } else {
-        // using a place returned from the device regions
-        findPlace = state.places.find {it.desc==homePlace}
+    findPlace = state.places.find {it.desc==homePlace}
+    if (findPlace) {
         state.home = [ name:findPlace.desc, latitude:findPlace.lat, longitude:findPlace.lon, geofence:(findPlace.rad.toInteger()/1000) ]
+    } else {
+        logError("No 'Home' location has been defined.  Presence detection will be non-functional.")
     }
 }
 
@@ -820,12 +802,12 @@ def updateDevicePresence(member, data) {
     member.altitude  = data?.alt
     member.speed     = data?.vel
     member.trackerID = data?.tid
+    member.bs        = data?.bs
     member.wifi      = data?.wifi
     member.hib       = data?.hib
     member.ps        = data?.ps
     member.bo        = data?.bo
     member.loc       = data?.loc
-    member.bs        = data?.bs
 
     // update the presence information for the member
     try {
@@ -1055,7 +1037,7 @@ private def getMemberCard(member, data) {
     if (imageCards && validLocationType(data.t)) {
         try{
             // append each enabled user's card with encoded image
-            card = [ "_type": "card", "name": "${member.name}", "face": "${downloadHubFile("${member.name}.jpg").encodeBase64().toString()}", "tid": "${(member.trackerID == "er" ? member.name : member.trackerID)}" ]
+            card = [ "_type": "card", "name": "${member.name}", "face": "${downloadHubFile("${member.name}.jpg").encodeBase64().toString()}", "tid": "${member.name}" ]
         }
         catch (e) {
             logError("No ${member.name}.jpg image stored in 'Settings->File Manager'")
@@ -1090,7 +1072,6 @@ private def sendConfiguration(currentMember) {
     // create the configuration response.  Note: Configuration below are only the HTTP from the exported config.otrc file values based on the build version below
     def configurationList = [
                                 "_type" :                               "configuration",
-                              //"_build" :                              420412000,                           // current mobile app version (Android)
 
                                 // static configuration
                                 "mode" :                                3,                                   // Endpoint protocol mode: 0=MQTT, 3=HTTP
@@ -1106,19 +1087,10 @@ private def sendConfiguration(currentMember) {
                                 "fusedRegionDetection" :                true,
                                 "notificationHigherPriority" :          false,
                                 "opencageApiKey" :                      "",
-                             // "mapLayerStyle" :                       "GoogleMapDefault",                  // type cast issues from the app debug logs
-                             // "osmTileScaleFactor" :                  1.0,                                 // type cast issues from the app debug logs
-
-                                 // user configurations                                                      // These are unique to each user device
-                             // "username" :                            "",                                  // Username to be used to create the device
-                             // "password" :                            "",                                  // Not used
-                             // "deviceId" :                            "",                                  // Not used -- defaults to the OS version (IE: Android 14 is 'Panther')
-                             // "tid" :                                 "",                                  // 2-character tracker ID to be displayed on the friends map -- leave blank, and the username is pushed back for the map
                             ]
 
     def deviceLocatorList = [
                                 // dynamic configurations
-                             // "url" :                                 "${extUri}",                         // Connection URL to this app.  No point in allow it to be configured since it's static
                                 "pegLocatorFastestIntervalToInterval" : pegLocatorFastestIntervalToInterval, // Request that the location provider deliver updates no faster than the requested locator interval
                                 "monitoring" :                          monitoring.toInteger(),              // Monitoring mode (quiet, manual, significant, move)
                                 "locatorPriority" :                     locatorPriority.toInteger(),         // source/power setting for location updates (no power, low power, balanced power, high power)
