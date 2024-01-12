@@ -91,7 +91,8 @@ Open the Owntracks app.
 			- Select the region(s) to delete.  Click on the screen to expose the 'Delete' button.
 			- Click the 'Delete' button.
 			- Click the 'Next' button to leave the screen, or abandon changes if 'Delete' was not pressed.
-			NOTE:  Android Build 420412000 does not delete the region remotely.  Their name will be changed to '-DELETED-', and will need to be manually deleted from each device.
+			NOTE:  The region will remain in the Hubitat OwnTracks app, until all users have reported a location to retrieve the deletion notice.
+			NOTE:  Android Build 420412000 does not delete the region remotely and will need to be manually deleted from each device.
 	b. Location
 		- Using the defaults gives best balance of battery life and accuracy.  If 'Enable high accuracy reporting when location is between region radius and this value' was enabled on the main screen,
 			the device will be switched to 'HIGH_POWER' mode with 'Request that the location provider updates no faster than the requested locater interval' when the mobile device is within that region.

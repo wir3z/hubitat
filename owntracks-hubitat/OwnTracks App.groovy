@@ -28,6 +28,7 @@
  *  1.6.7      2024-01-08      - Fixed WiFI SSID check that was giving improper "present" when away.
  *  1.6.8      2024-01-09      - Prevent extra Android diagnostic fields from being sent to mobile devices that do not support them.
  *  1.6.9      2024-01-10      - Cleaned up trackerID sent to map.  Removed default hubitat location due to overlap and confusion.
+ *  1.6.10     2024-01-11      - Removed the -Delete- name from deleted regions which was preventing iOS from deleting.  Send the users own location/user card back to them so their thumbnail displays on the map.  Fixed iOS crash when receiving invalid data.
  *
  */
 
@@ -36,7 +37,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 
-def appVersion() { return "1.6.9" }
+def appVersion() { return "1.6.10" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -136,7 +137,21 @@ def mainPage() {
                 href(title: "Creating User Thumbnail Instructions", description: "", style: "page", page: "thumbnailCreationInstructions")
                 href(title: "Enable OwnTracks Recorder (Optional)", description: "", style: "page", page: "configureRecorder")
                 href(title: "Link Secondary Hub (Optional)", description: "", style: "page", page: "configureSecondaryHub")
-                configureUsersHome()
+                if (state.imperialUnits != imperialUnits) {
+                    state.imperialUnits = imperialUnits
+                    // preload the settings field with the proper units
+                    app.updateSetting("locatorDisplacement", [value: displayMFtVal(state.locatorDisplacement), type: "number"])
+                    app.updateSetting("ignoreInaccurateLocations", [value: displayMFtVal(state.ignoreInaccurateLocations), type: "number"])
+                    app.updateSetting("homeGeoFence", [value: displayMFtVal(state.homeGeoFence), type: "number"])
+                }
+                input "enabledMembers", "enum", multiple: true, required:false, title:"Select family member(s)", options: state.members.name.sort(), submitOnChange: true
+                input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: true
+                input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: false
+                input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: false, submitOnChange: true
+                input "homePlace", "enum", multiple: false, title:"Select your 'Home' place.  Use 'Regions', below, and 'Add Region' to create a home location if the list is empty.", options: (state.places ? state.places.desc.sort() : [])
+                input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas (optional).  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point.", defaultValue: ""
+                input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", required: false, defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? ['0':'disabled','250':'820 ft','500':'1640 ft','750':'2461 ft','1000':'3281 ft'] : ['0':'disabled','250':'250 m','500':'500 m','750':'750 m','1000':'1000 m'])
+                input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: true
             }
 
             section(getFormat("box", "Mobile App Configuration")) {
@@ -255,24 +270,6 @@ def recorderInstallationInstructions() {
                       )
         }
     }
-}
-
-def configureUsersHome() {
-    if (state.imperialUnits != imperialUnits) {
-        state.imperialUnits = imperialUnits
-        // preload the settings field with the proper units
-        app.updateSetting("locatorDisplacement", [value: displayMFtVal(state.locatorDisplacement), type: "number"])
-        app.updateSetting("ignoreInaccurateLocations", [value: displayMFtVal(state.ignoreInaccurateLocations), type: "number"])
-        app.updateSetting("homeGeoFence", [value: displayMFtVal(state.homeGeoFence), type: "number"])
-    }
-    input "enabledMembers", "enum", multiple: true, required:false, title:"Select family member(s)", options: state.members.name.sort(), submitOnChange: true
-    input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: true
-    input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: false
-    input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: false, submitOnChange: true
-    input "homePlace", "enum", multiple: false, title:"Select your 'Home' place.  Use 'Regions', below, and 'Add Region' to create a home location if the list is empty.", options: (state.places ? state.places.desc.sort() : [])
-    input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas (optional).  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point.", defaultValue: ""
-    input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", required: false, defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? ['0':'disabled','250':'820 ft','500':'1640 ft','750':'2460 ft','1000':'3280 ft'] : ['0':'disabled','250':'250 m','500':'500 m','750':'750 m','1000':'1000 m'])
-    input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: true
 }
 
 def configureRecorder() {
@@ -487,10 +484,9 @@ String appButtonHandler(btn) {
             // unvalidate all the places that need to be removed
             regionName.each { desc ->
                 place = state.places.find {it.desc==desc}
-                // invalidate the coordinates to flag it for deletion
+                // invalidate the coordinates to flag it for deletion.  iOS is checking the name as a key, Android the timestamp
                 place.lat = INVALID_COORDINATE
                 place.lon = INVALID_COORDINATE
-                place.desc = "-DELETED-"
                 // check if we are deleting our home location
                 if (homePlace == desc) {
                    state.home = []
@@ -1006,24 +1002,33 @@ private def sendMemberPositions(currentMember, data) {
 
     // loop through all the enabled members
     settings?.enabledMembers.each { enabledMember->
-        // don't send the members position back to them
-        if (currentMember.name != enabledMember) {
-            member = state.members.find {it.name==enabledMember}
-            // populating the tracker ID field with a name allows the name to be displayed in the Friends list and map bubbles and load the OwnTrack support parameters
-            def memberLocation = [ "_type": "location", "t": "u", "lat": member.latitude, "lon": member.longitude, "tst": member.timeStamp, "tid": member.trackerID, "batt": member.battery, "acc": member.accuracy, "alt": member.altitude, "vel": member.speed, "bs": member.bs ]
-            // populate the additional data fields if supported by the current member
-            if (currentMember.wifi != null) memberLocation["wifi"] = member.wifi
-            if (currentMember.hib  != null) memberLocation["hib"]  = member.hib
-            if (currentMember.ps   != null) memberLocation["ps"]   = member.ps
-            if (currentMember.bo   != null) memberLocation["bo"]   = member.bo
-            if (currentMember.loc  != null) memberLocation["loc"]  = member.loc
-            
-            positions << memberLocation
-            // send the image cards for the user if enabled
-            card = getMemberCard(member, data)
-            if (card) {
-                positions << card
-            }
+        // we need to send the originating member's location back to them for their user card to be displayed on the map
+        member = state.members.find {it.name==enabledMember}
+        
+        // populating the tracker ID field with a name allows the name to be displayed in the Friends list and map bubbles and load the OwnTrack support parameters
+        def memberLocation = [ "_type": "location", "t": "u", "lat": member.latitude, "lon": member.longitude, "tst": member.timeStamp ]
+
+        // check if fields are valid before adding
+        if (member.trackerID != null)   memberLocation["tid"]  = member.trackerID
+        if (member.battery != null)     memberLocation["batt"] = member.battery
+        if (member.accuracy != null)    memberLocation["acc"]  = member.accuracy
+        if (member.altitude != null)    memberLocation["alt"]  = member.altitude
+        if (member.speed != null)       memberLocation["vel"]  = member.speed
+        if (member.bs != null)          memberLocation["bs"]   = member.bs
+        
+        // populate the additional data fields if supported by the current member
+        if (currentMember.wifi != null) memberLocation["wifi"] = member.wifi
+        if (currentMember.hib  != null) memberLocation["hib"]  = member.hib
+        if (currentMember.ps   != null) memberLocation["ps"]   = member.ps
+        if (currentMember.bo   != null) memberLocation["bo"]   = member.bo
+        if (currentMember.loc  != null) memberLocation["loc"]  = member.loc
+
+        positions << memberLocation
+ 
+        // send the image cards for the user if there is one, and we aren't sending commands
+        card = getMemberCard(member, data)
+        if (!sendCmdToMember(currentMember) && card) {
+            positions << card
         }
     }
 
@@ -1172,6 +1177,15 @@ private def sendUpdate(currentMember, data) {
 
     logDebug("Updating user: ${currentMember.name} with data: ${update}")
     return (new JsonBuilder(update).toPrettyString())
+}
+
+private def sendCmdToMember(currentMember) {
+    // check if there are commands to send to the member
+    if ((currentMember?.updateWaypoints) || (currentMember?.updateLocation) || (currentMember?.updateDisplay) || (currentMember?.restartApp) || (currentMember?.getRegions)) {
+        return (true)
+    } else {
+        return (false)
+    }
 }
 
 def validLocationType(locationType) {
