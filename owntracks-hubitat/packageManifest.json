@@ -3,7 +3,7 @@
   "author": "Lyle Pakula",
   "minimumHEVersion": "0.0",
   "dateReleased": "2023-01-11",
-  "releaseNotes":"v1.6.10 - Removed the -Delete- name from deleted regions which was preventing iOS from deleting.  Send the users own location/user card back to them so their thumbnail displays on the map.  Fixed iOS crash when receiving invalid data.\nv1.6.9 - Cleaned up trackerID to map.  Removed [Hubitat Location] as a default\nv1.6.8 - Prevent extra Android diagnostic fields from being sent to mobile devices that do not support them.\nv1.6.7 - Fixed WiFI SSID check that was giving improper present notification when away.\nv1.6.6 - Optimized secondary hub link.\nv1.6.5 - Added secondary hub link.\nv1.6.4 - Fixed location option defaults not being displayed.  Push the hubitat location to the region list for each mobile user.  Moved SSID from the extended attributes block.  Added instructions for thumbnail, card and recorder installation.\n",
+  "releaseNotes":"v1.6.11- Added a ability to enable each user to see their own image card on the map.  NOTE:  iOS users will see themselves twice.  Added a delete region from Hubitat only setting.  Added how-to information to the respective sections.  Added member status block.\nv1.6.10 - Removed the -Delete- name from deleted regions which was preventing iOS from deleting.  Send the users own location/user card back to them so their thumbnail displays on the map.  Fixed iOS crash when receiving invalid data.\nv1.6.9 - Cleaned up trackerID to map.  Removed [Hubitat Location] as a default\nv1.6.8 - Prevent extra Android diagnostic fields from being sent to mobile devices that do not support them.\nv1.6.7 - Fixed WiFI SSID check that was giving improper present notification when away.\nv1.6.6 - Optimized secondary hub link.\nv1.6.5 - Added secondary hub link.\nv1.6.4 - Fixed location option defaults not being displayed.  Push the hubitat location to the region list for each mobile user.  Moved SSID from the extended attributes block.  Added instructions for thumbnail, card and recorder installation.\n",
   "documentationLink":"https://github.com/wir3z/hubitat/blob/main/owntracks-hubitat/README.md",
   "communityLink":"https://community.hubitat.com/t/release-owntracks/130821",
   "apps": [
@@ -15,7 +15,7 @@
       "required": true,
       "oauth": true,
       "primary": true,
-      "version": "1.6.10"
+      "version": "1.6.11"
     }
   ],
   "drivers": [

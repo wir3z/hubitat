@@ -29,6 +29,7 @@
  *  1.6.8      2024-01-09      - Prevent extra Android diagnostic fields from being sent to mobile devices that do not support them.
  *  1.6.9      2024-01-10      - Cleaned up trackerID sent to map.  Removed default hubitat location due to overlap and confusion.
  *  1.6.10     2024-01-11      - Removed the -Delete- name from deleted regions which was preventing iOS from deleting.  Send the users own location/user card back to them so their thumbnail displays on the map.  Fixed iOS crash when receiving invalid data.
+ *  1.6.11     2024-01-12      - Added a ability to enable each user to see their own image card on the map.  NOTE:  iOS users will see themselves twice.  Added a delete region from Hubitat only setting.  Added how-to information to the respective sections.  Added member status block.
  *
  */
 
@@ -36,8 +37,9 @@ import groovy.transform.Field
 import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
+import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.10" }
+def appVersion() { return "1.6.11" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -69,6 +71,7 @@ def appVersion() { return "1.6.10" }
 @Field Boolean DEFAULT_pegLocatorFastestIntervalToInterval = true
 // Mobile app display defaults
 @Field Boolean DEFAULT_imageCards = false
+@Field Boolean DEFAULT_seeOwnImageCard = false
 @Field Boolean DEFAULT_replaceTIDwithUsername = true
 @Field Boolean DEFAULT_notificationEvents = true
 @Field Boolean DEFAULT_pubExtendedData = true
@@ -92,6 +95,7 @@ definition(
 
 preferences {
     page(name: "mainPage")
+    page(name: "configureHubApp")
     page(name: "installationInstructions")
     page(name: "thumbnailCreationInstructions")
     page(name: "configureRecorder")
@@ -132,26 +136,15 @@ def mainPage() {
         } else {
             section(getFormat("title", "OwnTracks Version ${appVersion()}")) {
             }            
+            section(getFormat("box", "Member Status")) {
+                displayMemberStatus()
+            }            
             section(getFormat("box", "Installation")) {
+                href(title: "Configure Hubitat App", description: "", style: "page", page: "configureHubApp")
                 href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
                 href(title: "Creating User Thumbnail Instructions", description: "", style: "page", page: "thumbnailCreationInstructions")
                 href(title: "Enable OwnTracks Recorder (Optional)", description: "", style: "page", page: "configureRecorder")
                 href(title: "Link Secondary Hub (Optional)", description: "", style: "page", page: "configureSecondaryHub")
-                if (state.imperialUnits != imperialUnits) {
-                    state.imperialUnits = imperialUnits
-                    // preload the settings field with the proper units
-                    app.updateSetting("locatorDisplacement", [value: displayMFtVal(state.locatorDisplacement), type: "number"])
-                    app.updateSetting("ignoreInaccurateLocations", [value: displayMFtVal(state.ignoreInaccurateLocations), type: "number"])
-                    app.updateSetting("homeGeoFence", [value: displayMFtVal(state.homeGeoFence), type: "number"])
-                }
-                input "enabledMembers", "enum", multiple: true, required:false, title:"Select family member(s)", options: state.members.name.sort(), submitOnChange: true
-                input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: true
-                input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: false
-                input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: false, submitOnChange: true
-                input "homePlace", "enum", multiple: false, title:"Select your 'Home' place.  Use 'Regions', below, and 'Add Region' to create a home location if the list is empty.", options: (state.places ? state.places.desc.sort() : [])
-                input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas (optional).  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point.", defaultValue: ""
-                input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", required: false, defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? ['0':'disabled','250':'820 ft','500':'1640 ft','750':'2461 ft','1000':'3281 ft'] : ['0':'disabled','250':'250 m','500':'500 m','750':'750 m','1000':'1000 m'])
-                input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: true
             }
 
             section(getFormat("box", "Mobile App Configuration")) {
@@ -170,6 +163,28 @@ def mainPage() {
             section(getFormat("box", "Delete family member(s)")) {
                 href(title: "Delete Family Members", description: "", style: "page", page: "deleteMembers")
             }
+        }
+    }
+}
+
+def configureHubApp() {
+    return dynamicPage(name: "configureHubApp", title: "", nextPage: "mainPage") {
+        section(getFormat("box", "Configure Hubitat App")) {
+            if (state.imperialUnits != imperialUnits) {
+                state.imperialUnits = imperialUnits
+                // preload the settings field with the proper units
+                app.updateSetting("locatorDisplacement", [value: displayMFtVal(state.locatorDisplacement), type: "number"])
+                app.updateSetting("ignoreInaccurateLocations", [value: displayMFtVal(state.ignoreInaccurateLocations), type: "number"])
+                app.updateSetting("homeGeoFence", [value: displayMFtVal(state.homeGeoFence), type: "number"])
+            }
+            input "enabledMembers", "enum", multiple: true, required:false, title:"Select family member(s)", options: state.members.name.sort(), submitOnChange: true
+            input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: true
+            input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: false
+            input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: false, submitOnChange: true
+            input "homePlace", "enum", multiple: false, title:"Select your 'Home' place.  Use 'Regions', below, and 'Add Region' to create a home location if the list is empty.", options: (state.places ? state.places.desc.sort() : [])
+            input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas (optional).  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point(s).", defaultValue: ""
+            input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", required: false, defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? ['0':'disabled','250':'820 ft','500':'1640 ft','750':'2461 ft','1000':'3281 ft'] : ['0':'disabled','250':'250 m','500':'500 m','750':'750 m','1000':'1000 m'])
+            input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: true
         }
     }
 }
@@ -291,6 +306,11 @@ def configureRecorder() {
 def configureSecondaryHub() {
     return dynamicPage(name: "configureSecondaryHub", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Secondary Hub Configuration")) {
+            paragraph ("Allows for OwnTracks to daisy chain to multiple hubs.\r" +
+                       "1. On the secondary hub, paste the host/URL from 'Mobile App Installation Instructions -> Mobile App Configuration' below.\r" +
+                       "2. Select the slider to enable mobile updates to be sent to the secondary hub UR as they arrive.\r" +
+                       "3. Additional hubs can be daisy chained by repeating the above on the third hub, and adding it to the second hub.\r"
+            )
             input name: "secondaryHubURL", type: "text", title: "Host URL of the Seconday Hub from the OwnTracks app 'Mobile App Installation Instructions' page.", defaultValue: ""
             input name: "enableSecondaryHub", type: "bool", title: "Enable location updates to be sent to the secondary hub URL", defaultValue: false, submitOnChange: true
             if (!secondaryHubURL) {
@@ -337,6 +357,7 @@ def configureDisplay() {
     return dynamicPage(name: "configureDisplay", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Display Configuration")) {
             input name: "imageCards", type: "bool", title: "Display user thumbnails on the map.  Needs to have a 'user.jpg' image of maximum resolution 192x192 pixels uploaded to the 'Settings->File Manager'", defaultValue: DEFAULT_imageCards
+            input name: "seeOwnImageCard", type: "bool", title: "User can see their own image in their mobile app (Android Only).  <b>NOTE:</b>  iOS users will see themselves twice on the map.", defaultValue: DEFAULT_seeOwnImageCard
             input name: "replaceTIDwithUsername", type: "bool", title: "Replace the 'TID' (tracker ID) with 'username' for displaying a name on the map and recorder", defaultValue: DEFAULT_replaceTIDwithUsername
             input name: "notificationEvents", type: "bool", title: "Notify about received events", defaultValue: DEFAULT_notificationEvents
             input name: "pubExtendedData", type: "bool", title: "Include extended data in location reports", defaultValue: DEFAULT_pubExtendedData
@@ -370,6 +391,9 @@ def addRegions() {
                 paragraph "<b>${appButtonHandler("addButton")}</b>"
                 state.submit = ""
             }
+            paragraph ("1. Add the region to be information.\r" +
+                       "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" 
+            )
             input "regionName", "text", title: "Name of region", required: false, submitOnChange: true
             input name: "regionRadius", type: "number", title: "Detection radius for region (${getSmallUnits()})", required: false, range: "${displayMFtVal(50)}..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_RADIUS)
             input name: "regionLat", type: "double", title: "Region Latitude", required: false, range: "-90.0..90.0", defaultValue: location.getLatitude()
@@ -389,6 +413,9 @@ def editRegions() {
                 paragraph "<b>${appButtonHandler("editButton")}</b>"
                 state.submit = ""
             }
+            paragraph ("1. Select the region to be edited.\r" +
+                       "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" 
+            )
             input "regionName", "enum", multiple: false, required:false, title:"Select region to edit", options: (state.places ? state.places.desc.sort() : []), submitOnChange: true
             if (regionName) {
                 // get the place map and assign the current values
@@ -418,8 +445,20 @@ def deleteRegions() {
                 paragraph "<b>${appButtonHandler("deleteButton")}</b>"
                 state.submit = ""
             }
+            input name: "deleteFromHubitatOnly", type: "bool", title: "Delete region from Hubitat <b>ONLY</b> and not the mobile devices.", defaultValue: false, submitOnChange: true
+            if (deleteFromHubitatOnly) {
+                paragraph ("1. Select the region(s) to be deleted from Hubitat.\r" +
+                           "2. Manually delete the region(s) from each mobile device.\r" 
+                )
+            } else {
+                paragraph ("1. Select the region(s) to be deleted from Hubitat and the mobile devices.\r" +
+                           "2. The region(s) will be assigned an invalid lat/lon.\r" + 
+                           "3. The region(s) will remain in the list until <b>ALL</b> enabled users have sent a location report.\r" + 
+                           "4. Once the last user has sent a location report, the region(s) will be deleted from Hubitat.\r"
+                )
+                paragraph("<b>NOTE:  OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.</b>")
+            }
             input "regionName", "enum", multiple: true, required:false, title:"Select regions to delete.", options: (state.places ? state.places.desc.sort() : []), submitOnChange: true
-            paragraph("<b>NOTE:  Region(s) will be deleted once all enabled users have updated waypoints.</b>")
             if (regionName) {
                 input name: "deleteButton", type: "button", title: "Delete", state: "submit"
             }
@@ -446,6 +485,8 @@ def deleteMembers() {
 
 String appButtonHandler(btn) {
     def success = false
+    def updateMember = false
+    
     switch (btn) {
         case "addButton":
             // check if we are duplicating a region, and delete the name if so
@@ -466,6 +507,7 @@ String appButtonHandler(btn) {
                     logDescriptionText("Added place: ${newPlace}")
                     result = "Region '${regionName}' has been added."
                     success = true
+                    updateMember = true
                 }
             }
         break
@@ -479,14 +521,25 @@ String appButtonHandler(btn) {
             result = "Updating region '${newPlace}'"
             logDescriptionText(result)
             success = true
+            updateMember = true
         break
         case "deleteButton":
             // unvalidate all the places that need to be removed
             regionName.each { desc ->
-                place = state.places.find {it.desc==desc}
-                // invalidate the coordinates to flag it for deletion.  iOS is checking the name as a key, Android the timestamp
-                place.lat = INVALID_COORDINATE
-                place.lon = INVALID_COORDINATE
+                if (deleteFromHubitatOnly) {
+                    // remove the place from our current list but don't trigger a member update
+                    deleteIndex = state.places.findIndexOf {it.desc==desc}
+                    if (deleteIndex >= 0) {
+                        state.places.remove(deleteIndex)
+                    }
+                    updateMember = false
+                } else {
+                    // invalidate the coordinates to flag it for deletion.  iOS is checking the name as a key, Android the timestamp
+                    place = state.places.find {it.desc==desc}
+                    place.lat = INVALID_COORDINATE
+                    place.lon = INVALID_COORDINATE
+                    updateMember = true
+                }
                 // check if we are deleting our home location
                 if (homePlace == desc) {
                    state.home = []
@@ -517,12 +570,11 @@ String appButtonHandler(btn) {
         break
     }
 
-    // clear the fields and force the users to update
     if (success) {
-        // clear the region fields
+        // clear the setting fields
         clearSettingFields()
         // force an update of all users
-        setWaypointUpdateFlag([ "name":"" ])
+        setWaypointUpdateFlag([ "name":"" ], updateMember)
     }
 
     return (result)
@@ -570,6 +622,7 @@ def initialize() {
     if (ping == null) app.updateSetting("ping", [value: DEFAULT_ping, type: "number"])
     if (pegLocatorFastestIntervalToInterval == null) app.updateSetting("pegLocatorFastestIntervalToInterval", [value: DEFAULT_pegLocatorFastestIntervalToInterval, type: "bool"])
     if (imageCards == null) app.updateSetting("imageCards", [value: DEFAULT_imageCards, type: "bool"])
+    if (seeOwnImageCard == null) app.updateSetting("seeOwnImageCard", [value: DEFAULT_seeOwnImageCard, type: "bool"])
     if (replaceTIDwithUsername == null) app.updateSetting("replaceTIDwithUsername", [value: DEFAULT_replaceTIDwithUsername, type: "bool"])
     if (notificationEvents == null) app.updateSetting("notificationEvents", [value: DEFAULT_notificationEvents, type: "bool"])
     if (pubExtendedData == null) app.updateSetting("pubExtendedData", [value: DEFAULT_pubExtendedData, type: "bool"])
@@ -651,6 +704,48 @@ def refresh() {
 def childGetWarnOnNonOptimalSettings() {
     // return with the log setting
     return (warnOnMemberSettings)
+}
+
+def displayMemberStatus() {
+    String tableData = "";
+    
+    if (state.members) {
+        tableData += '<font size=3><table align="left" style="width:100%">'    
+        tableData += '<col width="170">'   
+    
+        tableData += '<tr>'
+        tableData += '<th>Member</th>'
+        tableData += '<th>Last Location Report</th>'
+        tableData += '<th>Update Region</th>'
+        tableData += '<th>Update Location</th>'
+        tableData += '<th>Update Display</th>'
+        tableData += '<th>Get Regions</th>'
+        tableData += '<th>Restart App</th>'
+        tableData += '</tr>'
+    
+        // loop through all the members
+        state.members.each { member->
+            long lastTime = member.timeStamp.toLong() * 1000
+            lastDate = new SimpleDateFormat("E h:mm a   yyyy-MM-dd").format(new Date(lastTime))
+            // true if no update in 12-hours
+            noUpdate = ((now() - lastTime) > 43200000)
+            memberEnabled = settings?.enabledMembers.find {it==member.name}
+                    
+            tableData += '<tr>'
+            tableData += (memberEnabled ? (noUpdate ? '<td style="color:#ff0000">' + member.name + '</td>' : '<td style="color:#017000">' + member.name + '</td>') : '<td style="color:#b3b3b3"><s>' + member.name + '</s></td>')
+            tableData += (memberEnabled ? ((noUpdate ? '<td style="border:2px solid Red;">' : '<td>') + lastDate + '</td>') : '<td style="color:#b3b3b3"><s>' + lastDate + '</s></td>')
+            tableData += (memberEnabled ? (member.updateWaypoints ? '<td>Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
+            tableData += (memberEnabled ? (member.updateLocation ? '<td>Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
+            tableData += (memberEnabled ? (member.updateDisplay ? '<td>Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
+            tableData += (memberEnabled ? (member.getRegions ? '<td>Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
+            tableData += (memberEnabled ? (member.restartApp ? '<td>Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
+            tableData += '</tr>'
+        }
+        tableData += '</table></font>'
+    } else {
+        tableData = "<h3>Select 'Configure Hubitat App' to add members.</h3>"
+    }
+    paragraph( tableData )
 }
 
 def splitTopic(topic) {
@@ -962,17 +1057,18 @@ def addPlace(findMember, data) {
             state.places << newPlace
         }
         // force the users to get the update place list
-        setWaypointUpdateFlag(findMember)
+        setWaypointUpdateFlag(findMember, true)
     }
 }
 
-private def setWaypointUpdateFlag(currentMember) {
-    // loop through all the members
-    state.members.each { member->
+private def setWaypointUpdateFlag(currentMember, updateSetting) {
+    // loop through all the enabled members
+    settings?.enabledMembers.each { enabledMember->    
+        member = state.members.find {it.name==enabledMember}
         // don't set the flag for the member that updated the waypoint list
         if (currentMember.name != member.name) {
-            member.updateWaypoints = true
-            logDebug("Enabling waypoint update for user: ${member.name}")
+            member.updateWaypoints = updateSetting
+            logDebug("Waypoint update for user ${member.name}: ${updateSetting}")
         }
     }
 }
@@ -1004,42 +1100,46 @@ private def sendMemberPositions(currentMember, data) {
     settings?.enabledMembers.each { enabledMember->
         // we need to send the originating member's location back to them for their user card to be displayed on the map
         member = state.members.find {it.name==enabledMember}
-        
-        // populating the tracker ID field with a name allows the name to be displayed in the Friends list and map bubbles and load the OwnTrack support parameters
-        def memberLocation = [ "_type": "location", "t": "u", "lat": member.latitude, "lon": member.longitude, "tst": member.timeStamp ]
+        // Send the current member's location back to them so they can get get their thumbnail.  NOTE: iOS users will make a duplicate of themselves (duplicate will have the thumbail, original will not)
+        if ((imageCards && seeOwnImageCard) || (currentMember != member)) {
+            // populating the tracker ID field with a name allows the name to be displayed in the Friends list and map bubbles and load the OwnTrack support parameters
+            def memberLocation = [ "_type": "location", "t": "u", "lat": member.latitude, "lon": member.longitude, "tst": member.timeStamp ]
 
-        // check if fields are valid before adding
-        if (member.trackerID != null)   memberLocation["tid"]  = member.trackerID
-        if (member.battery != null)     memberLocation["batt"] = member.battery
-        if (member.accuracy != null)    memberLocation["acc"]  = member.accuracy
-        if (member.altitude != null)    memberLocation["alt"]  = member.altitude
-        if (member.speed != null)       memberLocation["vel"]  = member.speed
-        if (member.bs != null)          memberLocation["bs"]   = member.bs
+            // check if fields are valid before adding
+            if (member.trackerID != null)   memberLocation["tid"]  = member.trackerID
+            if (member.battery != null)     memberLocation["batt"] = member.battery
+            if (member.accuracy != null)    memberLocation["acc"]  = member.accuracy
+            if (member.altitude != null)    memberLocation["alt"]  = member.altitude
+            if (member.speed != null)       memberLocation["vel"]  = member.speed
+            if (member.bs != null)          memberLocation["bs"]   = member.bs
         
-        // populate the additional data fields if supported by the current member
-        if (currentMember.wifi != null) memberLocation["wifi"] = member.wifi
-        if (currentMember.hib  != null) memberLocation["hib"]  = member.hib
-        if (currentMember.ps   != null) memberLocation["ps"]   = member.ps
-        if (currentMember.bo   != null) memberLocation["bo"]   = member.bo
-        if (currentMember.loc  != null) memberLocation["loc"]  = member.loc
+            // populate the additional data fields if supported by the current member
+            if (currentMember.wifi != null) memberLocation["wifi"] = member.wifi
+            if (currentMember.hib  != null) memberLocation["hib"]  = member.hib
+            if (currentMember.ps   != null) memberLocation["ps"]   = member.ps
+            if (currentMember.bo   != null) memberLocation["bo"]   = member.bo
+            if (currentMember.loc  != null) memberLocation["loc"]  = member.loc
 
-        positions << memberLocation
- 
-        // send the image cards for the user if there is one, and we aren't sending commands
-        card = getMemberCard(member, data)
-        if (!sendCmdToMember(currentMember) && card) {
-            positions << card
+            positions << memberLocation
+        
+            // send the image cards for the user if there is one, and we aren't sending commands, -- only send on the ping or the manual update to minimize data traffic
+            if (validLocationType(data.t)) {
+                card = getMemberCard(member)
+                if (!sendCmdToMember(currentMember) && card) {
+                    positions << card
+                }
+            }
         }
     }
 
     return (positions)
 }
 
-private def getMemberCard(member, data) {
+private def getMemberCard(member) {
     def card = []
 
-    // send the image cards for the user if enabled -- only send on the ping or the manual update to minimize data traffic
-    if (imageCards && validLocationType(data.t)) {
+    // send the image cards for the user if enabled
+    if (imageCards) {
         try{
             // append each enabled user's card with encoded image
             card = [ "_type": "card", "name": "${member.name}", "face": "${downloadHubFile("${member.name}.jpg").encodeBase64().toString()}", "tid": "${member.name}" ]
@@ -1056,7 +1156,7 @@ private def logMemberCardJSON() {
     // creates "trace" outputs in the Hubitat logs for each user card to be saved into a .JSON file for OwnTracks Recorder
     settings?.enabledMembers.each { enabledMember->
         member = state.members.find {it.name==enabledMember}
-        card = getMemberCard(member, ["t":"u"])
+        card = getMemberCard(member)
         if (card) {
             // for recorder, this debug must be captured and saved to: <STORAGEDIR>/cards/<user>/<user>.json
             // or use: https://avanc.github.io/owntracks-cards/ to create and save the JSON
@@ -1271,7 +1371,7 @@ mappings {
 private def webhookGetHandler() {
     testMember = [ "updateWaypoints":true, "updateLocation":true, "updateDisplay":true, "dynamicLocaterAccuracy":true ]
     result = sendUpdate(testMember, [ "t":"p", "lat":12.345, "lon":-123.45678 ] )
-    log.warn "ADDED FOR TESTING THROUGH THE BROWSER LINK "
+    log.warn "ADDED FOR TESTING THROUGH THE BROWSER LINK - not currently handled"
     return render(contentType: "text/html", data: result, status: 200)
 }
 
