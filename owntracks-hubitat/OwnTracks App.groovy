@@ -30,6 +30,8 @@
  *  1.6.9      2024-01-10      - Cleaned up trackerID sent to map.  Removed default hubitat location due to overlap and confusion.
  *  1.6.10     2024-01-11      - Removed the -Delete- name from deleted regions which was preventing iOS from deleting.  Send the users own location/user card back to them so their thumbnail displays on the map.  Fixed iOS crash when receiving invalid data.
  *  1.6.11     2024-01-12      - Added a ability to enable each user to see their own image card on the map.  NOTE:  iOS users will see themselves twice.  Added a delete region from Hubitat only setting.  Added how-to information to the respective sections.  Added member status block.
+ *  1.6.12     2024-01-13      - Removed the ability to enable each user to see their own image card on the map due to stability issues.  Added user selectable warning time to mark stale location reports on the Members Status table.  
+ *                             - Added location report to the Member status table.  Added ability to check the pin location of regions on Google Maps.
  *
  */
 
@@ -39,7 +41,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.11" }
+def appVersion() { return "1.6.12" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -59,6 +61,11 @@ def appVersion() { return "1.6.11" }
 @Field Number  DEFAULT_RADIUS = 75
 @Field Number  DEFAULT_regionHighAccuracyRadius = 750
 @Field Number  DEFAULT_wifiPresenceKeepRadius = 0.750
+@Field Boolean DEFAULT_imperialUnits = false
+@Field Boolean DEFAULT_regionHighAccuracyRadiusHomeOnly = true
+@Field Boolean DEFAULT_warnOnDisabledMember = true
+@Field Boolean DEFAULT_warnOnMemberSettings = false
+@Field Number  DEFAULT_warnOnNoUpdateHours = 12
 // Mobile app location defaults
 @Field Number  DEFAULT_monitoring = 1
 @Field Number  DEFAULT_locatorPriority = 2
@@ -71,7 +78,6 @@ def appVersion() { return "1.6.11" }
 @Field Boolean DEFAULT_pegLocatorFastestIntervalToInterval = true
 // Mobile app display defaults
 @Field Boolean DEFAULT_imageCards = false
-@Field Boolean DEFAULT_seeOwnImageCard = false
 @Field Boolean DEFAULT_replaceTIDwithUsername = true
 @Field Boolean DEFAULT_notificationEvents = true
 @Field Boolean DEFAULT_pubExtendedData = true
@@ -113,6 +119,8 @@ preferences {
 def mainPage() {
     // clear the setting fields
     clearSettingFields()
+    app.removeSetting("regionToCheck")
+        
     // initialize all fields if they are undefined
     initialize()
     def oauthStatus = ""
@@ -148,8 +156,8 @@ def mainPage() {
             }
 
             section(getFormat("box", "Mobile App Configuration")) {
-                input "syncMobileSettings", "enum", multiple: true, required:false, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
-                input "restartMobileApp", "enum", multiple: true, required:false, title:"Select family member(s) to restart their mobile app on next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
+                input "syncMobileSettings", "enum", multiple: true, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
+                input "restartMobileApp", "enum", multiple: true, title:"Select family member(s) to restart their mobile app on next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
                 href(title: "Regions", description: "", style: "page", page: "configureRegions")
                 href(title: "Location", description: "", style: "page", page: "configureLocation")
                 href(title: "Display", description: "", style: "page", page: "configureDisplay")
@@ -158,10 +166,6 @@ def mainPage() {
             section(getFormat("box", "Logging")) {
                 input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: true
                 input name: "debugOutput", type: "bool", title: "Enable Debug Logging", defaultValue: false
-            }
-            
-            section(getFormat("box", "Delete family member(s)")) {
-                href(title: "Delete Family Members", description: "", style: "page", page: "deleteMembers")
             }
         }
     }
@@ -177,14 +181,18 @@ def configureHubApp() {
                 app.updateSetting("ignoreInaccurateLocations", [value: displayMFtVal(state.ignoreInaccurateLocations), type: "number"])
                 app.updateSetting("homeGeoFence", [value: displayMFtVal(state.homeGeoFence), type: "number"])
             }
-            input "enabledMembers", "enum", multiple: true, required:false, title:"Select family member(s)", options: state.members.name.sort(), submitOnChange: true
-            input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: true
-            input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: false
-            input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: false, submitOnChange: true
-            input "homePlace", "enum", multiple: false, title:"Select your 'Home' place.  Use 'Regions', below, and 'Add Region' to create a home location if the list is empty.", options: (state.places ? state.places.desc.sort() : [])
+            input "enabledMembers", "enum", multiple: true, title:"Select family member(s)", options: state.members.name.sort(), submitOnChange: true
+            input name: "warnOnNoUpdateHours", type: "number", title: "Highlight members on the 'Member Status' that have not reported a location for this many hours (1..168)", range: "1..168", defaultValue: DEFAULT_warnOnNoUpdateHours
+            input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: DEFAULT_warnOnDisabledMember
+            input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: DEFAULT_warnOnMemberSettings
+            input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: DEFAULT_imperialUnits, submitOnChange: true
+            input "homePlace", "enum", multiple: false, title:"Select your 'Home' place.  Use 'Regions', below, and 'Add Region' to create a home location if the list is empty.  <a href='https://maps.google.com/?q=${state.places.find {it.desc==homePlace}.lat},${state.places.find {it.desc==homePlace}.lon}' target='_blank'>Click to verify the coordinates of '${homePlace}.'</a>", options: (state.places ? state.places.desc.sort() : [])
             input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas (optional).  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point(s).", defaultValue: ""
-            input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", required: false, defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? ['0':'disabled','250':'820 ft','500':'1640 ft','750':'2461 ft','1000':'3281 ft'] : ['0':'disabled','250':'250 m','500':'500 m','750':'750 m','1000':'1000 m'])
-            input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: true
+            input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? ['0':'disabled','250':'820 ft','500':'1640 ft','750':'2461 ft','1000':'3281 ft'] : ['0':'disabled','250':'250 m','500':'500 m','750':'750 m','1000':'1000 m'])
+            input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: DEFAULT_regionHighAccuracyRadiusHomeOnly
+        }
+        section(getFormat("box", "Delete family member(s)")) {
+            href(title: "Delete Family Members", description: "", style: "page", page: "deleteMembers")
         }
     }
 }
@@ -325,30 +333,24 @@ def configureLocation() {
         section(getFormat("box", "Location Configuration")) {
             input name: "monitoring", type: "enum", title: "Location reporting mode, Recommended=${MONITORING_MODES[DEFAULT_monitoring]}", required: true, options: MONITORING_MODES, defaultValue: DEFAULT_monitoring, submitOnChange: true
             input name: "locatorPriority", type: "enum", title: "Source/power setting for location updates, Recommended=${LOCATOR_PRIORITY[DEFAULT_locatorPriority]}", required: true, options: LOCATOR_PRIORITY, defaultValue: DEFAULT_locatorPriority
-            if (monitoring == "2") {
-                input name: "moveModeLocatorInterval", type: "number", title: "How often should locations be sent from the device while in 'Move' mode (seconds), Recommended=${DEFAULT_moveModeLocatorInterval}", required: true, range: "2..3600", defaultValue: DEFAULT_moveModeLocatorInterval
-                // assign the typical app defaults for other monitoring modes
-                if (!locatorDisplacement) app.updateSetting("locatorDisplacement",[value: DEFAULT_locatorDisplacement, type: "number"])
-                if (!locatorInterval) app.updateSetting("locatorInterval",[value: DEFAULT_locatorInterval, type: "number"])
-            } else {
-                input name: "locatorDisplacement", type: "number", title: "How far the device travels (${getSmallUnits()}) before receiving another location update, Recommended=${displayMFtVal(DEFAULT_locatorDisplacement)}  <i><b>This value needs to be less than the minimum configured region radius for automations to trigger'</b></i>", required: true, range: "0..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_locatorDisplacement)
-                input name: "locatorInterval", type: "number", title: "Device will not report location updates faster than this interval (seconds) unless moving.  When moving, Android uses this 'locatorInterval/6' or '5-seconds' (whichever is greater, unless 'locatorInterval' is less than 5-seconds, then 'locatorInterval' is used), Recommended=60  <i><b>Requires the device to move the above distance, otherwise no update is sent</b></i>", required: true, range: "0..3600", defaultValue: DEFAULT_locatorInterval
-                // IE:  locatorInterval=0-seconds,   then locations every 0-seconds  if moved locatorDisplacement meters
-                //      locatorInterval=5-seconds,   then locations every 5-seconds  if moved locatorDisplacement meters
-                //      locatorInterval=10-seconds,  then locations every 5-seconds  if moved locatorDisplacement meters
-                //      locatorInterval=15-seconds,  then locations every 5-seconds  if moved locatorDisplacement meters
-                //      locatorInterval=30-seconds,  then locations every 5-seconds  if moved locatorDisplacement meters
-                //      locatorInterval=60-seconds,  then locations every 10-seconds if moved locatorDisplacement meters
-                //      locatorInterval=120-seconds, then locations every 20-seconds if moved locatorDisplacement meters
-                //      locatorInterval=240-seconds, then locations every 40-seconds if moved locatorDisplacement meters
-                // assign the app defaults for move monitoring modes - we will use a larger interval in case the user accidentally switches to 'move mode'
-                if (!moveModeLocatorInterval) app.updateSetting("moveModeLocatorInterval",[value: DEFAULT_moveModeLocatorInterval, type: "number"])
-            }
-
-            input name: "ignoreInaccurateLocations", type: "number", title: "Do not send a location if the accuracy is greater than the given (${getSmallUnits()}), Recommended=${displayMFtVal(DEFAULT_ignoreInaccurateLocations)}", required: true, range: "0..${displayMFtVal(2000)}", defaultValue: displayMFtVal(DEFAULT_ignoreInaccurateLocations)
-            input name: "ignoreStaleLocations", type: "decimal", title: "Number of days after which location updates from friends are assumed stale and removed, Recommended=${DEFAULT_ignoreStaleLocations}", required: true, range: "0.0..7.0", defaultValue: DEFAULT_ignoreStaleLocations
-            input name: "ping", type: "number", title: "Device will send a location interval at this heart beat interval (minutes), Recommended=${DEFAULT_ping}", required: true, range: "15..60", defaultValue: DEFAULT_ping
+            input name: "ignoreInaccurateLocations", type: "number", title: "Do not send a location if the accuracy is greater than the given (${getSmallUnits()}) (0..${displayMFtVal(2000)}) Recommended=${displayMFtVal(DEFAULT_ignoreInaccurateLocations)}", required: true, range: "0..${displayMFtVal(2000)}", defaultValue: displayMFtVal(DEFAULT_ignoreInaccurateLocations)
+            input name: "ignoreStaleLocations", type: "decimal", title: "Number of days after which location updates from friends are assumed stale and removed (0.0..7.0), Recommended=${DEFAULT_ignoreStaleLocations}", required: true, range: "0.0..7.0", defaultValue: DEFAULT_ignoreStaleLocations
+            input name: "ping", type: "number", title: "Device will send a location interval at this heart beat interval (minutes) (15..360), Recommended=${DEFAULT_ping}", required: true, range: "15..60", defaultValue: DEFAULT_ping
             input name: "pegLocatorFastestIntervalToInterval", type: "bool", title: "Request that the location provider deliver updates no faster than the requested locator interval, Recommended '${DEFAULT_pegLocatorFastestIntervalToInterval}'", defaultValue: DEFAULT_pegLocatorFastestIntervalToInterval
+            paragraph("<h3><b>Settings for Significant Monitoring Mode</b></h3>")
+            input name: "locatorDisplacement", type: "number", title: "How far the device travels (${getSmallUnits()}) before receiving another location update, Recommended=${displayMFtVal(DEFAULT_locatorDisplacement)}  <i><b>This value needs to be less than the minimum configured region radius for automations to trigger.</b></i>", required: true, range: "0..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_locatorDisplacement)
+            input name: "locatorInterval", type: "number", title: "Device will not report location updates faster than this interval (seconds) unless moving.  When moving, Android uses this 'locatorInterval/6' or '5-seconds' (whichever is greater, unless 'locatorInterval' is less than 5-seconds, then 'locatorInterval' is used), Recommended=60  <i><b>Requires the device to move the above distance, otherwise no update is sent.</b></i>", required: true, range: "0..3600", defaultValue: DEFAULT_locatorInterval
+            // IE:  locatorInterval=0-seconds,   then locations every 0-seconds  if moved locatorDisplacement meters
+            //      locatorInterval=5-seconds,   then locations every 5-seconds  if moved locatorDisplacement meters
+            //      locatorInterval=10-seconds,  then locations every 5-seconds  if moved locatorDisplacement meters
+            //      locatorInterval=15-seconds,  then locations every 5-seconds  if moved locatorDisplacement meters
+            //      locatorInterval=30-seconds,  then locations every 5-seconds  if moved locatorDisplacement meters
+            //      locatorInterval=60-seconds,  then locations every 10-seconds if moved locatorDisplacement meters
+            //      locatorInterval=120-seconds, then locations every 20-seconds if moved locatorDisplacement meters
+            //      locatorInterval=240-seconds, then locations every 40-seconds if moved locatorDisplacement meters          
+            // assign the app defaults for move monitoring modes - we will use a larger interval in case the user accidentally switches to 'move mode'
+            paragraph("<h3><b>Settings for Move Monitoring Mode</b></h3>")
+            input name: "moveModeLocatorInterval", type: "number", title: "How often should locations be continuously sent from the device while in 'Move' mode (seconds) (2..3600), Recommended=${DEFAULT_moveModeLocatorInterval}.  <i><b>'Move' mode will result in higher battery consumption.</b></i>", required: true, range: "2..3600", defaultValue: DEFAULT_moveModeLocatorInterval
         }
     }
 }
@@ -357,7 +359,6 @@ def configureDisplay() {
     return dynamicPage(name: "configureDisplay", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Display Configuration")) {
             input name: "imageCards", type: "bool", title: "Display user thumbnails on the map.  Needs to have a 'user.jpg' image of maximum resolution 192x192 pixels uploaded to the 'Settings->File Manager'", defaultValue: DEFAULT_imageCards
-            input name: "seeOwnImageCard", type: "bool", title: "User can see their own image in their mobile app (Android Only).  <b>NOTE:</b>  iOS users will see themselves twice on the map.", defaultValue: DEFAULT_seeOwnImageCard
             input name: "replaceTIDwithUsername", type: "bool", title: "Replace the 'TID' (tracker ID) with 'username' for displaying a name on the map and recorder", defaultValue: DEFAULT_replaceTIDwithUsername
             input name: "notificationEvents", type: "bool", title: "Notify about received events", defaultValue: DEFAULT_notificationEvents
             input name: "pubExtendedData", type: "bool", title: "Include extended data in location reports", defaultValue: DEFAULT_pubExtendedData
@@ -374,9 +375,10 @@ def configureRegions() {
         // clear the setting fields
         clearSettingFields()        
         section(getFormat("box", "Regions Configuration")) {
-            input "getMobileRegions", "enum", multiple: true, required:false, title:"Select family member(s) to retrieve their region list on next location update.  Their regions will be merged into the list stored in the Hubitat app.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
+            input "getMobileRegions", "enum", multiple: true, title:"Select family member(s) to retrieve their region list on next location update.  Their regions will be merged into the list stored in the Hubitat app.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
         }
         section(getFormat("line", "")) {
+            input "regionToCheck", "enum", multiple: false, title:"Select region to check coordinates.  ${(regionToCheck ? "<a href='https://maps.google.com/?q=${state.places.find {it.desc==regionToCheck}.lat},${state.places.find {it.desc==regionToCheck}.lon}' target='_blank'>Click to verify the coordinates of '${regionToCheck}'.</a>" : "")}", options: (state.places ? state.places.desc.sort() : []), submitOnChange: true
             href(title: "Add Regions", description: "", style: "page", page: "addRegions")
             href(title: "Edit Regions", description: "", style: "page", page: "editRegions")
             href(title: "Delete Regions", description: "", style: "page", page: "deleteRegions")
@@ -394,10 +396,10 @@ def addRegions() {
             paragraph ("1. Add the region to be information.\r" +
                        "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" 
             )
-            input "regionName", "text", title: "Name of region", required: false, submitOnChange: true
-            input name: "regionRadius", type: "number", title: "Detection radius for region (${getSmallUnits()})", required: false, range: "${displayMFtVal(50)}..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_RADIUS)
-            input name: "regionLat", type: "double", title: "Region Latitude", required: false, range: "-90.0..90.0", defaultValue: location.getLatitude()
-            input name: "regionLon", type: "double", title: "Region Longitude", required: false, range: "-180.0..180.0", defaultValue: location.getLongitude()
+            input "regionName", "text", title: "Name of region", submitOnChange: true
+            input name: "regionRadius", type: "number", title: "Detection radius for region (${getSmallUnits()}) (${displayMFtVal(50)}..${displayMFtVal(1000)})", range: "${displayMFtVal(50)}..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_RADIUS)
+            input name: "regionLat", type: "double", title: "Region Latitude (-90.0..90.0)", range: "-90.0..90.0", defaultValue: location.getLatitude()
+            input name: "regionLon", type: "double", title: "Region Longitude (-180.0..180.0)", range: "-180.0..180.0", defaultValue: location.getLongitude()
 
             if (regionName) {
                 input name: "addButton", type: "button", title: "Save", state: "submit"
@@ -416,7 +418,7 @@ def editRegions() {
             paragraph ("1. Select the region to be edited.\r" +
                        "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" 
             )
-            input "regionName", "enum", multiple: false, required:false, title:"Select region to edit", options: (state.places ? state.places.desc.sort() : []), submitOnChange: true
+            input "regionName", "enum", multiple: false, title:"Select region to edit", options: (state.places ? state.places.desc.sort() : []), submitOnChange: true
             if (regionName) {
                 // get the place map and assign the current values
                 def foundPlace = state.places.find {it.desc==regionName}
@@ -429,8 +431,8 @@ def editRegions() {
 
                 input name: "regionName", type: "text", title: "Region Name", required: true
                 input name: "regionRadius", type: "number", title: "Detection radius for region (${getSmallUnits()})", required: true, range: "${displayMFtVal(50)}..${displayMFtVal(1000)}"
-                input name: "regionLat", type: "double", title: "Region Latitude", required: true, range: "-90.0..90.0"
-                input name: "regionLon", type: "double", title: "Region Longitude", required: true, range: "-180.0..180.0"
+                input name: "regionLat", type: "double", title: "Region Latitude (-90.0..90.0)", required: true, range: "-90.0..90.0"
+                input name: "regionLon", type: "double", title: "Region Longitude (-180.0..180.0)", required: true, range: "-180.0..180.0"
 
                 input name: "editButton", type: "button", title: "Save", state: "submit"
             }
@@ -458,7 +460,7 @@ def deleteRegions() {
                 )
                 paragraph("<b>NOTE:  OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.</b>")
             }
-            input "regionName", "enum", multiple: true, required:false, title:"Select regions to delete.", options: (state.places ? state.places.desc.sort() : []), submitOnChange: true
+            input "regionName", "enum", multiple: true, title:"Select regions to delete.", options: (state.places ? state.places.desc.sort() : []), submitOnChange: true
             if (regionName) {
                 input name: "deleteButton", type: "button", title: "Delete", state: "submit"
             }
@@ -473,7 +475,7 @@ def deleteMembers() {
                 paragraph "<b>${appButtonHandler("deleteMembersButton")}</b>"
                 state.submit = ""
             }
-            input "deleteFamilyMembers", "enum", multiple: true, required:false, title:"Select family member(s) to delete.", options: state.members.name.sort(), submitOnChange: true
+            input "deleteFamilyMembers", "enum", multiple: true, title:"Select family member(s) to delete.", options: state.members.name.sort(), submitOnChange: true
             
             paragraph("<b>NOTE: Selected user(s) will be deleted from the app and their corresponding child device will be removed.  Ensure no automations are dependent on their device before proceeding!</b>")
             if (deleteFamilyMembers) {
@@ -609,7 +611,16 @@ def initialize() {
     if (state.locatorDisplacement == null) state.locatorDisplacement = DEFAULT_locatorDisplacement
     if (state.ignoreInaccurateLocations == null) state.ignoreInaccurateLocations = DEFAULT_ignoreInaccurateLocations
     if (state.homeGeoFence == null) state.homeGeoFence = DEFAULT_RADIUS
-    if (state.imperialUnits == null) state.imperialUnits = false
+    if (state.imperialUnits == null) state.imperialUnits = DEFAULT_imperialUnits
+
+    // assign defaults to the configure app screen
+    if (regionHighAccuracyRadius == null) app.updateSetting("regionHighAccuracyRadius", [value: DEFAULT_regionHighAccuracyRadius, type: "enum"])
+    if (regionHighAccuracyRadiusHomeOnly == null) app.updateSetting("regionHighAccuracyRadiusHomeOnly", [value: DEFAULT_regionHighAccuracyRadiusHomeOnly, type: "bool"])
+    if (imperialUnits == null) app.updateSetting("imperialUnits", [value: DEFAULT_imperialUnits, type: "bool"])
+    if (warnOnDisabledMember == null) app.updateSetting("warnOnDisabledMember", [value: DEFAULT_warnOnDisabledMember, type: "bool"])
+    if (warnOnMemberSettings == null) app.updateSetting("warnOnMemberSettings", [value: DEFAULT_warnOnMemberSettings, type: "bool"])
+    if (homeSSID == null) app.updateSetting("homeSSID", [value: "", type: "string"])
+    if (warnOnNoUpdateHours == null) app.updateSetting("warnOnNoUpdateHours", [value: DEFAULT_warnOnNoUpdateHours, type: "number"])
     
     // assign the defaults to the mobile app settings in case the user doesn't click into those screens
     if (monitoring == null) app.updateSetting("monitoring", [value: DEFAULT_monitoring, type: "number"])
@@ -622,7 +633,6 @@ def initialize() {
     if (ping == null) app.updateSetting("ping", [value: DEFAULT_ping, type: "number"])
     if (pegLocatorFastestIntervalToInterval == null) app.updateSetting("pegLocatorFastestIntervalToInterval", [value: DEFAULT_pegLocatorFastestIntervalToInterval, type: "bool"])
     if (imageCards == null) app.updateSetting("imageCards", [value: DEFAULT_imageCards, type: "bool"])
-    if (seeOwnImageCard == null) app.updateSetting("seeOwnImageCard", [value: DEFAULT_seeOwnImageCard, type: "bool"])
     if (replaceTIDwithUsername == null) app.updateSetting("replaceTIDwithUsername", [value: DEFAULT_replaceTIDwithUsername, type: "bool"])
     if (notificationEvents == null) app.updateSetting("notificationEvents", [value: DEFAULT_notificationEvents, type: "bool"])
     if (pubExtendedData == null) app.updateSetting("pubExtendedData", [value: DEFAULT_pubExtendedData, type: "bool"])
@@ -710,12 +720,14 @@ def displayMemberStatus() {
     String tableData = "";
     
     if (state.members) {
+        tableData += '<div style="overflow-x:auto;">'
         tableData += '<font size=3><table align="left" style="width:100%">'    
         tableData += '<col width="170">'   
     
         tableData += '<tr>'
         tableData += '<th>Member</th>'
         tableData += '<th>Last Location Report</th>'
+        tableData += '<th>Last Location Fix</th>'
         tableData += '<th>Update Region</th>'
         tableData += '<th>Update Location</th>'
         tableData += '<th>Update Display</th>'
@@ -725,23 +737,50 @@ def displayMemberStatus() {
     
         // loop through all the members
         state.members.each { member->
-            long lastTime = member.timeStamp.toLong() * 1000
-            lastDate = new SimpleDateFormat("E h:mm a   yyyy-MM-dd").format(new Date(lastTime))
-            // true if no update in 12-hours
-            noUpdate = ((now() - lastTime) > 43200000)
+            // check if member is enabled
             memberEnabled = settings?.enabledMembers.find {it==member.name}
+            // generate the stale report times
+            if (member.lastReportTime) {               
+                long lastReportTime = member.lastReportTime.toLong()
+                lastReportDate = new SimpleDateFormat("E h:mm a   yyyy-MM-dd").format(new Date(lastReportTime))
+                // true if no update the selected number of hours
+                staleReport = ((now() - lastReportTime) > (warnOnNoUpdateHours * 3600000))
+                // number of hours since last report
+                numberHoursReport = ((now() - lastReportTime) / 3600000).toInteger()
+            } else {
+                // force a stale report if no time was reported
+                staleReport = true
+                lastReportDate = "None"
+                numberHoursFix = "?"
+            }
+            // generate the stale location times
+            if (member.timeStamp) {       
+                long lastFixTime = member.timeStamp.toLong() * 1000
+                lastFixDate = new SimpleDateFormat("E h:mm a   yyyy-MM-dd").format(new Date(lastFixTime))
+                // true if no update the selected number of hours
+                staleFix = ((now() - lastFixTime) > (warnOnNoUpdateHours * 3600000))
+                // number of hours since last report
+                numberHoursFix = ((now() - lastFixTime) / 3600000).toInteger()
+            } else {
+                // force a stale fix if no time was reported
+                staleFix = true
+                lastFixDate = "None"
+                numberHoursFix = "?"
+            }
                     
             tableData += '<tr>'
-            tableData += (memberEnabled ? (noUpdate ? '<td style="color:#ff0000">' + member.name + '</td>' : '<td style="color:#017000">' + member.name + '</td>') : '<td style="color:#b3b3b3"><s>' + member.name + '</s></td>')
-            tableData += (memberEnabled ? ((noUpdate ? '<td style="border:2px solid Red;">' : '<td>') + lastDate + '</td>') : '<td style="color:#b3b3b3"><s>' + lastDate + '</s></td>')
-            tableData += (memberEnabled ? (member.updateWaypoints ? '<td>Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
-            tableData += (memberEnabled ? (member.updateLocation ? '<td>Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
-            tableData += (memberEnabled ? (member.updateDisplay ? '<td>Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
-            tableData += (memberEnabled ? (member.getRegions ? '<td>Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
-            tableData += (memberEnabled ? (member.restartApp ? '<td>Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
+            tableData += (memberEnabled ? ((staleFix || staleReport) ? '<td style="color:#ff0000">' + member.name + '</td>' : '<td style="color:#017000">' + member.name + '</td>') : '<td style="color:#b3b3b3"><s>' + member.name + '</s></td>')
+            tableData += (memberEnabled ? ((staleReport ? '<td style="color:#ff0000">' + lastReportDate + ' (' + numberHoursReport + ' hrs ago)' : '<td>' + lastReportDate) + '</td>') : '<td style="color:#b3b3b3"><s>' + lastReportDate + '</s></td>')
+            tableData += (memberEnabled ? ((staleFix ? '<td style="color:#ff0000">' + lastFixDate + ' (' + numberHoursFix + ' hrs ago)' : '<td>' + lastFixDate) + '</td>') : '<td style="color:#b3b3b3"><s>' + lastFixDate + '</s></td>')
+            tableData += (memberEnabled ? (member.updateWaypoints ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
+            tableData += (memberEnabled ? (member.updateLocation ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
+            tableData += (memberEnabled ? (member.updateDisplay ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
+            tableData += (memberEnabled ? (member.getRegions ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
+            tableData += (memberEnabled ? (member.restartApp ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
             tableData += '</tr>'
         }
         tableData += '</table></font>'
+        tableData += '</div>'
     } else {
         tableData = "<h3>Select 'Configure Hubitat App' to add members.</h3>"
     }
@@ -885,20 +924,21 @@ def isSSIDMatch(dataString, deviceID) {
 
 def updateDevicePresence(member, data) {
     // save the position and timestamp so we can push to other users
-    member.latitude  = data?.lat
-    member.longitude = data?.lon
-    member.timeStamp = data?.tst
-    member.battery   = data?.batt
-    member.accuracy  = data?.acc
-    member.altitude  = data?.alt
-    member.speed     = data?.vel
-    member.trackerID = data?.tid
-    member.bs        = data?.bs
-    member.wifi      = data?.wifi
-    member.hib       = data?.hib
-    member.ps        = data?.ps
-    member.bo        = data?.bo
-    member.loc       = data?.loc
+    member.lastReportTime = now()
+    member.latitude       = data?.lat
+    member.longitude      = data?.lon
+    member.timeStamp      = data?.tst
+    member.battery        = data?.batt
+    member.accuracy       = data?.acc
+    member.altitude       = data?.alt
+    member.speed          = data?.vel
+    member.trackerID      = data?.tid
+    member.bs             = data?.bs
+    member.wifi           = data?.wifi
+    member.hib            = data?.hib
+    member.ps             = data?.ps
+    member.bo             = data?.bo
+    member.loc            = data?.loc
 
     // update the presence information for the member
     try {
@@ -1100,8 +1140,8 @@ private def sendMemberPositions(currentMember, data) {
     settings?.enabledMembers.each { enabledMember->
         // we need to send the originating member's location back to them for their user card to be displayed on the map
         member = state.members.find {it.name==enabledMember}
-        // Send the current member's location back to them so they can get get their thumbnail.  NOTE: iOS users will make a duplicate of themselves (duplicate will have the thumbail, original will not)
-        if ((imageCards && seeOwnImageCard) || (currentMember != member)) {
+        // Don't send the member's location back to them.  NOTE: iOS users will make a duplicate of themselves, and Android has a lag between the app displayed thumbnail and the current phone location
+        if (currentMember != member) {
             // populating the tracker ID field with a name allows the name to be displayed in the Friends list and map bubbles and load the OwnTrack support parameters
             def memberLocation = [ "_type": "location", "t": "u", "lat": member.latitude, "lon": member.longitude, "tst": member.timeStamp ]
 

@@ -41,14 +41,21 @@ Open the Owntracks app.
 
 1. Member Status
     - Summary table for all users
-	- If the member has reported recently, it is displayed in green.
-	- If the member has not reported a location in 12-hours, it is displayed in red, and the 'Last Location Report' is highlighted with a red box.
-	- If the member is disabled, it will be displayed in grey with a strike through.
+		- If the member has reported recently, it is displayed in green.
+		- If the member has not reported a location in the set hours, it is displayed in red.
+		- If the member is disabled, it will be displayed in grey with a strike through.
+	- Last Location Report
+		- Date/time for the last update from a member.  If the member hasn't reporting after the set number of hours, it is displayed in red, with the number of hours since the last report.
+	- Last Location Fix
+		- Date/time for the last location fix from a member.  If the member hasn't updated it's location after the set number of hours, it is displayed in red, with the number of hours since the last fix.
 	- The columns indicate the current pending requests for each member.  If 'Pending' is displayed, that user will get updated on the next location report.
 2. Installation
     - Configure Hubitat App
   	    - Select family member(s):  
 		    - Once a mobile device has connected to the Cloud API link, it will be populated in this list, but is disabled.  Select the user to enable presence detection.
+	    - Highlight members on the 'Member Status' that have not reported a location for this many hours (Range: 1..168)
+		    - Members with stale location updates past this number are flagged on the 'Member Status' table.
+			- Valid times are 1-168 hours (1-hour to 7-days)
 		- Display a warning in the logs if a family member reports a location but is not enabled:
 			- If enabled, a warning will be disabled each time a member reports a location, but is not selected.
 		- Display a warning in the logs if a family member app settings are not configured for optimal operation:
@@ -58,6 +65,7 @@ Open the Owntracks app.
 		- Select your 'Home' place. Use 'Regions', below, and 'Add Region' to create a home location if the list is empty: 
 			- Select the region where 'Home' is for presence detection.  
 			- If the list is empty, select 'Regions' in the Mobile App Configuration to create a home location.
+			- Click the link to view the pin on Google Maps.
 		- Enter your 'Home' WiFi SSID(s), separated by commas (optional).  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point.
 		- Enable high accuracy reporting when location is between region radius and this value:
 			- When a user is between the home geofence radius and this radius, the app will switch the user to use high accuracy/high frequency reporting to ensure presence triggers operate correctly.
@@ -86,6 +94,8 @@ Open the Owntracks app.
 	a. Regions
 		- Select family member(s) to retrieve their region list on next location update. Their regions will be merged into the list stored in the Hubitat app.
 			- Select user(s) that you wish to retrieve their regions when they report their location.
+	    - Select region to check coordinates.
+			- Select a region from the selection box, and click the link to view the pin on Google Maps.
 		- Add Regions:
 			- Enter the name, detection radius and coordinates.  Click on the screen to expose the 'Save' button.
 			- Click the 'Save' button.
@@ -106,8 +116,6 @@ Open the Owntracks app.
 	c. Display
 		- Display user thumbnails on the map.  Needs to have a 'user.jpg' image of maximum resolution 192x192 pixels uploaded to the 'Settings->File Manager'
 			- Sends back each user's thumbnail picture when the send their location report.
-		- User can see their own image in their mobile app (Android Only)
-			- NOTE: iOS users will see themselves twice on the map and no self-thumbnail is displayed.
 		- Replace the 'TID' (tracker ID) with 'username' for displaying a name on the map and recorder
 			- Pushes the user name back as the tracker ID to allow the user's names to be shown on each device map.
 		- Notify about received events
