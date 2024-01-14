@@ -34,7 +34,7 @@ For discussion and more information, visit the Hubitat Community <a href="https:
 			- User ID -> Name of the particular user
 			- cmd -> Selected
 			
-    - Click the 'Manual Update' button in the app to register the device with the Hubitat App.  
+    - Click the 'Send Location Now' button in the app to register the device with the Hubitat App.  
 
 ## Hubitat App Configuration
 Open the Owntracks app.
@@ -49,13 +49,18 @@ Open the Owntracks app.
 	- Last Location Fix
 		- Date/time for the last location fix from a member.  If the member hasn't updated it's location after the set number of hours, it is displayed in red, with the number of hours since the last fix.
 	- The columns indicate the current pending requests for each member.  If 'Pending' is displayed, that user will get updated on the next location report.
+	- Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (Android ONLY)
+		- If a member is flagged as having a stale location fix, they will be marked to have their mobile app use a high accuracy GPS location for their next location update.
+		- Only Android mobile phones support this feature.
+	- Highlight members on the 'Member Status' that have not reported a location for this many hours (Range: 1..168)
+		- Members with stale location updates past this number are flagged on the 'Member Status' table.
+		- Valid times are 1-168 hours (1-hour to 7-days)
 2. Installation
+	- Mobile App Installation Instructions
+		- Lists the 'Mobile App Configuration', above, with the Cloud API link.
     - Configure Hubitat App
   	    - Select family member(s):  
 		    - Once a mobile device has connected to the Cloud API link, it will be populated in this list, but is disabled.  Select the user to enable presence detection.
-	    - Highlight members on the 'Member Status' that have not reported a location for this many hours (Range: 1..168)
-		    - Members with stale location updates past this number are flagged on the 'Member Status' table.
-			- Valid times are 1-168 hours (1-hour to 7-days)
 		- Display a warning in the logs if a family member reports a location but is not enabled:
 			- If enabled, a warning will be disabled each time a member reports a location, but is not selected.
 		- Display a warning in the logs if a family member app settings are not configured for optimal operation:
@@ -71,8 +76,6 @@ Open the Owntracks app.
 			- When a user is between the home geofence radius and this radius, the app will switch the user to use high accuracy/high frequency reporting to ensure presence triggers operate correctly.
 		- High accuracy reporting is used for home region only when selected, all regions if not selected
 			- If selected, then high accuracy reporting only occurs in the geofence around home.  If deselected, high accuracy reporting will be used on all regions.  Note:  This will increase battery consumption.
-	- Mobile App Installation Instructions
-		- Lists the 'Mobile App Configuration', above, with the Cloud API link.
 	- Creating User Thumbnail Instructions:  
 		- Directions to create thumbnails for the mobile app and recorder.
 	- Enable OwnTracks Recorder (Optional)

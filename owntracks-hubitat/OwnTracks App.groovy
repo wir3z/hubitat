@@ -1,4 +1,4 @@
-/**
+​/**
  *  Copyright 2024 Lyle Pakula
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
@@ -32,7 +32,7 @@
  *  1.6.11     2024-01-12      - Added a ability to enable each user to see their own image card on the map.  NOTE:  iOS users will see themselves twice.  Added a delete region from Hubitat only setting.  Added how-to information to the respective sections.  Added member status block.
  *  1.6.12     2024-01-13      - Removed the ability to enable each user to see their own image card on the map due to stability issues.  Added user selectable warning time to mark stale location reports on the Members Status table.  
  *                             - Added location report to the Member status table.  Added ability to check the pin location of regions on Google Maps.
- *
+ *  1.6.13     2024-01-14      - Fixed exception with first time configure of the app.  Disabled the 'restart mobile app' due to the OwnTracks Android 2.4.x not starting the ping service after the remote restart.  Added the ability to have the mobile app send a high accuracy location on the next report. Added an auto-request high accuracy location for stale Android locations.
  */
 
 import groovy.transform.Field
@@ -41,7 +41,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.12" }
+def appVersion() { return "1.6.13" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -66,6 +66,7 @@ def appVersion() { return "1.6.12" }
 @Field Boolean DEFAULT_warnOnDisabledMember = true
 @Field Boolean DEFAULT_warnOnMemberSettings = false
 @Field Number  DEFAULT_warnOnNoUpdateHours = 12
+@Field Number  DEFAULT_staleLocationWatchdogInterval = 900
 // Mobile app location defaults
 @Field Number  DEFAULT_monitoring = 1
 @Field Number  DEFAULT_locatorPriority = 2
@@ -147,9 +148,13 @@ def mainPage() {
             section(getFormat("box", "Member Status")) {
                 displayMemberStatus()
             }            
+            section(getFormat("line", "")) {
+                input name: "autoRequestLocation", type: "bool", title: "Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (<b>Android ONLY</b>)", defaultValue: false
+                input name: "warnOnNoUpdateHours", type: "number", title: "Highlight members on the 'Member Status' that have not reported a location for this many hours (1..168)", range: "1..168", defaultValue: DEFAULT_warnOnNoUpdateHours
+            }            
             section(getFormat("box", "Installation")) {
-                href(title: "Configure Hubitat App", description: "", style: "page", page: "configureHubApp")
                 href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
+                href(title: "Configure Hubitat App", description: "", style: "page", page: "configureHubApp")
                 href(title: "Creating User Thumbnail Instructions", description: "", style: "page", page: "thumbnailCreationInstructions")
                 href(title: "Enable OwnTracks Recorder (Optional)", description: "", style: "page", page: "configureRecorder")
                 href(title: "Link Secondary Hub (Optional)", description: "", style: "page", page: "configureSecondaryHub")
@@ -157,7 +162,9 @@ def mainPage() {
 
             section(getFormat("box", "Mobile App Configuration")) {
                 input "syncMobileSettings", "enum", multiple: true, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
-                input "restartMobileApp", "enum", multiple: true, title:"Select family member(s) to restart their mobile app on next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
+// Restart is only applicable to Android.  Current Android 2.4.x will restart the app, but fails to restart the ping service
+//                input "restartMobileApp", "enum", multiple: true, title:"Select family member(s) to restart their mobile app on next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
+                input "requestLocation", "enum", multiple: true, title:"Select family member(s) to send a high accuracy GPS location on next location update (<b>Android ONLY</b>). The user will be registered to receive this request once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
                 href(title: "Regions", description: "", style: "page", page: "configureRegions")
                 href(title: "Location", description: "", style: "page", page: "configureLocation")
                 href(title: "Display", description: "", style: "page", page: "configureDisplay")
@@ -182,11 +189,10 @@ def configureHubApp() {
                 app.updateSetting("homeGeoFence", [value: displayMFtVal(state.homeGeoFence), type: "number"])
             }
             input "enabledMembers", "enum", multiple: true, title:"Select family member(s)", options: state.members.name.sort(), submitOnChange: true
-            input name: "warnOnNoUpdateHours", type: "number", title: "Highlight members on the 'Member Status' that have not reported a location for this many hours (1..168)", range: "1..168", defaultValue: DEFAULT_warnOnNoUpdateHours
             input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: DEFAULT_warnOnDisabledMember
             input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: DEFAULT_warnOnMemberSettings
             input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: DEFAULT_imperialUnits, submitOnChange: true
-            input "homePlace", "enum", multiple: false, title:"Select your 'Home' place.  Use 'Regions', below, and 'Add Region' to create a home location if the list is empty.  <a href='https://maps.google.com/?q=${state.places.find {it.desc==homePlace}.lat},${state.places.find {it.desc==homePlace}.lon}' target='_blank'>Click to verify the coordinates of '${homePlace}.'</a>", options: (state.places ? state.places.desc.sort() : [])
+            input "homePlace", "enum", multiple: false, title:"Select your 'Home' place.  Use 'Regions', below, and 'Add Region' to create a home location if the list is empty.  ${(homePlace ? "<a href='https://maps.google.com/?q=${state.places.find {it.desc==homePlace}.lat},${state.places.find {it.desc==homePlace}.lon}' target='_blank'>Click to verify the coordinates of '${homePlace}.'</a>" : "")}", options: (state.places ? state.places.desc.sort() : [])
             input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas (optional).  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point(s).", defaultValue: ""
             input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? ['0':'disabled','250':'820 ft','500':'1640 ft','750':'2461 ft','1000':'3281 ft'] : ['0':'disabled','250':'250 m','500':'500 m','750':'750 m','1000':'1000 m'])
             input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: DEFAULT_regionHighAccuracyRadiusHomeOnly
@@ -223,7 +229,7 @@ def installationInstructions() {
                        "                 URL -> <a href='${extUri}'>${extUri}</a> \r" +
                        "                 User ID -> Name of the particular user \r" +
                        "                 cmd -> Selected</i>\r\n\r\n" +
-                       "     2. Click the 'Manual Update' button in the app to register the device with the Hubitat App."          
+                       "     2. Click the 'Send Location Now' button in the app to register the device with the Hubitat App."          
                       )
         }
     }
@@ -244,7 +250,7 @@ def thumbnailCreationInstructions() {
                        "          a. Select 'Display', and enable the 'Display user thumbnails on the map.' and then 'Done'.\r" +
                        "          b. Select all users in the 'Select family member(s) to update location, display and region settings on the next location update.' box, and then 'Done'.\r" +
                        "     5. In the OwnTracks Mobile app:\r" +
-                       "          a. Select the manual location button, top right of the map screen.  User thumbnails should now populate on the mobile app map.\r"
+                       "          a. Select the 'Send Location Now' button, top right of the map screen.  User thumbnails should now populate on the mobile app map.\r"
                       )
         }
     }
@@ -670,6 +676,11 @@ def updated() {
         if (settings?.restartMobileApp.find {it==member.name}) {
             member.restartApp = true
         }
+        // if we selected member(s) to restart their mobile app
+        if (settings?.requestLocation.find {it==member.name}) {
+            member.requestLocation = true
+        }
+        
         // if the configuration has changed, trigger the member update
         if (syncSettings) {
             member.updateLocation = true
@@ -678,6 +689,7 @@ def updated() {
         }
     }
     // clear the settings flags to prevent the configurations from being forced to the display on each entry
+    app.updateSetting("requestLocation",[value:"",type:"enum"])
     app.updateSetting("restartMobileApp",[value:"",type:"enum"])
     app.updateSetting("syncMobileSettings",[value:"",type:"enum"])
     app.updateSetting("getMobileRegions",[value:"",type:"enum"])
@@ -692,6 +704,11 @@ def updated() {
         state.home = [ name:findPlace.desc, latitude:findPlace.lat, longitude:findPlace.lon, geofence:(findPlace.rad.toInteger()/1000) ]
     } else {
         logError("No 'Home' location has been defined.  Presence detection will be non-functional.")
+    }
+    
+    // if we have selected to automatically request a high accuracy location fix, schedule the watchdog
+    if (autoRequestLocation) {
+        locationFixWatchdog()
     }
 }
 
@@ -716,6 +733,54 @@ def childGetWarnOnNonOptimalSettings() {
     return (warnOnMemberSettings)
 }
 
+def locationFixWatchdog() {
+    logDebug("Check members for stale locations.")
+    // update each member with their last report times
+    checkStaleMembers()
+    // reschedule the watchdog
+    runIn(DEFAULT_staleLocationWatchdogInterval, locationFixWatchdog)
+}
+
+def checkStaleMembers() {
+    // loop through all the members
+    state.members.each { member->
+        // generate the stale report times
+        if (member.lastReportTime) {               
+            long lastReportTime = member.lastReportTime.toLong()
+            member.lastReportDate = new SimpleDateFormat("E h:mm a   yyyy-MM-dd").format(new Date(lastReportTime))
+            // true if no update the selected number of hours
+            member.staleReport = ((now() - lastReportTime) > (warnOnNoUpdateHours * 3600000))
+            // number of hours since last report
+            member.numberHoursReport = ((now() - lastReportTime) / 3600000).toInteger()
+        } else {
+            // force a stale report if no time was reported
+            member.staleReport = true
+            member.lastReportDate = "None"
+            member.numberHoursFix = "?"
+        }
+        // generate the stale location times
+        if (member.timeStamp) {       
+            long lastFixTime = member.timeStamp.toLong() * 1000
+            member.lastFixDate = new SimpleDateFormat("E h:mm a   yyyy-MM-dd").format(new Date(lastFixTime))
+            // true if no update the selected number of hours
+            member.staleFix = ((now() - lastFixTime) > (warnOnNoUpdateHours * 3600000))
+            // number of hours since last report
+            member.numberHoursFix = ((now() - lastFixTime) / 3600000).toInteger()
+        } else {
+            // force a stale fix if no time was reported
+            member.staleFix = true
+            member.lastFixDate = "None"
+            member.numberHoursFix = "?"
+        }
+    
+        // if auto request location is enabled and the position fix is stale, flag the user
+        if (autoRequestLocation && member.staleFix) {
+            member.requestLocation = true
+            logDescriptionText("${member.name}'s position is stale.  Requesting a high accuracy location update.")
+        }
+    }
+}
+
 def displayMemberStatus() {
     String tableData = "";
     
@@ -732,51 +797,27 @@ def displayMemberStatus() {
         tableData += '<th>Update Location</th>'
         tableData += '<th>Update Display</th>'
         tableData += '<th>Get Regions</th>'
-        tableData += '<th>Restart App</th>'
+        tableData += '<th>Request Location</th>'
+//        tableData += '<th>Restart App</th>'
         tableData += '</tr>'
     
+        // update each member with their last report times
+        checkStaleMembers()
         // loop through all the members
         state.members.each { member->
             // check if member is enabled
             memberEnabled = settings?.enabledMembers.find {it==member.name}
-            // generate the stale report times
-            if (member.lastReportTime) {               
-                long lastReportTime = member.lastReportTime.toLong()
-                lastReportDate = new SimpleDateFormat("E h:mm a   yyyy-MM-dd").format(new Date(lastReportTime))
-                // true if no update the selected number of hours
-                staleReport = ((now() - lastReportTime) > (warnOnNoUpdateHours * 3600000))
-                // number of hours since last report
-                numberHoursReport = ((now() - lastReportTime) / 3600000).toInteger()
-            } else {
-                // force a stale report if no time was reported
-                staleReport = true
-                lastReportDate = "None"
-                numberHoursFix = "?"
-            }
-            // generate the stale location times
-            if (member.timeStamp) {       
-                long lastFixTime = member.timeStamp.toLong() * 1000
-                lastFixDate = new SimpleDateFormat("E h:mm a   yyyy-MM-dd").format(new Date(lastFixTime))
-                // true if no update the selected number of hours
-                staleFix = ((now() - lastFixTime) > (warnOnNoUpdateHours * 3600000))
-                // number of hours since last report
-                numberHoursFix = ((now() - lastFixTime) / 3600000).toInteger()
-            } else {
-                // force a stale fix if no time was reported
-                staleFix = true
-                lastFixDate = "None"
-                numberHoursFix = "?"
-            }
                     
             tableData += '<tr>'
-            tableData += (memberEnabled ? ((staleFix || staleReport) ? '<td style="color:#ff0000">' + member.name + '</td>' : '<td style="color:#017000">' + member.name + '</td>') : '<td style="color:#b3b3b3"><s>' + member.name + '</s></td>')
-            tableData += (memberEnabled ? ((staleReport ? '<td style="color:#ff0000">' + lastReportDate + ' (' + numberHoursReport + ' hrs ago)' : '<td>' + lastReportDate) + '</td>') : '<td style="color:#b3b3b3"><s>' + lastReportDate + '</s></td>')
-            tableData += (memberEnabled ? ((staleFix ? '<td style="color:#ff0000">' + lastFixDate + ' (' + numberHoursFix + ' hrs ago)' : '<td>' + lastFixDate) + '</td>') : '<td style="color:#b3b3b3"><s>' + lastFixDate + '</s></td>')
+            tableData += (memberEnabled ? ((member.staleFix || member.staleReport) ? '<td style="color:#ff0000">' + member.name + '</td>' : '<td style="color:#017000">' + member.name + '</td>') : '<td style="color:#b3b3b3"><s>' + member.name + '</s></td>')
+            tableData += (memberEnabled ? ((member.staleReport ? '<td style="color:#ff0000">' + member.lastReportDate + ' (' + member.numberHoursReport + ' hrs ago)' : '<td>' + member.lastReportDate) + '</td>') : '<td style="color:#b3b3b3"><s>' + member.lastReportDate + '</s></td>')
+            tableData += (memberEnabled ? ((member.staleFix ? '<td style="color:#ff0000">' + member.lastFixDate + ' (' + member.numberHoursFix + ' hrs ago)' : '<td>' + member.lastFixDate) + '</td>') : '<td style="color:#b3b3b3"><s>' + member.lastFixDate + '</s></td>')
             tableData += (memberEnabled ? (member.updateWaypoints ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
             tableData += (memberEnabled ? (member.updateLocation ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
             tableData += (memberEnabled ? (member.updateDisplay ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
             tableData += (memberEnabled ? (member.getRegions ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
-            tableData += (memberEnabled ? (member.restartApp ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
+            tableData += (memberEnabled ? (member.requestLocation ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
+//            tableData += (memberEnabled ? (member.restartApp ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
             tableData += '</tr>'
         }
         tableData += '</table></font>'
@@ -822,7 +863,7 @@ def webhookEventHandler() {
         if (!findMember?.id) {
             // add the new user to the list if they don't exist yet.  We will use the current time since not all incoming packets have a timestamp
             if (findMember == null) {
-                state.members << [ name:sourceName, deviceID:sourceDeviceID, id:null, timeStamp:(now()/1000).toInteger(), updateWaypoints:true, updateLocation:true, updateDisplay:true, dynamicLocaterAccuracy:false, restartApp:false, getRegions:false ]
+                state.members << [ name:sourceName, deviceID:sourceDeviceID, id:null, timeStamp:(now()/1000).toInteger(), updateWaypoints:true, updateLocation:true, updateDisplay:true, dynamicLocaterAccuracy:false, restartApp:false, getRegions:false, requestLocation:false ]
             }
             logWarn("User: '${sourceName}' not configured.  Run setup to add new member.")
         } else {
@@ -1000,22 +1041,23 @@ def checkRegionConfiguration(member, data) {
             logWarn("Home region is undefined.  Run setup to configure the 'Home' location") 
         }
 
-        // check if we are within our region radius, or greater than the radius + regionHighAccuracyRadius
-        if ((closestWaypointDistance < closestWaypointRadius) || (closestWaypointDistance > (closestWaypointRadius + regionHighAccuracyRadius.toDouble()))) {
-            // switch to settings.  Recommended locatorPriority=balanced power and pegLocatorFastestIntervalToInterval=true (fixed interval)
-            useDynamicLocaterAccuracy = false
-            configurationList = [ "_type": "configuration",
-                                  "pegLocatorFastestIntervalToInterval": pegLocatorFastestIntervalToInterval,
-                                  "locatorPriority": locatorPriority.toInteger(),
-                                ]
-        } else {
+        // check if we need to force a high accuracy update or we are outside our region radius, and within our greater than the radius + regionHighAccuracyRadius
+        if (member.requestLocation || ((closestWaypointDistance > closestWaypointRadius) && (closestWaypointDistance < (closestWaypointRadius + regionHighAccuracyRadius.toDouble())))) {
             // switch to locatorPriority=high power and pegLocatorFastestIntervalToInterval=false (dynamic interval)
             useDynamicLocaterAccuracy = true
             configurationList = [ "_type": "configuration",
                                   "pegLocatorFastestIntervalToInterval": DYNAMIC_INTERVALS.pegLocatorFastestIntervalToInterval,
                                   "locatorPriority": DYNAMIC_INTERVALS.locatorPriority,
                                 ]
-        }
+        } else {
+            // switch to settings.  Recommended locatorPriority=balanced power and pegLocatorFastestIntervalToInterval=true (fixed interval)
+            useDynamicLocaterAccuracy = false
+            configurationList = [ "_type": "configuration",
+                                  "pegLocatorFastestIntervalToInterval": pegLocatorFastestIntervalToInterval,
+                                  "locatorPriority": locatorPriority.toInteger(),
+                                ]
+        }  
+     
         // check if we had a change, and then update the device configuration
         if (member?.dynamicLocaterAccuracy != useDynamicLocaterAccuracy) {
             // assign the new state
@@ -1301,12 +1343,17 @@ private def sendUpdate(currentMember, data) {
         if (updateConfig) {
             update += updateConfig
         }
+        // checkRegionConfiguration will switch the phone to a high accuracy report for one location request, so clear the flag
+        if (currentMember?.requestLocation) {
+            currentMember.requestLocation = false
+    	}
     }
 
     // trigger an app restart
     if (currentMember?.restartApp) {
         currentMember.restartApp = false
-        update += sendRestartRequest(currentMember)
+        // Only supported on Android.  When this is sent, the app restarts, but the ping service does not        
+//        update += sendRestartRequest(currentMember)
     }
 
     // request the member's regions
@@ -1321,7 +1368,7 @@ private def sendUpdate(currentMember, data) {
 
 private def sendCmdToMember(currentMember) {
     // check if there are commands to send to the member
-    if ((currentMember?.updateWaypoints) || (currentMember?.updateLocation) || (currentMember?.updateDisplay) || (currentMember?.restartApp) || (currentMember?.getRegions)) {
+    if ((currentMember?.updateWaypoints) || (currentMember?.updateLocation) || (currentMember?.updateDisplay) || (currentMember?.restartApp) || (currentMember?.getRegions) || (currentMember?.requestLocation)) {
         return (true)
     } else {
         return (false)
