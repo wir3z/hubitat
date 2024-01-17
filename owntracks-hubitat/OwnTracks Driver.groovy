@@ -74,18 +74,19 @@
  *  Version    Date            Changes
  *  1.6.4      2024-01-07      - Moved SSID from the extended attributes block.
  *  1.6.5      2024-01-08      - Added last location time field.  Fixed issue where SSID wasn't getting deleted when WiFi was disconnected.  Moved SSID check from driver to app.
+ *  1.6.6      2024-01-16      - Added imageURL for user's local thumbnail image
  *
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.5" }
+def driverVersion() { return "1.6.6" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
-@Field static final Map TRIGGER_TYPE = [ "p": "Ping", "c": "Region", "r": "Report Location", "u": "Manual" ]
+@Field static final Map TRIGGER_TYPE = [ "p": "Ping", "c": "Region", "r": "Report Location", "u": "Manual", "b": "Beacon", "t": "Timer", "v": "Monitoring" ]
 @Field static final Map PRESENCE_TILE_BATTERY_FIELD = [ 0: "Battery %", 1: "Current Location and Since Time", 2: "Distance from Home", 3: "Last Speed", 4: "Battery Status (Unplugged/Charging/Full)", 5: "Data Connection (WiFi/Mobile)", 6: "Update Trigger (Ping/Region/Report Location/Manual)" ]
 @Field static final Map LOCATION_PERMISION = [ "0": "Background - Fine", "-1": "Background - Coarse", "-2": "Foreground - Fine", "-3": "Foreground - Coarse", "-4": "Disabled" ]
 
@@ -115,6 +116,8 @@ metadata {
         attribute  "batteryOptimizations", "string"
         attribute  "locationPermissions", "string"
 
+        attribute  "imageURL", "string"
+      
         // extended attributes
         attribute  "batteryPercent", "number"
         attribute  "lat", "number"

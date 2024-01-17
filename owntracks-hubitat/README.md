@@ -150,6 +150,8 @@ The defaults for the rest of these settings should be sufficient for verifying o
 # Advanced Settings
 The default mobile settings provide the best balance of accuracy/power.  To view or modify advanced settings, enable the 'Modify Default Settings' slider.	
 NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or 'cmd' (iOS) must be enabled in the mobile app.
+
+- Use GPS for higher accuracy/performance.  NOTE: This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (Android ONLY)
 	
 ## Mobile App Location Settings	
 - Using the defaults gives best balance of battery life and accuracy.  If 'Enable high accuracy reporting when location is between region radius and this value' was enabled on the main screen,

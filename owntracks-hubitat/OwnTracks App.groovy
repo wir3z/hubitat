@@ -34,6 +34,7 @@
  *                             - Added location report to the Member status table.  Added ability to check the pin location of regions on Google Maps.
  *  1.6.13     2024-01-14      - Fixed exception with first time configure of the app.  Disabled the 'restart mobile app' due to the OwnTracks Android 2.4.x not starting the ping service after the remote restart.  Added the ability to have the mobile app send a high accuracy location on the next report. Added an auto-request high accuracy location for stale Android locations.
  *  1.6.14     2024-01-15      - Refactored the layout to make it simpler to install/navigate.  Added the ability to reset the app back to the recommended defaults.  Added ability to request a higher accuracy location on a ping/manual location (Android Only).
+ *  1.6.15     2024-01-16      - Added support for driver to retrieve local file URL.  Fixed issue when home place was deleted.  Provided quick selection to switch locator priority on main screen.
  */
 
 import groovy.transform.Field
@@ -42,17 +43,16 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.14" }
+def appVersion() { return "1.6.15" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
 @Field static final Map TRIGGER_TYPE = [ "p": "Ping", "c": "Region", "r": "Report Location", "u": "Manual" ]
 @Field static final Map TOPIC_FORMAT = [ 0: "topicSource", 1: "userName", 2: "deviceID", 3: "eventType" ]
 @Field static final Map LOCATOR_PRIORITY = [ 0: "NO_POWER (best accuracy with zero power consumption)", 1: "LOW_POWER (city level accuracy)", 2: "BALANCED_POWER (block level accuracy based on Wifi/Cell)", 3: "HIGH_POWER (most accurate accuracy based on GPS)" ]
-//@Field static final Map DYNAMIC_INTERVALS = [ "pegLocatorFastestIntervalToInterval": false, "locatorPriority": 3, "locatorDisplacement": 50, "locatorInterval": 60 ]
 @Field static final Map DYNAMIC_INTERVALS = [ "pegLocatorFastestIntervalToInterval": false, "locatorPriority": 3 ]
-//@Field static final Map MONITORING_MODES = [ -1: "Quiet (no events published)", 0: "Manual (user triggered events)", 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
-@Field static final Map MONITORING_MODES = [ 0: "Manual (user triggered events)", 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
+//@Field static final Map MONITORING_MODES = [ 0: "Manual (user triggered events)", 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
+@Field static final Map MONITORING_MODES = [ 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
 
 // Main defaults
 @Field String  CHILDPREFIX = "OwnTracks - "
@@ -70,6 +70,7 @@ def appVersion() { return "1.6.14" }
 @Field Number  DEFAULT_staleLocationWatchdogInterval = 900
 @Field Boolean DEFAULT_highAccuracyOnPing = true
 @Field Boolean DEFAULT_autoRequestLocation = true
+@Field Boolean DEFAULT_highPowerMode = false
 @Field Boolean DEFAULT_advancedMode = false
 @Field Boolean DEFAULT_descriptionTextOutput = true
 @Field Boolean DEFAULT_debugOutput = false
@@ -171,6 +172,8 @@ def mainPage() {
             }
             section(getFormat("box", "Advanced Settings")) {
                 paragraph("The default mobile settings provide the best balance of accuracy/power.  To view or modify advanced settings, enable 'Modify Default Settings'.")
+                input name: "highPowerMode", type: "bool", title: "Use GPS for higher accuracy/performance.  <b>NOTE:</b> This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (<b>Android ONLY</b>)", defaultValue: DEFAULT_highPowerMode, submitOnChange: true
+                checkLocatorPriority()
                 input name: "advancedMode", type: "bool", title: "Modify Default Settings", defaultValue: DEFAULT_advancedMode, submitOnChange: true
                 if (advancedMode) {
 // Restart is only applicable to Android.  Current Android 2.4.x will restart the app, but fails to restart the ping service
@@ -191,6 +194,24 @@ def mainPage() {
                 input name: "debugResetHours", type: "number", title: "Turn off debug logging after this many hours (1..24)", range: "1..24", defaultValue: DEFAULT_debugResetHours
             }
         }
+    }
+}
+
+def checkLocatorPriority() {
+    // check if we need to 
+    if (state.highPowerMode != highPowerMode) {
+        state.highPowerMode = highPowerMode
+        // remove the old enum so we can re-assign it
+        app.removeSetting("locatorPriority")
+        // change the setting
+        if (highPowerMode) {
+            app.updateSetting("locatorPriority", [value: DYNAMIC_INTERVALS.locatorPriority, type: "number"])
+        } else {
+            app.updateSetting("locatorPriority", [value: DEFAULT_locatorPriority, type: "number"])
+        }
+        // trigger the mobile location update
+        setUpdateFlag([ "name":"" ], "updateLocation", true)
+        logWarn("Changing locator priority to ${LOCATOR_PRIORITY[locatorPriority.toInteger()]}")
     }
 }
 
@@ -355,7 +376,8 @@ def configureLocation() {
     return dynamicPage(name: "configureLocation", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Mobile App Location Configuration")) {
             input name: "monitoring", type: "enum", title: "Location reporting mode, Recommended=${MONITORING_MODES[DEFAULT_monitoring]}", required: true, options: MONITORING_MODES, defaultValue: DEFAULT_monitoring, submitOnChange: true
-            input name: "locatorPriority", type: "enum", title: "Source/power setting for location updates, Recommended=${LOCATOR_PRIORITY[DEFAULT_locatorPriority]}", required: true, options: LOCATOR_PRIORITY, defaultValue: DEFAULT_locatorPriority
+            // This is replaced with high accuracy selection on the main page
+//            input name: "locatorPriority", type: "enum", title: "Source/power setting for location updates, Recommended=${LOCATOR_PRIORITY[DEFAULT_locatorPriority]}", required: true, options: LOCATOR_PRIORITY, defaultValue: DEFAULT_locatorPriority, submitOnChange: true
             input name: "ignoreInaccurateLocations", type: "number", title: "Do not send a location if the accuracy is greater than the given (${getSmallUnits()}) (0..${displayMFtVal(2000)}) Recommended=${displayMFtVal(DEFAULT_ignoreInaccurateLocations)}", required: true, range: "0..${displayMFtVal(2000)}", defaultValue: displayMFtVal(DEFAULT_ignoreInaccurateLocations)
             input name: "ignoreStaleLocations", type: "decimal", title: "Number of days after which location updates from friends are assumed stale and removed (0.0..7.0), Recommended=${DEFAULT_ignoreStaleLocations}", required: true, range: "0.0..7.0", defaultValue: DEFAULT_ignoreStaleLocations
             input name: "ping", type: "number", title: "Device will send a location interval at this heart beat interval (minutes) (15..360), Recommended=${DEFAULT_ping}", required: true, range: "15..60", defaultValue: DEFAULT_ping
@@ -582,7 +604,8 @@ String appButtonHandler(btn) {
                 }
                 // check if we are deleting our home location
                 if (homePlace == desc) {
-                   state.home = []
+                    state.home = []
+                    app.removeSetting("homePlace")
                 }
             }
             result = "Deleting regions '${regionName}'"
@@ -652,12 +675,14 @@ def initialize(forceDefaults) {
     if (state.accessToken == null) state.accessToken = ""
     if (state.members == null) state.members = []
     if (state.home == null) state.home = []
+    if (state.home == []) app.removeSetting("homePlace")
     if (state.places == null) state.places = []
     if (state.locatorDisplacement == null) state.locatorDisplacement = DEFAULT_locatorDisplacement
     if (state.ignoreInaccurateLocations == null) state.ignoreInaccurateLocations = DEFAULT_ignoreInaccurateLocations
     if (state.homeGeoFence == null) state.homeGeoFence = DEFAULT_RADIUS
     if (state.imperialUnits == null) state.imperialUnits = DEFAULT_imperialUnits
-
+    if (state.highPowerMode == null) state.highPowerMode = DEFAULT_highPowerMode
+    
     // in order to set the default enum's we need to remove the existing setting
     if (forceDefaults) {
         app.removeSetting("monitoring")
@@ -679,6 +704,7 @@ def initialize(forceDefaults) {
     if (forceDefaults || (DEFAULT_highAccuracyOnPing == null)) app.updateSetting("DEFAULT_highAccuracyOnPing", [value: DEFAULT_highAccuracyOnPing, type: "bool"])    
     if (forceDefaults || (autoRequestLocation == null)) app.updateSetting("autoRequestLocation", [value: DEFAULT_autoRequestLocation, type: "bool"])
     if (forceDefaults || (advancedMode == null)) app.updateSetting("advancedMode", [value: DEFAULT_advancedMode, type: "bool"])
+    if (forceDefaults || (highPowerMode == null)) app.updateSetting("highPowerMode", [value: DEFAULT_highPowerMode, type: "bool"])
     
     // assign the defaults to the mobile app settings
     if (monitoring == null) app.updateSetting("monitoring", [value: DEFAULT_monitoring, type: "number"])
@@ -778,6 +804,11 @@ def childGetWarnOnNonOptimalSettings() {
     return (warnOnMemberSettings)
 }
 
+def getImageURL(memberName) {
+    // return with path to the user card   
+    return ("http://${location.hubs[0].getDataValue("localIP")}/local/${memberName}.jpg")
+}
+
 def locationFixWatchdog() {
     logDebug("Check members for stale locations.")
     // update each member with their last report times
@@ -868,7 +899,7 @@ def displayMemberStatus() {
         tableData += '</table></font>'
         tableData += '</div>'
     } else {
-        tableData = "<h3>Select 'Configure Hubitat App' to add members.</h3>"
+        tableData = "<h3>'Select family member(s) to monitor' to add members.</h3>"
     }
     paragraph( tableData )
 }
@@ -1031,6 +1062,8 @@ def updateDevicePresence(member, data) {
         // find the appropriate child device based on app id and the device network id
         def deviceWrapper = getChildDevice(member.id)
         logDebug("Updating '${(data.event ? "Event $data.event" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for member $deviceWrapper")
+        // update the image URL
+        deviceWrapper.sendEvent( name: "imageURL", value: getImageURL(member.name) )
 
         // check if the user defined a home place
         if (state.home) {
