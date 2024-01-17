@@ -35,6 +35,7 @@
  *  1.6.13     2024-01-14      - Fixed exception with first time configure of the app.  Disabled the 'restart mobile app' due to the OwnTracks Android 2.4.x not starting the ping service after the remote restart.  Added the ability to have the mobile app send a high accuracy location on the next report. Added an auto-request high accuracy location for stale Android locations.
  *  1.6.14     2024-01-15      - Refactored the layout to make it simpler to install/navigate.  Added the ability to reset the app back to the recommended defaults.  Added ability to request a higher accuracy location on a ping/manual location (Android Only).
  *  1.6.15     2024-01-16      - Added support for driver to retrieve local file URL.  Fixed issue when home place was deleted.  Provided quick selection to switch locator priority on main screen.
+ *  1.6.16     2024-01-17      - Fixed issue where assigning home would get cleared.
  */
 
 import groovy.transform.Field
@@ -43,7 +44,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.15" }
+def appVersion() { return "1.6.16" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -427,7 +428,8 @@ def configureRegions() {
             href(title: "Delete Regions", description: "", style: "page", page: "deleteRegions")
         }
         section(getFormat("line", "")) {
-            input "homePlace", "enum", multiple: false, title:(homePlace ? '<div>' : '<div style="color:#ff0000">') + "Select your 'Home' place. ${(homePlace ? "<a href='https://maps.google.com/?q=${state.places.find {it.desc==homePlace}.lat},${state.places.find {it.desc==homePlace}.lon}' target='_blank'>Click to verify the coordinates of '${homePlace}.'</a>" : "Use 'Configure Regions'->'Add Regions' to create a home location.")}" + '</div>', options: (state.places ? state.places.desc.sort() : [])
+            input "homePlace", "enum", multiple: false, title:(homePlace ? '<div>' : '<div style="color:#ff0000">') + "Select your 'Home' place. ${(homePlace ? "<a href='https://maps.google.com/?q=${state.places.find {it.desc==homePlace}.lat},${state.places.find {it.desc==homePlace}.lon}' target='_blank'>Click to verify the coordinates of '${homePlace}.'</a>" : "Use 'Configure Regions'->'Add Regions' to create a home location.")}" + '</div>', options: (state.places ? state.places.desc.sort() : []), submitOnChange: true
+            assignHome()
             input "getMobileRegions", "enum", multiple: true, title:"Hubitat can retrieve regions from a member's OwnTracks mobile device and merge them into the Hubitat region list. Select family member(s) to retrieve their region list on next location update.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
         }
     }
@@ -675,13 +677,13 @@ def initialize(forceDefaults) {
     if (state.accessToken == null) state.accessToken = ""
     if (state.members == null) state.members = []
     if (state.home == null) state.home = []
-    if (state.home == []) app.removeSetting("homePlace")
     if (state.places == null) state.places = []
     if (state.locatorDisplacement == null) state.locatorDisplacement = DEFAULT_locatorDisplacement
     if (state.ignoreInaccurateLocations == null) state.ignoreInaccurateLocations = DEFAULT_ignoreInaccurateLocations
     if (state.homeGeoFence == null) state.homeGeoFence = DEFAULT_RADIUS
     if (state.imperialUnits == null) state.imperialUnits = DEFAULT_imperialUnits
     if (state.highPowerMode == null) state.highPowerMode = DEFAULT_highPowerMode
+    if (forceDefaults && (state.home == [])) app.removeSetting("homePlace")
     
     // in order to set the default enum's we need to remove the existing setting
     if (forceDefaults) {
@@ -777,12 +779,7 @@ def updated() {
     state.ignoreInaccurateLocations       = convertToMeters(ignoreInaccurateLocations)
 
     // store the home information
-    findPlace = state.places.find {it.desc==homePlace}
-    if (findPlace) {
-        state.home = [ name:findPlace.desc, latitude:findPlace.lat, longitude:findPlace.lon, geofence:(findPlace.rad.toInteger()/1000) ]
-    } else {
-        logError("No 'Home' location has been defined.  Create a 'Home' region to enable presence detection.")
-    }
+    assignHome()
     
     // if we have selected to automatically request a high accuracy location fix, schedule the watchdog
     if (autoRequestLocation) {
@@ -807,6 +804,16 @@ def childGetWarnOnNonOptimalSettings() {
 def getImageURL(memberName) {
     // return with path to the user card   
     return ("http://${location.hubs[0].getDataValue("localIP")}/local/${memberName}.jpg")
+}
+
+def assignHome() {
+    findPlace = state.places.find {it.desc==homePlace}
+    if (findPlace) {
+        state.home = [ name:findPlace.desc, latitude:findPlace.lat, longitude:findPlace.lon, geofence:(findPlace.rad.toInteger()/1000) ]
+    } else {
+        state.home = []
+        logError("No 'Home' location has been defined.  Create a 'Home' region to enable presence detection.")
+    }
 }
 
 def locationFixWatchdog() {
