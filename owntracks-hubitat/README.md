@@ -98,6 +98,8 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 - Hubitat can retrieve regions from a member's OwnTracks mobile device and merge them into the Hubitat region list. 
 	- If member(s) OwnTracks app already has configured regions, select member(s) that you wish to retrieve their regions when they report their location.
 	- Those regions will be added to the Hubitat region list to be shared with other members.
+	
+NOTE: A region named '+follow' is automatically created to allow iOS phones to have transition reporting.  	
 
 ## Select Family Member(s) to Monitor
 - Select family member(s):  
@@ -147,11 +149,13 @@ The defaults for the rest of these settings should be sufficient for verifying o
 - When 'Enable location updates to be sent to the secondary hub URL' is selected, incoming mobile locations are mirrored to the above URL. 
 
 
-# Advanced Settings
+# Advanced Mobile App Settings
 The default mobile settings provide the best balance of accuracy/power.  To view or modify advanced settings, enable the 'Modify Default Settings' slider.	
 NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or 'cmd' (iOS) must be enabled in the mobile app.
 
 - Use GPS for higher accuracy/performance.  NOTE: This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (Android ONLY)
+- Modify Default Settings
+	- Display the 'Mobile App Location Settings' and 'Mobile App Display Settings'
 	
 ## Mobile App Location Settings	
 - Using the defaults gives best balance of battery life and accuracy.  If 'Enable high accuracy reporting when location is between region radius and this value' was enabled on the main screen,

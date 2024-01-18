@@ -36,6 +36,7 @@
  *  1.6.14     2024-01-15      - Refactored the layout to make it simpler to install/navigate.  Added the ability to reset the app back to the recommended defaults.  Added ability to request a higher accuracy location on a ping/manual location (Android Only).
  *  1.6.15     2024-01-16      - Added support for driver to retrieve local file URL.  Fixed issue when home place was deleted.  Provided quick selection to switch locator priority on main screen.
  *  1.6.16     2024-01-17      - Fixed issue where assigning home would get cleared.
+ *  1.6.17     2024-01-17      - Changed home to use timestamp to allow name change.  NOTE: breaking change -- home must be re-selected from the list.  Added an automatic +follow region for iOS transition tracking.
  */
 
 import groovy.transform.Field
@@ -44,7 +45,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.16" }
+def appVersion() { return "1.6.17" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -54,6 +55,7 @@ def appVersion() { return "1.6.16" }
 @Field static final Map DYNAMIC_INTERVALS = [ "pegLocatorFastestIntervalToInterval": false, "locatorPriority": 3 ]
 //@Field static final Map MONITORING_MODES = [ 0: "Manual (user triggered events)", 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
 @Field static final Map MONITORING_MODES = [ 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
+@Field static final Map IOS_PLUS_FOLLOW = [ "rad":1000, "tst":1700000000, "_type":"waypoint", "lon":0, "lat":0, "desc":"+follow" ]
 
 // Main defaults
 @Field String  CHILDPREFIX = "OwnTracks - "
@@ -171,7 +173,7 @@ def mainPage() {
                 href(title: "Enable OwnTracks Recorder", description: "", style: "page", page: "configureRecorder")
                 href(title: "Link Secondary Hub", description: "", style: "page", page: "configureSecondaryHub")
             }
-            section(getFormat("box", "Advanced Settings")) {
+            section(getFormat("box", "Advanced Mobile App Settings")) {
                 paragraph("The default mobile settings provide the best balance of accuracy/power.  To view or modify advanced settings, enable 'Modify Default Settings'.")
                 input name: "highPowerMode", type: "bool", title: "Use GPS for higher accuracy/performance.  <b>NOTE:</b> This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (<b>Android ONLY</b>)", defaultValue: DEFAULT_highPowerMode, submitOnChange: true
                 checkLocatorPriority()
@@ -227,7 +229,7 @@ def configureHubApp() {
                 app.updateSetting("homeGeoFence", [value: displayMFtVal(state.homeGeoFence), type: "number"])
             }
             input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas.  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point(s).", defaultValue: ""
-            input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? ['0':'disabled','250':'820 ft','500':'1640 ft','750':'2461 ft','1000':'3281 ft'] : ['0':'disabled','250':'250 m','500':'500 m','750':'750 m','1000':'1000 m'])
+            input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',1000:'3281 ft'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',1000:'1000 m'])
             input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: DEFAULT_regionHighAccuracyRadiusHomeOnly
             input name: "warnOnNoUpdateHours", type: "number", title: "Highlight members on the 'Member Status' that have not reported a location for this many hours (1..168)", range: "1..168", defaultValue: DEFAULT_warnOnNoUpdateHours
             input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: DEFAULT_warnOnDisabledMember
@@ -422,13 +424,14 @@ def configureRegions() {
         // clear the setting fields
         clearSettingFields()        
         section(getFormat("box", "Configure Regions")) {
-            input "regionToCheck", "enum", multiple: false, title:"Select region to check coordinates.  ${(regionToCheck ? "<a href='https://maps.google.com/?q=${state.places.find {it.desc==regionToCheck}.lat},${state.places.find {it.desc==regionToCheck}.lon}' target='_blank'>Click to verify the coordinates of '${regionToCheck}'.</a>" : "")}", options: (state.places ? state.places.desc.sort() : []), submitOnChange: true
+            input "regionToCheck", "enum", multiple: false, title:"Select region to check coordinates.  ${(regionToCheck ? "<a href='https://maps.google.com/?q=${state.places.find {it.desc==regionToCheck}?.lat},${state.places.find {it.desc==regionToCheck}?.lon}' target='_blank'>Click to verify the coordinates of '${regionToCheck}'.</a>" : "")}", options: (state.places ? state.places.desc.sort() : []), submitOnChange: true
             href(title: "Add Regions", description: "", style: "page", page: "addRegions")
             href(title: "Edit Regions", description: "", style: "page", page: "editRegions")
             href(title: "Delete Regions", description: "", style: "page", page: "deleteRegions")
         }
         section(getFormat("line", "")) {
-            input "homePlace", "enum", multiple: false, title:(homePlace ? '<div>' : '<div style="color:#ff0000">') + "Select your 'Home' place. ${(homePlace ? "<a href='https://maps.google.com/?q=${state.places.find {it.desc==homePlace}.lat},${state.places.find {it.desc==homePlace}.lon}' target='_blank'>Click to verify the coordinates of '${homePlace}.'</a>" : "Use 'Configure Regions'->'Add Regions' to create a home location.")}" + '</div>', options: (state.places ? state.places.desc.sort() : []), submitOnChange: true
+            input "homePlace", "enum", multiple: false, title:(homePlace ? '<div>' : '<div style="color:#ff0000">') + "Select your 'Home' place. ${(homePlace ? "<a href='https://maps.google.com/?q=${state.places.find {it.tst==homePlace}?.lat},${state.places.find {it.tst==homePlace}?.lon}' target='_blank'>Click to verify the coordinates of '${state.places.find {it.tst==homePlace}?.desc}.'</a>" : "Use 'Configure Regions'->'Add Regions' to create a home location.")}" + '</div>', options: (state.places ? state.places.collectEntries{[it.tst, it.desc]} : []), submitOnChange: true
+//            input "homePlace", "enum", multiple: false, title:"Select your 'Home' place. ", options: (state.places ? state.places.collectEntries{[it.tst, it.desc]} : []), submitOnChange: true
             assignHome()
             input "getMobileRegions", "enum", multiple: true, title:"Hubitat can retrieve regions from a member's OwnTracks mobile device and merge them into the Hubitat region list. Select family member(s) to retrieve their region list on next location update.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
         }
@@ -496,7 +499,6 @@ def deleteRegions() {
                 paragraph "<b>${getFormat("redText", appButtonHandler("deleteButton"))}</b>"
                 state.submit = ""
             }
-            input name: "deleteFromHubitatOnly", type: "bool", title: "Delete region from Hubitat <b>ONLY</b> and not the mobile devices.", defaultValue: false, submitOnChange: true
             if (deleteFromHubitatOnly) {
                 paragraph ("1. Select the region(s) to be deleted from Hubitat.\r" +
                            "2. Manually delete the region(s) from each mobile device.\r" 
@@ -509,6 +511,7 @@ def deleteRegions() {
                 )
                 paragraph("<b>NOTE:  OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.</b>")
             }
+            input name: "deleteFromHubitatOnly", type: "bool", title: "Delete region from Hubitat <b>ONLY</b> and not the mobile devices.", defaultValue: false, submitOnChange: true
             input "regionName", "enum", multiple: true, title:"Select regions to delete.", options: (state.places ? state.places.desc.sort() : []), submitOnChange: true
             if (regionName) {
                 input name: "deleteButton", type: "button", title: "Delete", state: "submit"
@@ -590,6 +593,12 @@ String appButtonHandler(btn) {
         case "deleteButton":
             // unvalidate all the places that need to be removed
             regionName.each { desc ->
+                place = state.places.find {it.desc==desc}
+                // check if we are deleting our home location
+                if (homePlace == place.tst) {
+                    state.home = []
+                    app.removeSetting("homePlace")
+                }
                 if (deleteFromHubitatOnly) {
                     // remove the place from our current list but don't trigger a member update
                     deleteIndex = state.places.findIndexOf {it.desc==desc}
@@ -599,15 +608,9 @@ String appButtonHandler(btn) {
                     updateMember = false
                 } else {
                     // invalidate the coordinates to flag it for deletion.  iOS is checking the name as a key, Android the timestamp
-                    place = state.places.find {it.desc==desc}
                     place.lat = INVALID_COORDINATE
                     place.lon = INVALID_COORDINATE
                     updateMember = true
-                }
-                // check if we are deleting our home location
-                if (homePlace == desc) {
-                    state.home = []
-                    app.removeSetting("homePlace")
                 }
             }
             result = "Deleting regions '${regionName}'"
@@ -695,7 +698,7 @@ def initialize(forceDefaults) {
     // assign hubitat defaults
     if (homeSSID == null) app.updateSetting("homeSSID", [value: "", type: "string"])
     if (imperialUnits == null) app.updateSetting("imperialUnits", [value: DEFAULT_imperialUnits, type: "bool"])
-    if (regionHighAccuracyRadius == null) app.updateSetting("regionHighAccuracyRadius", [value: DEFAULT_regionHighAccuracyRadius, type: "enum"])
+    if (regionHighAccuracyRadius == null) app.updateSetting("regionHighAccuracyRadius", [value: DEFAULT_regionHighAccuracyRadius, type: "number"])
     if (forceDefaults) app.updateSetting("descriptionTextOutput", [value: DEFAULT_descriptionTextOutput, type: "bool"])
     if (forceDefaults) app.updateSetting("debugOutput", [value: DEFAULT_debugOutput, type: "bool"])
     if (forceDefaults || (regionHighAccuracyRadiusHomeOnly == null)) app.updateSetting("regionHighAccuracyRadiusHomeOnly", [value: DEFAULT_regionHighAccuracyRadiusHomeOnly, type: "bool"])
@@ -703,7 +706,7 @@ def initialize(forceDefaults) {
     if (forceDefaults || (warnOnMemberSettings == null)) app.updateSetting("warnOnMemberSettings", [value: DEFAULT_warnOnMemberSettings, type: "bool"])
     if (forceDefaults || (warnOnNoUpdateHours == null)) app.updateSetting("warnOnNoUpdateHours", [value: DEFAULT_warnOnNoUpdateHours, type: "number"])
     if (forceDefaults || (debugResetHours == null)) app.updateSetting("debugResetHours", [value: DEFAULT_debugResetHours, type: "number"])
-    if (forceDefaults || (DEFAULT_highAccuracyOnPing == null)) app.updateSetting("DEFAULT_highAccuracyOnPing", [value: DEFAULT_highAccuracyOnPing, type: "bool"])    
+    if (forceDefaults || (highAccuracyOnPing == null)) app.updateSetting("DEFAULT_highAccuracyOnPing", [value: DEFAULT_highAccuracyOnPing, type: "bool"])    
     if (forceDefaults || (autoRequestLocation == null)) app.updateSetting("autoRequestLocation", [value: DEFAULT_autoRequestLocation, type: "bool"])
     if (forceDefaults || (advancedMode == null)) app.updateSetting("advancedMode", [value: DEFAULT_advancedMode, type: "bool"])
     if (forceDefaults || (highPowerMode == null)) app.updateSetting("highPowerMode", [value: DEFAULT_highPowerMode, type: "bool"])
@@ -726,6 +729,8 @@ def initialize(forceDefaults) {
     if (forceDefaults || (showRegionsOnMap == null)) app.updateSetting("showRegionsOnMap", [value: DEFAULT_showRegionsOnMap, type: "bool"])
     if (forceDefaults || (notificationLocation == null)) app.updateSetting("notificationLocation", [value: DEFAULT_notificationLocation, type: "bool"])
     if (forceDefaults || (notificationGeocoderErrors == null)) app.updateSetting("notificationGeocoderErrors", [value: DEFAULT_notificationGeocoderErrors, type: "bool"])
+    // add the iOS +follow location to allow for tranistion updates    
+    addPlace([ "name":"" ], IOS_PLUS_FOLLOW, false) 
 }
 
 def updated() {
@@ -807,9 +812,9 @@ def getImageURL(memberName) {
 }
 
 def assignHome() {
-    findPlace = state.places.find {it.desc==homePlace}
+    findPlace = state.places.find {it.tst == homePlace}
     if (findPlace) {
-        state.home = [ name:findPlace.desc, latitude:findPlace.lat, longitude:findPlace.lon, geofence:(findPlace.rad.toInteger()/1000) ]
+        state.home = [ name:findPlace.desc, latitude:findPlace.lat, longitude:findPlace.lon, geofence:(findPlace.rad.toInteger()/1000), tst:findPlace.tst ]
     } else {
         state.home = []
         logError("No 'Home' location has been defined.  Create a 'Home' region to enable presence detection.")
@@ -986,7 +991,7 @@ def webhookEventHandler() {
                     break
                     case "waypoint":
                         // append/update to the places list
-                        addPlace(findMember, data)
+                        addPlace(findMember, data, true)
                     break
                     case "waypoints":
                         // update the places list
@@ -1208,12 +1213,12 @@ def updatePlaces(findMember, data) {
 
     // loop through all the waypoints
     data.waypoints.each { waypoint->
-        addPlace(findMember, waypoint)
+        addPlace(findMember, waypoint, true)
     }
     logDebug("Updating places: ${state.places}")
 }
 
-def addPlace(findMember, data) {
+def addPlace(findMember, data, verboseAdd) {
     // create a new map removing the MQTT topic
     def newPlace = [ "_type": "${data._type}", "desc": "${data.desc}", "lat": "${data.lat}", "lon": "${data.lon}", "rad": "${data.rad}", "tst": "${data.tst}" ]
 
@@ -1222,7 +1227,9 @@ def addPlace(findMember, data) {
 
     // no changes to existing place
     if (place == newPlace) {
-        logDescriptionText("Skipping, no change to place: ${newPlace}")
+        if (verboseAdd) {
+            logDescriptionText("Skipping, no change to place: ${newPlace}")
+        }
     } else {
         // change logging depending if the place previously existed
         if (place) {
