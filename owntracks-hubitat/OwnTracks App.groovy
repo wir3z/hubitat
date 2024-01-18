@@ -55,7 +55,7 @@ def appVersion() { return "1.6.17" }
 @Field static final Map DYNAMIC_INTERVALS = [ "pegLocatorFastestIntervalToInterval": false, "locatorPriority": 3 ]
 //@Field static final Map MONITORING_MODES = [ 0: "Manual (user triggered events)", 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
 @Field static final Map MONITORING_MODES = [ 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
-@Field static final Map IOS_PLUS_FOLLOW = [ "rad":1000, "tst":1700000000, "_type":"waypoint", "lon":0, "lat":0, "desc":"+follow" ]
+@Field static final Map IOS_PLUS_FOLLOW = [ "rad":1000, "tst":1700000000, "_type":"waypoint", "lon":0.0, "lat":0.0, "desc":"+follow" ]
 
 // Main defaults
 @Field String  CHILDPREFIX = "OwnTracks - "
@@ -263,7 +263,7 @@ def installationInstructions() {
                        "          <b>iOS</b>\r" +
                        "          <i>Tap (i) top left, and select 'Settings'.  Only the settings below need to be changed.\r" +
                        "                 Mode -> HTTP \r" +
-                       "                 DeviceID -> Optional extra descriptor (IE: 'Phone').  If using OwnTracks recorder, it would be desirable to keep this device ID common across device changes, since it logs 'username/deviceID'. \r" +
+                       "                 DeviceID -> 2-character user initials that will be displayed on your map (IE: 'KT').  If using OwnTracks recorder, it would be desirable to keep this device ID common across device changes, since it logs 'username/deviceID'. \r" +
                        "                 UserID -> Name of the user's phone (IE: 'Kevin') \r" +
                        "                 URL -> <a href='${extUri}'>${extUri}</a> \r" +
                        "                 cmd -> Selected</i>\r\n\r\n" +
@@ -1224,7 +1224,7 @@ def addPlace(findMember, data, verboseAdd) {
 
     // check if we have an existing place with the same timestamp
     place = state.places.find {it.tst==newPlace.tst}
-
+    
     // no changes to existing place
     if (place == newPlace) {
         if (verboseAdd) {
