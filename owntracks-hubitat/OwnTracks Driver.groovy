@@ -76,12 +76,13 @@
  *  1.6.5      2024-01-08      - Added last location time field.  Fixed issue where SSID wasn't getting deleted when WiFi was disconnected.  Moved SSID check from driver to app.
  *  1.6.6      2024-01-16      - Added imageURL for user's local thumbnail image
  *  1.6.7      2024-01-17      - Added missing trigger type.
+ *  1.6.8      2024-01-18      - Filter the +follow regions.  Added a status attribute to track the last region enter/leave event.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.7" }
+def driverVersion() { return "1.6.8" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -104,6 +105,8 @@ metadata {
         command    "departed"
 
         attribute  "location", "string"
+        attribute  "status", "string"
+        attribute  "transition", "string"
         attribute  "since", "string"
         attribute  "battery", "string"
         attribute  "lastSpeed", "number"
@@ -234,15 +237,19 @@ Boolean generatePresenceEvent(data) {
     logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: ${data.lat},${data.lon}")
 
     // update the last location time
-    sendEvent( name: "lastLocationtime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )
+    locationTime = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date())
+    sendEvent( name: "lastLocationtime", value: locationTime )
     
     // if we have a push event, there is limited data to process
     if (data._type == "transition") {
         // check if we need to update the presence
         memberPresence = updatePresence(data, false)
-        currentLocation = (( data.event == "enter" ) ? "arrived $data.desc" : "left $data.desc")
-        descriptionText = device.displayName +  " has " + currentLocation
+        currentStatus = (( data.event == "enter" ) ? "arrived $data.desc" : "left $data.desc")
+        currentLocation = data.desc
+        descriptionText = device.displayName +  " has " + currentStatus
         logDescriptionText("$descriptionText")
+        // update the transition
+        sendEvent( name: "transition", value: "$currentStatus at $locationTime" )	
     } else {
         // check if we need to update the presence
         memberPresence = updatePresence(data, true)
@@ -251,14 +258,20 @@ Boolean generatePresenceEvent(data) {
         if (data.inregions) {
             locationList = ""
             data.inregions.each { place->
-                locationList += "$place,"
+                // filter off the +follow regions
+                if (place[0] != "+") {
+                    locationList += "$place,"
+                }
             }
             // remove the trailing comma
-            currentLocation = locationList.substring(0, locationList.length() - 1)
+            currentStatus = locationList.substring(0, locationList.length() - 1)
+            currentLocation = currentStatus 
         } else {
-            currentLocation = "${parent.displayKmMiVal(data.currentDistanceFromHome).round(1)} ${parent.getLargeUnits()} from Home"
+            currentStatus = "${parent.displayKmMiVal(data.currentDistanceFromHome).round(1)} ${parent.getLargeUnits()} from Home"
+            // TODO: Need the phone to send back the reverse geocode address and display it here
+            currentLocation = "${data.lat},${data.lon}" 
         }
-        descriptionText = device.displayName +  " is at " + currentLocation
+        descriptionText = device.displayName +  " is at " + currentStatus
 
         // process the additional setting information
         sendEvent( name: "wifi", value: (data?.wifi ? "on" : "off") )
@@ -292,7 +305,7 @@ Boolean generatePresenceEvent(data) {
         }
 
         // only log if there was a valid time, a location change and log changes is enabled
-        if ((data.tst != 0) && (device.currentValue("location") != currentLocation)) {
+        if ((data.tst != 0) && (device.currentValue("status") != currentStatus)) {
             if (logLocationChanges) log.info "$descriptionText"
             state.sinceTime = data.tst
         }
@@ -305,6 +318,7 @@ Boolean generatePresenceEvent(data) {
         tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
 
         sendEvent( name: "since", value: sinceDate )
+        sendEvent( name: "status", value: currentStatus )
         sendEvent( name: "location", value: currentLocation )
         sendEvent( name: "presence", value: memberPresence, descriptionText: descriptionText)
         sendEvent( name: "distanceFromHome", value:  parent.displayKmMiVal(data.currentDistanceFromHome) )
@@ -316,7 +330,7 @@ Boolean generatePresenceEvent(data) {
                 batteryField = (data?.batt ? "Battery " + data.batt + "%" : "")
             break
             case "1":
-                batteryField = currentLocation + " - " + tileDate
+                batteryField = currentStatus + " - " + tileDate
             break
             case "2":
                 batteryField = parent.displayKmMiVal(data.currentDistanceFromHome) + " ${parent.getLargeUnits()} from Home"

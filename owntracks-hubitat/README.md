@@ -62,7 +62,7 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	### iOS
 	- Tap (i) top left, and select 'Settings'.
 		- Mode -> HTTP
-		- DeviceID -> Optional extra descriptor (IE: 'Phone').  If using OwnTracks recorder, it would be desirable to keep this device ID common across device changes, since it logs 'username/deviceID'.			
+		- DeviceID -> 2-character user initials that will be displayed on your map (IE: 'KT').  If using OwnTracks recorder, it would be desirable to keep this device ID common across device changes, since it logs 'username/deviceID'.			
 		- UserID -> Name of the user's phone that you would like to see on the maps (IE: 'Kevin')
 		- URL -> Hubitat Cloud API link - click the 'Mobile App Installation Instructions' box in the Hubitat Owntracks App to get the link
 		- cmd -> Selected

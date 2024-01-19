@@ -3,7 +3,7 @@
   "author": "Lyle Pakula",
   "minimumHEVersion": "0.0",
   "dateReleased": "2023-01-17",
-  "releaseNotes":"v1.6.18 - Allow 'Home' to have a name change.  NOTE: breaking change -- 'Home' must be re-selected from the list after upgrading.  Added an automatic +follow region for iOS transition tracking.\nv1.6.16 - Fixed issue where assigning home would get cleared.\nv1.6.15 - Added support for driver to retrieve local file URL.  Fixed issue when home place was deleted.  Provided quick selection to switch locator priority on main screen.\nv1.6.14 - Refactored the layout to make it simpler to install/navigate.  Added the ability to reset the app back to the recommended defaults.  Added ability to request a higher accuracy location on a ping/manual location (Android Only).\nv1.6.13 - Fixed exception with first time configure of the app.  Disabled the 'restart mobile app' due to the OwnTracks Android 2.4.x not starting the ping service after the remote restart.  Added the ability to have the mobile app send a high accuracy location on the next report. Added an auto-request high accuracy location for stale Android locations.\nv1.6.12 - Removed the ability to enable each user to see their own image card on the map due to stability issues.  Added user selectable warning time to mark stale location reports on the Members Status table.  Added location report to the Member status table.  Added ability to check region location on Google Maps.\nv1.6.11- Added a ability to enable each user to see their own image card on the map.  NOTE:  iOS users will see themselves twice.  Added a delete region from Hubitat only setting.  Added how-to information to the respective sections.  Added member status block.\n",
+  "releaseNotes":"v1.6.19 - Updated the +follow to match the locator priority interval.  Ignore +follow as a reported region.  Added transition and status attributes.\nv1.6.18 - Allow 'Home' to have a name change.  NOTE: breaking change -- 'Home' must be re-selected from the list after upgrading.  Added an automatic +follow region for iOS transition tracking.\nv1.6.16 - Fixed issue where assigning home would get cleared.\nv1.6.15 - Added support for driver to retrieve local file URL.  Fixed issue when home place was deleted.  Provided quick selection to switch locator priority on main screen.\nv1.6.14 - Refactored the layout to make it simpler to install/navigate.  Added the ability to reset the app back to the recommended defaults.  Added ability to request a higher accuracy location on a ping/manual location (Android Only).\nv1.6.13 - Fixed exception with first time configure of the app.  Disabled the 'restart mobile app' due to the OwnTracks Android 2.4.x not starting the ping service after the remote restart.  Added the ability to have the mobile app send a high accuracy location on the next report. Added an auto-request high accuracy location for stale Android locations.\nv1.6.12 - Removed the ability to enable each user to see their own image card on the map due to stability issues.  Added user selectable warning time to mark stale location reports on the Members Status table.  Added location report to the Member status table.  Added ability to check region location on Google Maps.\nv1.6.11- Added a ability to enable each user to see their own image card on the map.  NOTE:  iOS users will see themselves twice.  Added a delete region from Hubitat only setting.  Added how-to information to the respective sections.  Added member status block.\n",
   "documentationLink":"https://github.com/wir3z/hubitat/blob/main/owntracks-hubitat/README.md",
   "communityLink":"https://community.hubitat.com/t/release-owntracks/130821",
   "apps": [
@@ -15,7 +15,7 @@
       "required": true,
       "oauth": true,
       "primary": true,
-      "version": "1.6.18"
+      "version": "1.6.19"
     }
   ],
   "drivers": [
@@ -25,7 +25,7 @@
       "namespace": "lpakula",
       "location": "https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20Driver.groovy",
       "required": true,
-      "version": "1.6.7"
+      "version": "1.6.8"
     }
   ]
 }

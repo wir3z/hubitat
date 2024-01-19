@@ -37,6 +37,7 @@
  *  1.6.15     2024-01-16      - Added support for driver to retrieve local file URL.  Fixed issue when home place was deleted.  Provided quick selection to switch locator priority on main screen.
  *  1.6.16     2024-01-17      - Fixed issue where assigning home would get cleared.
  *  1.6.18     2024-01-17      - Changed home to use timestamp to allow name change.  NOTE: breaking change -- home must be re-selected from the list.  Added an automatic +follow region for iOS transition tracking.
+ *  1.6.19     2023-01-18      - Ignore incoming +follow regions from users.  Changed the +follow region to match the locatorInterval setting.
  */
 
 import groovy.transform.Field
@@ -45,7 +46,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.18" }
+def appVersion() { return "1.6.19" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -55,7 +56,7 @@ def appVersion() { return "1.6.18" }
 @Field static final Map DYNAMIC_INTERVALS = [ "pegLocatorFastestIntervalToInterval": false, "locatorPriority": 3 ]
 //@Field static final Map MONITORING_MODES = [ 0: "Manual (user triggered events)", 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
 @Field static final Map MONITORING_MODES = [ 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
-@Field static final Map IOS_PLUS_FOLLOW = [ "rad":1000, "tst":1700000000, "_type":"waypoint", "lon":0.0, "lat":0.0, "desc":"+follow" ]
+@Field static final Map IOS_PLUS_FOLLOW = [ "rad":50, "tst":1700000000, "_type":"waypoint", "lon":0.0, "lat":0.0, "desc":"+follow" ]
 
 // Main defaults
 @Field String  CHILDPREFIX = "OwnTracks - "
@@ -276,7 +277,7 @@ def installationInstructions() {
 def thumbnailCreation() {
     return dynamicPage(name: "thumbnailCreation", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Enabling User Thumbnails")) {
-            paragraph ("Creating User Thumbnails on the OwnTracks Mobile App and optional OwnTracks Recorder.\r\n\r\n" +
+            paragraph ("Creating User Thumbnails for the OwnTracks Mobile App and optional OwnTracks Recorder.\r\n\r\n" +
                        "     1. Create a thumbnail for the user at a maximum resolution 192x192 pixels in JPG format using your computer.\r" +
                        "     2. Name the thumbnail 'MyUser.jpg' where 'MyUser' is the same name as the user name (case sensitive) entered in the mobile app.\r" +
                        "     3. In Hubitat:\r" +
@@ -319,10 +320,10 @@ def recorderInstallationInstructions() {
                       )
         }
         section(getFormat("box", "Adding user cards to OwnTracks Recorder")) {
-            paragraph ("1. If user thumbnails have not been added to Hubitat, follow the instructions for 'Creating User Thumbnail Instructions' first:") 
-            href(title: "Creating User Thumbnail Instructions", description: "", style: "page", page: "thumbnailCreation")
+            paragraph ("1. If user thumbnails have not been added to Hubitat, follow the instructions for 'Enabling User Thumbnail Instructions' first:") 
+            href(title: "Enabling User Thumbnails", description: "", style: "page", page: "thumbnailCreation")
             paragraph ("2. Select the slider to generate the enabled user's JSON card data in the Hubitat logs:") 
-            input name: "generateMemberCardJSON", type: "bool", title: "Create 'trace' outputs for each enabled member in the Hubitat logs.  Slider will turn off once complete.", defaultValue: false, submitOnChange: true
+            input name: "generateMemberCardJSON", type: "bool", title: "Create 'trace' outputs for each enabled member in the Hubitat logs.  Slider will turn off once complete.  ${(imageCards ? "" : "<div style='color:#ff0000'><b>Thumbnails are disabled.  Select 'Enabling User Thumbnails' to allow thumbnail generation.</b></div>")}", defaultValue: false, submitOnChange: true
             if (generateMemberCardJSON) {
                 logMemberCardJSON()
                 app.updateSetting("generateMemberCardJSON",[value: false, type: "bool"])
@@ -730,7 +731,22 @@ def initialize(forceDefaults) {
     if (forceDefaults || (notificationLocation == null)) app.updateSetting("notificationLocation", [value: DEFAULT_notificationLocation, type: "bool"])
     if (forceDefaults || (notificationGeocoderErrors == null)) app.updateSetting("notificationGeocoderErrors", [value: DEFAULT_notificationGeocoderErrors, type: "bool"])
     // add the iOS +follow location to allow for tranistion updates    
-    addPlace([ "name":"" ], IOS_PLUS_FOLLOW, false) 
+    updatePlusFollow()
+}
+
+def updatePlusFollow() {
+    // create the +follow with the time interval prefix
+    plusFollow = IOS_PLUS_FOLLOW
+    plusFollow.desc = "+${locatorInterval}follow"
+
+    // if the +follow location changed
+    deletePlace = state.places.find {it.desc[0] == plusFollow.desc[0]}
+    if (deletePlace.desc != plusFollow.desc) {
+        logDescriptionText("Deleting place: ${deletePlace}")                      
+        state.places.remove(deletePlace)
+        // add the new one
+        addPlace([ "name":"" ], plusFollow, false)
+    }
 }
 
 def updated() {
@@ -1074,8 +1090,12 @@ def updateDevicePresence(member, data) {
         // find the appropriate child device based on app id and the device network id
         def deviceWrapper = getChildDevice(member.id)
         logDebug("Updating '${(data.event ? "Event $data.event" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for member $deviceWrapper")
-        // update the image URL
-        deviceWrapper.sendEvent( name: "imageURL", value: getImageURL(member.name) )
+        // update the image URL if enabled
+        if (imageCards) {
+            deviceWrapper.sendEvent( name: "imageURL", value: getImageURL(member.name) )
+        } else {
+            deviceWrapper.sendEvent( name: "imageURL", value: "" )
+        }
 
         // check if the user defined a home place
         if (state.home) {
@@ -1225,8 +1245,8 @@ def addPlace(findMember, data, verboseAdd) {
     // check if we have an existing place with the same timestamp
     place = state.places.find {it.tst==newPlace.tst}
     
-    // no changes to existing place
-    if (place == newPlace) {
+    // no changes to existing place, or a member is returing the +follow region
+    if ((place == newPlace) || (findMember.name && (data.desc[0] == "+"))) {
         if (verboseAdd) {
             logDescriptionText("Skipping, no change to place: ${newPlace}")
         }
