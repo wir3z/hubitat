@@ -38,6 +38,7 @@
  *  1.6.16     2024-01-17      - Fixed issue where assigning home would get cleared.
  *  1.6.18     2024-01-17      - Changed home to use timestamp to allow name change.  NOTE: breaking change -- home must be re-selected from the list.  Added an automatic +follow region for iOS transition tracking.
  *  1.6.19     2023-01-18      - Ignore incoming +follow regions from users.  Changed the +follow region to match the locatorInterval setting.
+ *  1.6.20     2023-01-19      - Fixed a fail to install crash from the +follow maintenance.
  */
 
 import groovy.transform.Field
@@ -46,7 +47,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.19" }
+def appVersion() { return "1.6.20" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -741,7 +742,7 @@ def updatePlusFollow() {
 
     // if the +follow location changed
     deletePlace = state.places.find {it.desc[0] == plusFollow.desc[0]}
-    if (deletePlace.desc != plusFollow.desc) {
+    if (deletePlace?.desc != plusFollow.desc) {
         logDescriptionText("Deleting place: ${deletePlace}")                      
         state.places.remove(deletePlace)
         // add the new one
