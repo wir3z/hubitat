@@ -80,6 +80,7 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	- Select the region to edit.
 	- Click the 'Save' button.
 	- Click the 'Next' button to leave the screen, or abandon changes if 'Save' was not pressed.
+	- NOTE: Changing the 'Region Name' will create a new region on iOS devices.  The previous named region will need to be manually delete from each device.
 - Delete Regions:
 	- Select Delete region from Hubitat Only and not from mobile devices to only remove the region from the Hubitat app:
 		- regions will need to be manually removed from each mobile device.
@@ -104,7 +105,15 @@ NOTE: A region named '+follow' is automatically created to allow iOS phones to h
 ## Select Family Member(s) to Monitor
 - Select family member(s):  
 	- Once a mobile device has connected to the URL link from 'Mobile App Configuration', it will be populated in this list, but is disabled.  Select the user to enable presence detection.
-		
+
+## Select family member(s) to remain private. 
+- Select family member(s):  
+	- Locations and regions will NOT be shared with other members or the Recorder. 
+	- Other member locations will not be shared with private members.
+	- Only the 'Home' region will be pushed to private members.
+	- Their Hubitat device will only display presence information.
+	- If using the secondary hub connection, you will need to select these members as private on that hub.
+	
 ## Display Units
 - Select the slider to display all measurements in the Hubitat app in imperial units (mph, mi, ft) instead of metric units (kph, km, m)
 - All distances are stored in metric and may have minor rounding errors when converted to imperial for display.
@@ -115,6 +124,8 @@ NOTE: The OwnTracks mobile app stores and displays all units in metric.
 	- This will prevent devices from being 'non-present' if currently connected to these WiFi access points.
 
 The defaults for the rest of these settings should be sufficient for verifying operation.
+- Restore Defaults
+	- Resets the settings to the recommended defaults
 - Enable high accuracy reporting when location is between region radius and this value:
 	- When a user is between the home geofence radius and this radius, the app will switch the user to use high accuracy/high frequency reporting to ensure presence triggers operate correctly.
 - High accuracy reporting is used for home region only when selected, all regions if not selected:
@@ -158,10 +169,31 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 	- Display the 'Mobile App Location Settings' and 'Mobile App Display Settings'
 	
 ## Mobile App Location Settings	
+- Restore Defaults
+	- Resets the settings to the recommended defaults
 - Using the defaults gives best balance of battery life and accuracy.  If 'Enable high accuracy reporting when location is between region radius and this value' was enabled on the main screen,
 	the device will be switched to 'HIGH_POWER' mode with 'Request that the location provider updates no faster than the requested locater interval' when the mobile device is within that region.
-
+- Location reporting mode
+	- 'significant' - location updates are based on distance moved and time elapsed.  Best balance for battery consumption and performance.
+	- 'move' - Continuously reports locations based on the configured interval.  Will result in much higher battery consumption.
+- Do not send a location if the accuracy is greater than the given distance
+	- Prevents the phone from returning locations if the accuracy is larger than the entered distance
+- Number of days after which location updates from friends are assumed stale and removed
+	- If a member stops reporting locations to your mobile phone, they will be marked as stale after this many days
+- Device will send a location interval at this heart beat interval (minutes) (Android Only)
+	- The mobile will report a location on intervals of this many minutes, regardless if it is moving
+- Request that the location provider deliver updates no faster than the requested locater interval
+	- Reduces mobile data communications and battery consumption by throttling updates to the locater interval time
+- How far the device travels before receiving another location update (Android Only)
+	- If the phone has moved further than this distance in the alloted time, it will report a location
+- Device will not report location updates faster than this interval (seconds) unless moving
+	- Location updates will be reported on this interval unless the mobile is moving
+- How often should locations be continuously sent from the device while in 'Move' mode (seconds) 
+    - Interval for the mobile to report a location when in 'move' mode.  NOTE:  Faster the updates, the higher the battery consumption.
+	
 ## Mobile App Display Settings	
+- Restore Defaults
+	- Resets the settings to the recommended defaults
 - Replace the 'TID' (tracker ID) with 'username' for displaying a name on the map and recorder
 	- Pushes the user name back as the tracker ID to allow the user's names to be shown on each device map.
 - Notify about received events
@@ -179,8 +211,12 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 - Select family member(s) to send a high accuracy GPS location on next location update (Android ONLY): 
 	- The user will be registered to receive this request once 'Done' is pressed.
 - Reset to Recommended Default Settings
-	- Click 'Reser' to reset Hubitat and Mobile Settings to Recommended Defaults.  
 	NOTE:  Members, Regions, Recorder and Secondary Hub settings will not be deleted.
+	- Restore Defaults for All Settings - resets the 'Additional Hub Settings', 'Mobile App Location Settings', and 'Mobile App Display Settings' to the recommended defaults.
+
+	- Restore Defaults for 'Additional Hub Settings' to the recommended defaults.
+	- Restore Defaults for 'Mobile App Location Settings' to the recommended defaults.
+	- Restore Defaults for 'Mobile App Display Settings' to the recommended defaults.
 - Delete Family Members:
 	- Deletes selected family members from the app and their corresponding child device.  Ensure no automations are dependent on their device before proceeding.
 
@@ -200,7 +236,36 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 - What is displayed on the presence tile battery field:
 	- Select what is displayed in the 'battery' field which is displayed at the top of the presence tile from the pull-down menu. This can be battery voltage, location, distance from home, etc.
 - Display extended location attributes:
-	- Displays additional location attributes (latitude, longitude, accuracy, etc.)
+	- Displays additional location attributes (battery status, altitude, accuracy, etc.)
 - Enable Logging of location changes:
 	- Logs an entry when a change in user location occurs
 
+- Main Attribute Description
+	- BSSID : MAC address of the WiFi connected WiFi access point
+	- SSID : SSID of the WiFi connected WiFi access point
+	- accuracy : accuracy of the location
+	- altitude : altitude of the location
+	- battery : by default, battery % but can be configured to display different information to be viewed on the presence tiles
+	- batteryPercent : battery %
+	- batteryStatus : Unknown/Unplugged/Charging/Full
+	- dataConnection : WiFi/Mobile
+	- distanceFromHome : distance location is from the home coordinates
+	- imageURL : URL for the members image card
+	- lastLocationtime : timestamp for the last location - this updates on each incoming location
+	- lat : latitude of the location
+	- location : region the user is currently in, or the lat/lon if outside a region
+	- lon : longitude of the location
+	- monitoringMode : Significant/Move
+	- presence : present/not present
+	- since : timestamp on the last location change - only updates if the location has moved
+	- sourceTopic : user/device information
+	- status : region the user is in, or the distance from home if outside a region
+	- transition : region the user arrived/left and the time of the transition
+	- triggerSource : Ping/Region/Report Location/Manual/Beacon/Timer/Monitoring/Location
+	- verticalAccuracy : vertical accuracy
+- Additional Attribute Description for APK 2.4.16.  
+	- wifi : on/off
+	- batterySaver : 0/1, 1 indicates the phone is in battery saver mode
+	- hiberateAllowed : 0/1, 1 indicates the OwnTracks app can pause if unused for a period of time
+	- batteryOptimizations : 0/1, 1 indicates that the OwnTracks app has battery optimizations on which will impact performance
+	- locationPermissions : 0/1, 1 indicates the location permission settings are configured in a way that will impact performance

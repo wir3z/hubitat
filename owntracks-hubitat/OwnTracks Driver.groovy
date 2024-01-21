@@ -39,7 +39,8 @@
  *      m:1, 						    // identifies the monitoring mode at which the message is constructed (significant=1, move=2)
  *
  *      // added to packet
- *      currentDistanceFromHome:0.234,
+ *      currentDistanceFromHome:0.234,  // distance from home in current units
+ *      private:false                   // if true, user is configured to not share their information, only their current presence
  *
  *      // added in the sided load APK
  *      hib:0,                          // App can pause when unused (1=yes, 0=no)
@@ -77,6 +78,7 @@
  *  1.6.6      2024-01-16      - Added imageURL for user's local thumbnail image
  *  1.6.7      2024-01-17      - Added missing trigger type.
  *  1.6.8      2024-01-18      - Filter the +follow regions.  Added a status attribute to track the last region enter/leave event.
+ *  1.6.9      2024-01-20      - Allow for members data to be private.  Only presence and report time is captured.
  **/
 
 import java.text.SimpleDateFormat
@@ -158,18 +160,36 @@ def updated() {
     logDescriptionText("${device.name}: Location Tracker User Driver has been Updated")
     // remove the extended attributes if not enabled
     if (!displayExtendedAttributes) {
-        device.deleteCurrentState('batteryPercent')
-        device.deleteCurrentState('lat')
-        device.deleteCurrentState('lon')
-        device.deleteCurrentState('accuracy')
-        device.deleteCurrentState('verticalAccuracy')
-        device.deleteCurrentState('altitude')
-        device.deleteCurrentState('sourceTopic')
-        device.deleteCurrentState('dataConnection')
-        device.deleteCurrentState('batteryStatus')
-        device.deleteCurrentState('BSSID')
-        device.deleteCurrentState('triggerSource')
-        device.deleteCurrentState('monitoringMode')
+        deleteExtendedAttributes(false)
+    }
+}
+
+def deleteExtendedAttributes(makePrivate) {
+    device.deleteCurrentState('batteryPercent')
+    device.deleteCurrentState('lat')
+    device.deleteCurrentState('lon')
+    device.deleteCurrentState('accuracy')
+    device.deleteCurrentState('verticalAccuracy')
+    device.deleteCurrentState('altitude')
+    device.deleteCurrentState('sourceTopic')
+    device.deleteCurrentState('dataConnection')
+    device.deleteCurrentState('batteryStatus')
+    device.deleteCurrentState('BSSID')
+    device.deleteCurrentState('triggerSource')
+    device.deleteCurrentState('monitoringMode')
+    if (makePrivate) {
+        device.deleteCurrentState('location')
+        device.deleteCurrentState('status')
+        device.deleteCurrentState('transition')
+        device.deleteCurrentState('since')
+        device.deleteCurrentState('battery')
+        device.deleteCurrentState('lastSpeed')
+        device.deleteCurrentState('distanceFromHome')
+        device.deleteCurrentState('wifi')
+        device.deleteCurrentState('batterySaver')
+        device.deleteCurrentState('hiberateAllowed')
+        device.deleteCurrentState('batteryOptimizations')
+        device.deleteCurrentState('locationPermissions')
     }
 }
 
@@ -202,7 +222,7 @@ def updatePresence(data, allowAttributeDelete) {
             state.sinceTime = data.tst
         }
         // display the extended attributes if they were received, but only allow them to be removed on non-tranisition events
-        if (displayExtendedAttributes) {
+        if (displayExtendedAttributes && !data.private) {
             if (data?.batt)  sendEvent (name: "batteryPercent", value: data.batt)                        else if (allowAttributeDelete) device.deleteCurrentState('batteryPercent')
             if (data?.lat)   sendEvent (name: "lat", value: data.lat)                                    else if (allowAttributeDelete) device.deleteCurrentState('lat')
             if (data?.lon)   sendEvent (name: "lon", value: data.lon)                                    else if (allowAttributeDelete) device.deleteCurrentState('lon')
@@ -215,7 +235,10 @@ def updatePresence(data, allowAttributeDelete) {
             if (data?.BSSID) sendEvent (name: "BSSID", value: data.BSSID)                                else if (allowAttributeDelete) device.deleteCurrentState('BSSID')
             if (data?.t)     sendEvent (name: "triggerSource", value: TRIGGER_TYPE[data.t])              else if (allowAttributeDelete) device.deleteCurrentState('triggerSource')
             if (data?.m)     sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])          else if (allowAttributeDelete) device.deleteCurrentState('monitoringMode')
+        } else {
+            deleteExtendedAttributes(true)
         }
+        
         // needed for the presence detection check
         if (data?.SSID)  sendEvent (name: "SSID", value: data.SSID)                                      else if (allowAttributeDelete) device.deleteCurrentState('SSID')
     } else {
@@ -232,9 +255,17 @@ Boolean generatePresenceEvent(data) {
     if (state.driverVersion != driverVersion()) {
         state.driverVersion = driverVersion()
     }
+    // defaults for the private member case
+    descriptionText = ""
+    currentStatus = "private"
+    currentLocation = "private"
 
     //logDebug("Member Data: $data")
-    logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: ${data.lat},${data.lon}")
+    if (data.private) {
+        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits()}")
+    } else {
+        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: ${data.lat},${data.lon}")
+    }    
 
     // update the last location time
     locationTime = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date())
@@ -244,115 +275,124 @@ Boolean generatePresenceEvent(data) {
     if (data._type == "transition") {
         // check if we need to update the presence
         memberPresence = updatePresence(data, false)
-        currentStatus = (( data.event == "enter" ) ? "arrived $data.desc" : "left $data.desc")
-        currentLocation = data.desc
-        descriptionText = device.displayName +  " has " + currentStatus
-        logDescriptionText("$descriptionText")
-        // update the transition
-        sendEvent( name: "transition", value: "$currentStatus at $locationTime" )	
+        // only log additional data if the user is not marked as private
+        if (!data.private) {
+            currentStatus = (( data.event == "enter" ) ? "arrived $data.desc" : "left $data.desc")
+            currentLocation = data.desc
+            descriptionText = device.displayName +  " has " + currentStatus
+            logDescriptionText("$descriptionText")
+            // update the transition
+            sendEvent( name: "transition", value: "$currentStatus at $locationTime" )	
+        }
     } else {
         // check if we need to update the presence
         memberPresence = updatePresence(data, true)
-
-        // if we are in a region stored in the app
-        if (data.inregions) {
-            locationList = ""
-            data.inregions.each { place->
-                // filter off the +follow regions
-                if (place[0] != "+") {
-                    locationList += "$place,"
+        // only log additional data if the user is not marked as private regardless of accuracy quality
+        if (!data.private) {
+            // if we are in a region stored in the app
+            if (data.inregions) {
+                locationList = ""
+                data.inregions.each { place->
+                    // filter off the +follow regions
+                    if (place[0] != "+") {
+                        locationList += "$place,"
+                    }
                 }
+                // remove the trailing comma
+                currentStatus = locationList.substring(0, locationList.length() - 1)
+                currentLocation = currentStatus 
+            } else {
+                currentStatus = "${parent.displayKmMiVal(data.currentDistanceFromHome).round(1)} ${parent.getLargeUnits()} from Home"
+                // TODO: Need the phone to send back the reverse geocode address and display it here
+                currentLocation = "${data.lat},${data.lon}" 
             }
-            // remove the trailing comma
-            currentStatus = locationList.substring(0, locationList.length() - 1)
-            currentLocation = currentStatus 
-        } else {
-            currentStatus = "${parent.displayKmMiVal(data.currentDistanceFromHome).round(1)} ${parent.getLargeUnits()} from Home"
-            // TODO: Need the phone to send back the reverse geocode address and display it here
-            currentLocation = "${data.lat},${data.lon}" 
-        }
-        descriptionText = device.displayName +  " is at " + currentStatus
+            descriptionText = device.displayName +  " is at " + currentStatus
 
-        // process the additional setting information
-        sendEvent( name: "wifi", value: (data?.wifi ? "on" : "off") )
-        if (data?.wifi == 0) {
-            logDebug("Phone has WiFi turned off.  Please turn WiFi on.")
-        }
-        // only display the extra phone fields if they are in a non-optimal state
-        if (data?.ps == 1) {
-            sendEvent( name: "batterySaver", value: "on" )
-            logDebug("Phone is currently in battery saver mode")
-        } else {
-            device.deleteCurrentState('batterySaver')
-        }
-        if (data?.bo == 1) {
-            sendEvent( name: "batteryOptimizations", value: "Optimized/Restricted" )
-            logNonOptimalSettings("App settting: 'App battery usage' is 'Optimized' or 'Restricted'.  Please change to 'Unrestricted'")
-        } else {
-            device.deleteCurrentState('batteryOptimizations')
-        }
-        if (data?.hib == 1) {
-            sendEvent( name: "hiberateAllowed", value: "App can pause" )
-            logNonOptimalSettings("App setting: 'Pause app activity if unused' is 'Enabled'.  Please change to 'Disabled'")
-        } else {
-            device.deleteCurrentState('hiberateAllowed')
-        }
-        if (data?.loc > 0) {
-            sendEvent( name: "locationPermissions", value: LOCATION_PERMISION["${data?.loc}"])
-            logNonOptimalSettings("Location permissions currently set to '${LOCATION_PERMISION["${data?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
-        } else {
-            device.deleteCurrentState('locationPermissions')
-        }
+            // process the additional setting information
+            sendEvent( name: "wifi", value: (data?.wifi ? "on" : "off") )
+            if (data?.wifi == 0) {
+                logDebug("Phone has WiFi turned off.  Please turn WiFi on.")
+            }
+            // only display the extra phone fields if they are in a non-optimal state
+            if (data?.ps == 1) {
+                sendEvent( name: "batterySaver", value: "on" )
+                logDebug("Phone is currently in battery saver mode")
+            } else {
+                device.deleteCurrentState('batterySaver')
+            }
+            if (data?.bo == 1) {
+                sendEvent( name: "batteryOptimizations", value: "Optimized/Restricted" )
+                logNonOptimalSettings("App settting: 'App battery usage' is 'Optimized' or 'Restricted'.  Please change to 'Unrestricted'")
+            } else {
+                device.deleteCurrentState('batteryOptimizations')
+            }
+            if (data?.hib == 1) {
+                sendEvent( name: "hiberateAllowed", value: "App can pause" )
+                logNonOptimalSettings("App setting: 'Pause app activity if unused' is 'Enabled'.  Please change to 'Disabled'")
+            } else {
+                device.deleteCurrentState('hiberateAllowed')
+            }
+            if (data?.loc > 0) {
+                sendEvent( name: "locationPermissions", value: LOCATION_PERMISION["${data?.loc}"])
+                logNonOptimalSettings("Location permissions currently set to '${LOCATION_PERMISION["${data?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
+            } else {
+                device.deleteCurrentState('locationPermissions')
+            }
 
-        // only log if there was a valid time, a location change and log changes is enabled
-        if ((data.tst != 0) && (device.currentValue("status") != currentStatus)) {
-            if (logLocationChanges) log.info "$descriptionText"
-            state.sinceTime = data.tst
+            // only log if there was a valid time, a location change and log changes is enabled
+            if ((data.tst != 0) && (device.currentValue("status") != currentStatus)) {
+                if (logLocationChanges) log.info "$descriptionText"
+                state.sinceTime = data.tst
+            }
         }
     }
-
+    
     // if we get a blank timestamp, then the phone has no location or this is a ping with high inaccuracy, so do not update any location fields
     if (data.tst != 0) {
-        long sinceTimeMilliSeconds = state.sinceTime
-        sinceDate = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date(sinceTimeMilliSeconds * 1000))
-        tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
-
-        sendEvent( name: "since", value: sinceDate )
+        sendEvent( name: "presence", value: memberPresence, descriptionText: descriptionText)
         sendEvent( name: "status", value: currentStatus )
         sendEvent( name: "location", value: currentLocation )
-        sendEvent( name: "presence", value: memberPresence, descriptionText: descriptionText)
-        sendEvent( name: "distanceFromHome", value:  parent.displayKmMiVal(data.currentDistanceFromHome) )
-        if (data?.vel) sendEvent( name: "lastSpeed", value:  parent.displayKmMiVal(data.vel).toInteger() )
+        
+        // only log additional data if the user is not marked as private
+        if (!data.private) {
+            long sinceTimeMilliSeconds = state.sinceTime
+            sinceDate = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date(sinceTimeMilliSeconds * 1000))
+            tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
 
-        // we are using the battery field on the presence tile for selectable display
-        switch (presenceTileBatteryField) {
-            case "0":
-                batteryField = (data?.batt ? "Battery " + data.batt + "%" : "")
-            break
-            case "1":
-                batteryField = currentStatus + " - " + tileDate
-            break
-            case "2":
-                batteryField = parent.displayKmMiVal(data.currentDistanceFromHome) + " ${parent.getLargeUnits()} from Home"
-            break
-            case "3":
-                batteryField = (data?.vel ? parent.displayKmMiVal(data.vel) + " ${parent.getVelocityUnits()}" : "")
-            break
-            case "4":
-                batteryField = (data?.bs ? BATTERY_STATUS[data.bs] : "")
-            break
-            case "5":
-                batteryField = (data?.conn ? DATA_CONNECTION[data.conn] : "")
-            break
-            case "6":
-                batteryField = (data?.t ? TRIGGER_TYPE[data.t] : "")
-            break
+            sendEvent( name: "since", value: sinceDate )
+            sendEvent( name: "distanceFromHome", value:  parent.displayKmMiVal(data.currentDistanceFromHome) )
+            if (data?.vel) sendEvent( name: "lastSpeed", value:  parent.displayKmMiVal(data.vel).toInteger() )
+
+            // we are using the battery field on the presence tile for selectable display
+            switch (presenceTileBatteryField) {
+                case "0":
+                    batteryField = (data?.batt ? "Battery " + data.batt + "%" : "")
+                break
+                case "1":
+                    batteryField = currentStatus + " - " + tileDate
+                break
+                case "2":
+                    batteryField = parent.displayKmMiVal(data.currentDistanceFromHome) + " ${parent.getLargeUnits()} from Home"
+                break
+                case "3":
+                    batteryField = (data?.vel ? parent.displayKmMiVal(data.vel) + " ${parent.getVelocityUnits()}" : "")
+                break
+                case "4":
+                    batteryField = (data?.bs ? BATTERY_STATUS[data.bs] : "")
+                break
+                case "5":
+                    batteryField = (data?.conn ? DATA_CONNECTION[data.conn] : "")
+                break
+                case "6":
+                    batteryField = (data?.t ? TRIGGER_TYPE[data.t] : "")
+                break
+            }
+
+            // deal with the cases where the above data might not come in a particular event, so leave the previous event
+            if (batteryField) sendEvent( name: "battery", value: batteryField  )
         }
-
-        // deal with the cases where the above data might not come in a particular event, so leave the previous event
-        if (batteryField) sendEvent( name: "battery", value: batteryField  )
     }
-
+    
     return true
 }
 
