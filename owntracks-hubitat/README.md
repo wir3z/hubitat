@@ -272,3 +272,76 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 	- hiberateAllowed : 0/1, 1 indicates the OwnTracks app can pause if unused for a period of time
 	- batteryOptimizations : 0/1, 1 indicates that the OwnTracks app has battery optimizations on which will impact performance
 	- locationPermissions : 0/1, 1 indicates the location permission settings are configured in a way that will impact performance
+
+	
+	
+# FAQ (Frequently Asked Questions)
+## What is OwnTracks?
+OwnTracks is an open source mobile presence application for the Android and iOS platforms.  Unlike other commercial presence apps, OwnTracks only sends location information to a location that you managed, such as this integration, and does not monetize your location information.
+
+### Where do I get the Mobile application?
+You can get the official released version for Android and iOS here: https://owntracks.org/ .  A modified Android version with multiple improvements including background operation, remote region delete and keep alive can be found here:  https://github.com/wir3z/hubitat/blob/main/owntracks-android-apk/app-gms-debug_v2.4.16.apk
+
+### How do I set up Hubitat to support this integration?
+View the README.MD found here: https://github.com/wir3z/hubitat/tree/main/owntracks-hubitat
+Follow the 'Hubitat Installation', 'Quick Start Guide', and complete the steps in the 'Installation' section.  The app needs minimal configuration to get you operational and the defaults should be sufficient for most applications.
+
+### What if I need help?
+Visit the Hubitat Community thread '[RELEASE] OwnTracks for Hubitat Presence Detection' (https://community.hubitat.com/t/release-owntracks/130821) to ask questions and get community support.
+
+### How does this setup work?
+The mobile application ONLY communicates with the Hubitat app when a location report needs to be sent from the mobile device.  When the Hubitat app receives the location report, it can respond with configuration or region updates.
+
+There is no ability for the Hubitat app to push information to the OwnTracks mobile app, nor can it query it in real time.  All communications are initiated by the mobile app.
+
+## Display Units
+### Why do a see metric units in the mobile app after I set the the Hubitat app to 'imperial' units?
+The 'metric'/'imperial' selection only applies to the Hubitat app and is not shared with the mobile app.
+
+### I have the Hubitat app set to 'Imperial' but the distances are slightly off
+The Hubitat app processes all the distances and speeds in metric.  They are converted to/from 'imperial' for display purposes only and may have slight rounding errors.
+
+## Regions
+### What are regions?  Why do I want these?
+Regions are 'location bubbles' that are bound by a radius around it.  If the mobile enters or leaves one of these radius', the Hubitat app can display the status of this transition.
+
+They are handy for giving more meaningful locations of 'Arrived at Work' or 'Left Home'.  You need to create at least one region to define your home location for presence detection to work.
+
+### I've added, edited or deleted a region, and the mobile app isn't showing the changes
+The mobile will retrieve the update on its next location report.  You an trigger a manual location update from the mobile app by tapping the up arrow in the top right of the map to force this to occur instantly.
+
+### I've deleted regions from the Hubitat app, but they are not being deleted from my phone
+The Android OwnTracks Play Store v2.4.12 has a bug that prevents deleting regions.  Regions need to be manually deleted from each mobile device.
+
+iOS devices use the 'Region Name' as a unique identifier.  If the name was changed on the hub vs the mobile or vice versa, they they become unlinked and would need to be manually deleted from the mobile device.
+
+### I've edited the name of a region in the Hubitat app, now my iOS device is showing the old and new one
+iOS devices use the 'Region Name' as a unique identifier.  Changing the name creates a 'new region' and the old one would need to be manually deleted from each mobile device.
+
+### I see a region called '+60follow' or some other '+follow' name.  What do these do?
+In order to ensure iOS devices have better performance and stop sleeping the OwnTracks app, one of these regions must exist on the phone.  If you have an Android phone, it will get pushed to your device, but will never be used and can be ignored.
+
+The number after the + sign is the 'locater interval' value from the Hubitat 'Advanced Mobile App Settings'.  By default it is '60' seconds.  If you change the 'locater interval' value in 'Advanced Mobile App Settings', your iOS device will receive a new +follow region.  Delete the old one otherwise performance will be impacted.
+
+## Presence Detection
+### My iOS phone is slow to update
+Check the regions on the impacted device.  There should be only one +follow named region.  If there are multiple, delete all of the ones that do not match the 'locater interval' number from the Hubitat 'Advanced Mobile App Settings'.  By default, you should have a '+60follow' region.
+
+### My iOS or Android phone is slow to update
+By default, the locater service in the mobile optimizes power and performance by trying to get a location from these three sources, in this order:
+1. Cellular
+2. WiFi (listens for nearby WiFi access points, and does a lookup for a location)
+3. GPS (only when explicitly selected, or moving at higher speeds due to high battery consumption)
+
+If WiFi has been disabled on your mobile device, location updates will be negatively impacted and may not reflect your current location.  For best performance, leave WiFi on.
+
+If you have an Android phone, and are in an area with little to no WiFi access points, enable the 'Use GPS' slider in 'Advanced Mobile App Settings'.
+
+### When I look at where my locations have been, they seem to be miss my actual route or not give a location at all
+When using WiFi for locations, the phone listens to the nearest broadcasting source.  If traveling at a lower rate of speed (walking, cycling) the locations will ping-pong from the closest WiFi source.  When driving, the mobile tends to switch to GPS to get a more accurate location.
+
+If a more accurate location is needed, enable the 'Use GPS' slider in 'Advanced Mobile App Settings'.  Locations will be more precise but will impact battery performance.
+
+## OwnTracks Recorder
+### What is Recorder, and why do I want this?
+Recorder captures all the locations send to the Hubitat app to allow a breadcrumb trail to be viewed on a map at a later time.  If you have a need to see where a member has been, this is a handy tool, but is not needed for the Hubitat presence detection.	
