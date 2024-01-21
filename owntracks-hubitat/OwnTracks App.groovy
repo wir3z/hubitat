@@ -40,6 +40,7 @@
  *  1.6.19     2023-01-18      - Ignore incoming +follow regions from users.  Changed the +follow region to match the locatorInterval setting.
  *  1.6.20     2023-01-19      - Fixed a fail to install crash from the +follow maintenance.
  *  1.6.21     2023-01-20      - Fixed issue where it was impossible to edit a different region after selecting one.  Added the ability to have private members to not receive member updates or regions.  Added note to edit regions for iOS devices. Added the ability to reset location and display to default.  Home location cleanup.
+ *  1.6.22     2023-01-21      - Updated the add/edit/delete flow.  Add a banner to the member status table and delete screen for regions pending deletion.
  */
 
 import groovy.transform.Field
@@ -48,7 +49,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.21" }
+def appVersion() { return "1.6.22" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -164,6 +165,7 @@ def mainPage() {
         } else {
             section(getFormat("box", "Member Status")) {
                 displayMemberStatus()
+                displayRegionsPendingDelete()
             }            
             section(getFormat("box", "Installation")) {
                 href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
@@ -493,6 +495,14 @@ def getHomeRegion() {
     return ((homePlace ? state.places.find {it.tst==homePlace} : []))
 }
 
+def displayRegionsPendingDelete() {
+    // get the names of any regions that are pending deletion
+    pendingDelete = state?.places.findAll{it.lat == INVALID_COORDINATE}.collect{place -> place.desc}
+    if (pendingDelete) {
+        paragraph "<div style='color:#ff0000'><b>${pendingDelete} pending deletion once all members report a location update.</b></div>"
+    }
+}    
+
 def addRegions() {
     return dynamicPage(name: "addRegions", title: "", nextPage: "configureRegions") {
         section(getFormat("box", "Add a Region")) {
@@ -503,14 +513,11 @@ def addRegions() {
             paragraph ("1. Add the region to be information.\r" +
                        "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" 
             )
-            input "regionName", "text", title: "Name of region", submitOnChange: true
-            input name: "regionRadius", type: "number", title: "Detection radius for region (${getSmallUnits()}) (${displayMFtVal(50)}..${displayMFtVal(1000)})", range: "${displayMFtVal(50)}..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_RADIUS)
-            input name: "regionLat", type: "double", title: "Region Latitude (-90.0..90.0)", range: "-90.0..90.0", defaultValue: location.getLatitude()
-            input name: "regionLon", type: "double", title: "Region Longitude (-180.0..180.0)", range: "-180.0..180.0", defaultValue: location.getLongitude()
-
-            if (regionName) {
-                input name: "addButton", type: "button", title: "Save", state: "submit"
-            }
+            input "regionName", "text", title: "Name", submitOnChange: true
+            input name: "regionRadius", type: "number", title: "Detection radius (${getSmallUnits()}) (${displayMFtVal(50)}..${displayMFtVal(1000)})", range: "${displayMFtVal(50)}..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_RADIUS)
+            input name: "regionLat", type: "double", title: "Latitude (-90.0..90.0)", range: "-90.0..90.0", defaultValue: location.getLatitude()
+            input name: "regionLon", type: "double", title: "Longitude (-180.0..180.0)", range: "-180.0..180.0", defaultValue: location.getLongitude()
+            input name: "addRegionButton", type: "button", title: "Save", state: "submit"
         }
     }
 }
@@ -537,12 +544,12 @@ def editRegions() {
                 // save the name in so we can retrieve the values should it get changed below
                 state.previousRegionName = regionName
 
-                input name: "regionName", type: "text", title: "Region Name", required: true
-                input name: "regionRadius", type: "number", title: "Detection radius for region (${getSmallUnits()})", required: true, range: "${displayMFtVal(50)}..${displayMFtVal(1000)}"
-                input name: "regionLat", type: "double", title: "Region Latitude (-90.0..90.0)", required: true, range: "-90.0..90.0"
-                input name: "regionLon", type: "double", title: "Region Longitude (-180.0..180.0)", required: true, range: "-180.0..180.0"
+                input name: "regionName", type: "text", title: "Name", required: true
+                input name: "regionRadius", type: "number", title: "Detection radius (${getSmallUnits()})", required: true, range: "${displayMFtVal(50)}..${displayMFtVal(1000)}"
+                input name: "regionLat", type: "double", title: "Latitude (-90.0..90.0)", required: true, range: "-90.0..90.0"
+                input name: "regionLon", type: "double", title: "Longitude (-180.0..180.0)", required: true, range: "-180.0..180.0"
 
-                input name: "editButton", type: "button", title: "Save", state: "submit"
+                input name: "editRegionButton", type: "button", title: "Save", state: "submit"
             }
         }
     }
@@ -550,27 +557,26 @@ def editRegions() {
 
 def deleteRegions() {
     return dynamicPage(name: "deleteRegions", title: "", nextPage: "configureRegions") {
-        section(getFormat("box", "Delete Region(s)")) {
+        section(getFormat("box", "Delete Region")) {
             if (state.submit) {
                 paragraph "<b>${getFormat("redText", appButtonHandler(state.submit))}</b>"
                 state.submit = ""
             }
-            if (deleteFromHubitatOnly) {
-                paragraph ("1. Select the region(s) to be deleted from Hubitat.\r" +
-                           "2. Manually delete the region(s) from each mobile device.\r" 
-                )
-            } else {
-                paragraph ("1. Select the region(s) to be deleted from Hubitat and the mobile devices.\r" +
-                           "2. The region(s) will be assigned an invalid lat/lon.\r" + 
-                           "3. The region(s) will remain in the list until <b>ALL</b> enabled users have sent a location report.\r" + 
-                           "4. Once the last user has sent a location report, the region(s) will be deleted from Hubitat.\r"
-                )
-                paragraph("<b>NOTE:  OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.</b>")
-            }
-            input name: "deleteFromHubitatOnly", type: "bool", title: "Delete region from Hubitat <b>ONLY</b> and not the mobile devices.", defaultValue: false, submitOnChange: true
-            input "regionName", "enum", multiple: true, title:"Select regions to delete.", options: getNonFollowRegions(false), submitOnChange: true
+            displayRegionsPendingDelete()
+            input "regionName", "enum", multiple: false, title:"Select region to delete", options: getNonFollowRegions(false), submitOnChange: true
             if (regionName) {
-                input name: "deleteButton", type: "button", title: "Delete", state: "submit"
+                paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.</b></div>")
+                paragraph("<h3><b>Delete Region from Hub Only - Manually Delete Region from Mobile</b></h3>" +
+                          "1. Click the 'Delete Region from Hubitat ONLY' button.\r" +
+                          "2. On each mobile phone, find and delete the region selected above.\r"
+                )
+                input name: "deleteRegionFromHubButton", type: "button", title: "Delete Region from Hubitat ONLY", state: "submit"
+                paragraph ("<h3><b>Automatically Delete Region from Hub and Mobile after Location Update</b></h3>" + 
+                           "1. Selected region will be assigned an invalid lat/lon.\r" + 
+                           "2. The region will remain in the list until <b>ALL</b> enabled users have sent a location report.\r" + 
+                           "3. Once the last user has sent a location report, the region will be deleted from Hubitat.\r"
+                )
+                input name: "deleteRegionFromAllButton", type: "button", title: "Delete Region from Hubitat and Mobile(s)", state: "submit"
             }
         }
     }
@@ -614,68 +620,74 @@ def resetDefaults() {
 String appButtonHandler(btn) {
     def success = false
     def updateMember = false
+    def result = ""
     
     switch (btn) {
-        case "addButton":
-            // check if we are duplicating a region, and delete the name if so
-            if (state.places.find {it.desc==regionName}) {
-                result = "Region '${regionName}' already exists."
-                logWarn(result)
-                // clear the region name
-                app.removeSetting("regionName")
-            } else {
-                if (!regionName || !regionLat || !regionLon || !regionRadius) {
-                    result = "All fields need to be populated."
+        case "addRegionButton":
+            // check if there are any regions selected
+            if (regionName) {        
+                // check if we are duplicating a region, and delete the name if so
+                if (state.places.find {it.desc==regionName}) {
+                    result = "Region '${regionName}' already exists."
                     logWarn(result)
+                    // clear the region name
+                    app.removeSetting("regionName")
                 } else {
-                    // create the waypoint map - NOTE: the app keys off the "tst" field as a unique identifier
-                    def newPlace = [ "_type": "waypoint", "desc": "${regionName}", "lat": "${regionLat}", "lon": "${regionLon}", "rad": "${convertToMeters(regionRadius)}", "tst": "${(now()/1000).toInteger()}" ]
-                    // add the new place
-                    state.places << newPlace
-                    logDescriptionText("Added place: ${newPlace}")
-                    result = "Region '${regionName}' has been added."
-                    success = true
-                    updateMember = true
+                    if (!regionName || !regionLat || !regionLon || !regionRadius) {
+                        result = "All fields need to be populated."
+                        logWarn(result)
+                    } else {
+                        // create the waypoint map - NOTE: the app keys off the "tst" field as a unique identifier
+                        def newPlace = [ "_type": "waypoint", "desc": "${regionName}", "lat": "${regionLat}", "lon": "${regionLon}", "rad": "${convertToMeters(regionRadius)}", "tst": "${(now()/1000).toInteger()}" ]
+                        // add the new place
+                        state.places << newPlace
+                        result = "Region '${regionName}' has been added."
+                        logDescriptionText(result)
+                        success = true
+                        updateMember = true
+                    }
                 }
             }
         break
-        case "editButton":
+        case "editRegionButton":
             // find the existing place to update.
             def foundPlace = state.places.find {it.desc==state.previousRegionName}
             // create the updated waypoint map - NOTE: the app keys off the "tst" field as a unique identifier
             def newPlace = [ "_type": "waypoint", "desc": "${regionName}", "lat": "${regionLat}", "lon": "${regionLon}", "rad": "${convertToMeters(regionRadius)}", "tst": "${foundPlace.tst}" ]
             // overwrite the existing place
             foundPlace << newPlace
-            result = "Updating region '${newPlace}'"
+            result = "Updating region '${newPlace.desc}'"
             logDescriptionText(result)
             success = true
             updateMember = true
         break
-        case "deleteButton":
-            // unvalidate all the places that need to be removed
-            regionName.each { desc ->
-                place = state.places.find {it.desc==desc}
+        case "deleteRegionFromAllButton":
+        case "deleteRegionFromHubButton":
+            // check if there are any regions selected
+            if (regionName) {
+                // unvalidate all the places that need to be removed
+                place = state.places.find {it.desc==regionName}
                 // check if we are deleting our home location
                 if (homePlace == place.tst) {
                     app.removeSetting("homePlace")
                 }
-                if (deleteFromHubitatOnly) {
+                if (btn == "deleteRegionFromHubButton") {
                     // remove the place from our current list but don't trigger a member update
-                    deleteIndex = state.places.findIndexOf {it.desc==desc}
+                    deleteIndex = state.places.findIndexOf {it.desc==regionName}
                     if (deleteIndex >= 0) {
                         state.places.remove(deleteIndex)
                     }
                     updateMember = false
+                    result = "Deleting region '${regionName}' from Hubitat <b>ONLY</b>.  Manually remove '${regionName}' from each mobile."
                 } else {
                     // invalidate the coordinates to flag it for deletion.  iOS is checking the name as a key, Android the timestamp
                     place.lat = INVALID_COORDINATE
                     place.lon = INVALID_COORDINATE
                     updateMember = true
                 }
+                logWarn(result)
+                success = true
             }
-            result = "Deleting regions '${regionName}'"
-            logWarn(result)
-            success = true
         break
         case "deleteMembersButton":
             deleteFamilyMembers.each { name ->
