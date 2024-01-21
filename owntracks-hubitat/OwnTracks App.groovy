@@ -1227,7 +1227,7 @@ def updateDevicePresence(member, data) {
             }
             // catch the corner case where the mobile and the hub have a mismatched 'Home'
             if (memberHubHome != memberMobileHome) {
-                logWarn("${member.name}'s mobile app 'Home' region lat/lon/radius does not match 'Home' in the Hubitat OwnTracks app.  Select this member to have their regions updated or confirm the mobile app region matches.")
+                logWarn("The 'Latitude', 'Longitude' and 'Radius' of the selected home region in the Hubitat OwnTracks app does not the corresponding region in ${member.name}'s mobile app.  Select this member to have their regions updated or manually correct the mobile app coordinates.")
             }
         } else {
             data.currentDistanceFromHome = 0.0
