@@ -193,7 +193,7 @@ def mainPage() {
             section(getFormat("box", "Maintenance")) {
                 input "syncMobileSettings", "enum", multiple: true, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
                 input "requestLocation", "enum", multiple: true, title:"Select family member(s) to send a high accuracy GPS location on next location update (<b>Android ONLY</b>). The user will be registered to receive this request once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
-                href(title: "Reset to Recommended Default Settings", description: "", style: "page", page: "resetDefaults")
+                href(title: "Recommended Default Settings", description: "", style: "page", page: "resetDefaults")
                 href(title: "Delete Family Members", description: "", style: "page", page: "deleteMembers")
             }
             section(getFormat("box", "Logging")) {
