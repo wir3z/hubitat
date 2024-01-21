@@ -41,7 +41,7 @@ Open the Hubitat OwnTracks app, and configure the the sections in 'Installation'
 - Last Location Fix
 	- Date/time for the last location fix from a member.  If the member hasn't updated it's location after the set number of hours, it is displayed in red, with the number of hours since the last fix.
 - The columns indicate the current pending requests for each member.  If 'Pending' is displayed, that user will get updated on the next location report.
-
+- If region(s) are pending deletion, a banner will be displayed at the bottom of the table in red.
 # Installation
 ## Mobile App Configuration
 This integration requires the Owntracks app to be installed on your mobile device:  https://owntracks.org/
@@ -73,7 +73,7 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 - Select region to check coordinates.
 	- Select a region from the selection box, and click the link to view the pin on Google Maps to confirm the latitude and longitude is correct.  Right click on Google Maps to get the lat/lon.
 - Add Regions:
-	- Enter the name, detection radius and coordinates.  Click on the screen to expose the 'Save' button.
+	- Enter the name, detection radius and coordinates.
 	- Click the 'Save' button.
 	- Click the 'Next' button to leave the screen, or abandon changes if 'Save' was not pressed.
 - Edit Regions:
@@ -82,13 +82,16 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	- Click the 'Next' button to leave the screen, or abandon changes if 'Save' was not pressed.
 	- NOTE: Changing the 'Region Name' will create a new region on iOS devices.  The previous named region will need to be manually delete from each device.
 - Delete Regions:
-	- Select Delete region from Hubitat Only and not from mobile devices to only remove the region from the Hubitat app:
-		- regions will need to be manually removed from each mobile device.
-	- Select the region(s) to delete.  Click on the screen to expose the 'Delete' button.
-	- Click the 'Delete' button.
-	- Click the 'Next' button to leave the screen, or abandon changes if 'Delete' was not pressed.
-	NOTE:  The region will remain in the Hubitat OwnTracks app, until all users have reported a location to retrieve the deletion notice.
-		   Android v4.2.12 does not delete the region remotely and will need to be manually deleted from each device.
+    - If region(s) are pending deletion, a banner will be displayed at the bottom of the table in red.
+	- Select the region to delete. 
+	NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.
+	- Delete Region from Hub Only - Manually Delete Region from Mobile
+		- Click the 'Delete Region from Hubitat ONLY' button.
+		- On each mobile phone, find and delete the region selected above.
+	- Automatically Delete Region from Hub and Mobile after Location Update
+		- Selected region will be assigned an invalid lat/lon.
+		- The region will remain in the list until ALL enabled users have sent a location report.
+		- Once the last user has sent a location report, the region will be deleted from Hubitat.	- Click the 'Next' button to leave the screen, or abandon changes if 'Delete' was not pressed.
 
 - Select your 'Home' place:
 	- Select the region where 'Home' is for presence detection.  
