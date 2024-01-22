@@ -48,6 +48,7 @@
  *      bo:0,                           // App has battery optimizations (1=restricted/optimized, 0=unrestricted)
  *      wifi:1,                         // WiFi is enabled (1=yes, 0=no)
  *      loc:0,                          // 0 = Background location, fine precision, -1 = Background location, coarse precision, -2 = Foreground location, fine precision, -3 = Foreground location, coarse precision, -4 = Disabled
+ *      address: 742 Evergreen Terrace  // address for the lat/lon reported
  *  ]
  *
  *  For 'Transition':
@@ -79,12 +80,13 @@
  *  1.6.7      2024-01-17      - Added missing trigger type.
  *  1.6.8      2024-01-18      - Filter the +follow regions.  Added a status attribute to track the last region enter/leave event.
  *  1.6.9      2024-01-20      - Allow for members data to be private.  Only presence and report time is captured.
+ *  1.6.10     2024-01-21      - Added address that will be displayed in location instead of lat/lon, if present.  Wifi attribute is removed from devices that are not reporting it.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.8" }
+def driverVersion() { return "1.6.10" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -137,6 +139,7 @@ metadata {
         attribute  "SSID", "string"
         attribute  "triggerSource", "string"
         attribute  "monitoringMode", "string"
+        attribute  "address", "string"
     }
 }
 
@@ -190,6 +193,7 @@ def deleteExtendedAttributes(makePrivate) {
         device.deleteCurrentState('hiberateAllowed')
         device.deleteCurrentState('batteryOptimizations')
         device.deleteCurrentState('locationPermissions')
+        device.deleteCurrentState('address')        
     }
 }
 
@@ -223,18 +227,19 @@ def updatePresence(data, allowAttributeDelete) {
         }
         // display the extended attributes if they were received, but only allow them to be removed on non-tranisition events
         if (displayExtendedAttributes && !data.private) {
-            if (data?.batt)  sendEvent (name: "batteryPercent", value: data.batt)                        else if (allowAttributeDelete) device.deleteCurrentState('batteryPercent')
-            if (data?.lat)   sendEvent (name: "lat", value: data.lat)                                    else if (allowAttributeDelete) device.deleteCurrentState('lat')
-            if (data?.lon)   sendEvent (name: "lon", value: data.lon)                                    else if (allowAttributeDelete) device.deleteCurrentState('lon')
-            if (data?.acc)   sendEvent (name: "accuracy", value: parent.displayMFtVal(data.acc))         else if (allowAttributeDelete) device.deleteCurrentState('accuracy')
-            if (data?.vac)   sendEvent (name: "verticalAccuracy", value: parent.displayMFtVal(data.vac)) else if (allowAttributeDelete) device.deleteCurrentState('verticalAccuracy')
-            if (data?.alt)   sendEvent (name: "altitude", value: parent.displayMFtVal(data.alt))         else if (allowAttributeDelete) device.deleteCurrentState('altitude')
-            if (data?.topic) sendEvent (name: "sourceTopic", value: data.topic)                          else if (allowAttributeDelete) device.deleteCurrentState('sourceTopic')
-            if (data?.bs)    sendEvent (name: "batteryStatus", value: BATTERY_STATUS[data.bs])           else if (allowAttributeDelete) device.deleteCurrentState('batteryStatus')
-            if (data?.conn)  sendEvent (name: "dataConnection", value: DATA_CONNECTION[data.conn])       else if (allowAttributeDelete) device.deleteCurrentState('dataConnection')
-            if (data?.BSSID) sendEvent (name: "BSSID", value: data.BSSID)                                else if (allowAttributeDelete) device.deleteCurrentState('BSSID')
-            if (data?.t)     sendEvent (name: "triggerSource", value: TRIGGER_TYPE[data.t])              else if (allowAttributeDelete) device.deleteCurrentState('triggerSource')
-            if (data?.m)     sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])          else if (allowAttributeDelete) device.deleteCurrentState('monitoringMode')
+            if (data?.batt)    sendEvent (name: "batteryPercent", value: data.batt)                        else if (allowAttributeDelete) device.deleteCurrentState('batteryPercent')
+            if (data?.lat)     sendEvent (name: "lat", value: data.lat)                                    else if (allowAttributeDelete) device.deleteCurrentState('lat')
+            if (data?.lon)     sendEvent (name: "lon", value: data.lon)                                    else if (allowAttributeDelete) device.deleteCurrentState('lon')
+            if (data?.acc)     sendEvent (name: "accuracy", value: parent.displayMFtVal(data.acc))         else if (allowAttributeDelete) device.deleteCurrentState('accuracy')
+            if (data?.vac)     sendEvent (name: "verticalAccuracy", value: parent.displayMFtVal(data.vac)) else if (allowAttributeDelete) device.deleteCurrentState('verticalAccuracy')
+            if (data?.alt)     sendEvent (name: "altitude", value: parent.displayMFtVal(data.alt))         else if (allowAttributeDelete) device.deleteCurrentState('altitude')
+            if (data?.topic)   sendEvent (name: "sourceTopic", value: data.topic)                          else if (allowAttributeDelete) device.deleteCurrentState('sourceTopic')
+            if (data?.bs)      sendEvent (name: "batteryStatus", value: BATTERY_STATUS[data.bs])           else if (allowAttributeDelete) device.deleteCurrentState('batteryStatus')
+            if (data?.conn)    sendEvent (name: "dataConnection", value: DATA_CONNECTION[data.conn])       else if (allowAttributeDelete) device.deleteCurrentState('dataConnection')
+            if (data?.BSSID)   sendEvent (name: "BSSID", value: data.BSSID)                                else if (allowAttributeDelete) device.deleteCurrentState('BSSID')
+            if (data?.t)       sendEvent (name: "triggerSource", value: TRIGGER_TYPE[data.t])              else if (allowAttributeDelete) device.deleteCurrentState('triggerSource')
+            if (data?.m)       sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])          else if (allowAttributeDelete) device.deleteCurrentState('monitoringMode')
+            if (data?.address) sendEvent (name: "address", value: data.address)                            else if (allowAttributeDelete) device.deleteCurrentState('address')
         } else {
             deleteExtendedAttributes(true)
         }
@@ -303,15 +308,19 @@ Boolean generatePresenceEvent(data) {
                 currentLocation = currentStatus 
             } else {
                 currentStatus = "${parent.displayKmMiVal(data.currentDistanceFromHome).round(1)} ${parent.getLargeUnits()} from Home"
-                // TODO: Need the phone to send back the reverse geocode address and display it here
-                currentLocation = "${data.lat},${data.lon}" 
+                // display the address if it was reported, or the lat/lon if not
+                currentLocation = (data?.address ? "${data.address}" : "${data.lat},${data.lon}")
             }
             descriptionText = device.displayName +  " is at " + currentStatus
 
             // process the additional setting information
-            sendEvent( name: "wifi", value: (data?.wifi ? "on" : "off") )
-            if (data?.wifi == 0) {
-                logDebug("Phone has WiFi turned off.  Please turn WiFi on.")
+            if (data?.wifi) {
+                sendEvent( name: "wifi", value: (data?.wifi ? "on" : "off") )
+                if (data?.wifi == 0) {
+                    logDebug("Phone has WiFi turned off.  Please turn WiFi on.")
+                }
+            } else {
+                device.deleteCurrentState('wifi')
             }
             // only display the extra phone fields if they are in a non-optimal state
             if (data?.ps == 1) {
