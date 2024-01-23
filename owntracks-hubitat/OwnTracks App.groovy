@@ -41,6 +41,7 @@
  *  1.6.20     2023-01-19      - Fixed a fail to install crash from the +follow maintenance.
  *  1.6.21     2023-01-20      - Fixed issue where it was impossible to edit a different region after selecting one.  Added the ability to have private members to not receive member updates or regions.  Added note to edit regions for iOS devices. Added the ability to reset location and display to default.  Home location cleanup.
  *  1.6.22     2023-01-21      - Updated the add/edit/delete flow.  Add a banner to the member status table and delete screen for regions pending deletion.
+ *  1.6.23     2023-01-22      - Add a red information banner to delete old +follow regions if the locater interval changed.  Fixed issue where a home region mismatch would be displayed when a user left home.
  */
 
 import groovy.transform.Field
@@ -49,7 +50,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.22" }
+def appVersion() { return "1.6.23"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -141,6 +142,8 @@ def mainPage() {
         
     // initialize all fields if they are undefined
     initialize(false)
+    // store the previous locator interval so we can flag a warning for iOS users
+    state.previousLocatorInterval = locatorInterval
     def oauthStatus = ""
     //enable OAuth in the app settings or this call will fail
     try{
@@ -405,7 +408,10 @@ def configureLocation() {
             input name: "pegLocatorFastestIntervalToInterval", type: "bool", title: "Request that the location provider deliver updates no faster than the requested locater interval, Recommended '${DEFAULT_pegLocatorFastestIntervalToInterval}'", defaultValue: DEFAULT_pegLocatorFastestIntervalToInterval
             paragraph("<h3><b>Settings for Significant Monitoring Mode</b></h3>")
             input name: "locatorDisplacement", type: "number", title: "How far the device travels (${getSmallUnits()}) before receiving another location update, Recommended=${displayMFtVal(DEFAULT_locatorDisplacement)}  <i><b>This value needs to be less than the minimum configured region radius for automations to trigger.</b></i> (<b>Android ONLY</b>)", required: true, range: "0..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_locatorDisplacement)
-            input name: "locatorInterval", type: "number", title: "Device will not report location updates faster than this interval (seconds) unless moving.  When moving, Android uses this 'locaterInterval/6' or '5-seconds' (whichever is greater, unless 'locaterInterval' is less than 5-seconds, then 'locaterInterval' is used), Recommended=60  <i><b>Requires the device to move the above distance, otherwise no update is sent.</b></i>", required: true, range: "0..3600", defaultValue: DEFAULT_locatorInterval
+            input name: "locatorInterval", type: "number", title: "Device will not report location updates faster than this interval (seconds) unless moving.  When moving, Android uses this 'locaterInterval/6' or '5-seconds' (whichever is greater, unless 'locaterInterval' is less than 5-seconds, then 'locaterInterval' is used), Recommended=60  <i><b>Requires the device to move the above distance, otherwise no update is sent.</b></i>", required: true, range: "0..3600", defaultValue: DEFAULT_locatorInterval, submitOnChange: true
+            if (state.previousLocatorInterval != locatorInterval) {
+                paragraph "<div style='color:#ff0000'>An additional +follow region will be created on iOS devices with this new locater interval.  Manually delete '<b>+${state.previousLocatorInterval}follow</b>' from each iOS device to ensure proper operation.</div>"
+            }
             // IE:  locatorInterval=0-seconds,   then locations every 0-seconds  if moved locatorDisplacement meters
             //      locatorInterval=5-seconds,   then locations every 5-seconds  if moved locatorDisplacement meters
             //      locatorInterval=10-seconds,  then locations every 5-seconds  if moved locatorDisplacement meters
@@ -1211,8 +1217,7 @@ def updateDevicePresence(member, data) {
             // or connected to a listed SSID and within the next geofence
             memberWiFiHome = (data.currentDistanceFromHome < DEFAULT_wifiPresenceKeepRadius) && isSSIDMatch(homeSSID, deviceWrapper)
             // or the mobile is reporting the member is home
-            memberMobileHome = (data?.inregions.find {it==getHomeRegion().desc} || (data?.desc == getHomeRegion().desc))
-            
+            memberMobileHome = (data?.inregions.find {it==getHomeRegion().desc} || ((data?.desc == getHomeRegion().desc) && (data?.event == 'enter')))
             // if either the hub or the mobile reports it is home, then make the member present
             if (memberHubHome || memberWiFiHome || memberMobileHome) {
                 data.currentDistanceFromHome = 0.0

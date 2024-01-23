@@ -81,12 +81,13 @@
  *  1.6.8      2024-01-18      - Filter the +follow regions.  Added a status attribute to track the last region enter/leave event.
  *  1.6.9      2024-01-20      - Allow for members data to be private.  Only presence and report time is captured.
  *  1.6.10     2024-01-21      - Added address that will be displayed in location instead of lat/lon, if present.  Wifi attribute is removed from devices that are not reporting it.
+ *  1.6.11     2024-01-22      - Expose the ENUM variants for monitoringMode, batteryStatus, dataConnection, and triggerSource.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.10" }
+def driverVersion() { return "1.6.11" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -133,13 +134,13 @@ metadata {
         attribute  "verticalAccuracy", "number"
         attribute  "altitude", "number"
         attribute  "sourceTopic", "string"
-        attribute  "dataConnection", "string"
-        attribute  "batteryStatus", "string"
         attribute  "BSSID", "string"
         attribute  "SSID", "string"
-        attribute  "triggerSource", "string"
-        attribute  "monitoringMode", "string"
         attribute  "address", "string"
+        attribute  "dataConnection", "enum", [ "WiFi", "Mobile" ]
+        attribute  "batteryStatus", "enum", [ "Unknown", "Unplugged", "Charging", "Full" ]
+        attribute  "triggerSource", "enum", [ "Ping", "Region", "Report Location", "Manual", "Beacon", "Timer", "Monitoring", "Location" ]
+        attribute  "monitoringMode", "enum", [ "Unknown", "Significant", "Move" ]
     }
 }
 
