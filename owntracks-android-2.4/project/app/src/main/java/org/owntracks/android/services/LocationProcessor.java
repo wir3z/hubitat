@@ -36,6 +36,8 @@ public class LocationProcessor {
     private final DeviceMetricsProvider deviceMetricsProvider;
     private final WifiInfoProvider wifiInfoProvider;
 
+    String lastAddress = null;
+
     @Inject
     public LocationProcessor(MessageProcessor messageProcessor, Preferences preferences, LocationRepo locationRepo, WaypointsRepo waypointsRepo, DeviceMetricsProvider deviceMetricsProvider, WifiInfoProvider wifiInfoProvider) {
         this.messageProcessor = messageProcessor;
@@ -121,6 +123,7 @@ public class LocationProcessor {
 
         message.setTrigger(trigger);
         message.setTrackerId(preferences.getTrackerId(true));
+        message.setGeocode(lastAddress);
 
         messageProcessor.queueMessageForSending(message);
     }

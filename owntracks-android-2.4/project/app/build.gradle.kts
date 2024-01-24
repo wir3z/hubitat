@@ -30,8 +30,8 @@ android {
         minSdk = 21
         targetSdk = 33
 
-        versionCode = 420416000
-        versionName = "2.4.16"
+        versionCode = 420417000
+        versionName = "2.4.17"
 
         val locales = listOf("en", "de", "fr", "es", "ru", "ca", "pl", "cs", "ja", "pt", "zh", "da")
         buildConfigField(

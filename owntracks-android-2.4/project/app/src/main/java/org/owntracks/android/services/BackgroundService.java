@@ -367,6 +367,11 @@ public class BackgroundService extends LifecycleService implements SharedPrefere
         if (builder == null)
             return null;
 
+        // capture the address and pass the the locationProcessor
+        if (this.lastLocationMessage != null) {
+            locationProcessor.lastAddress = this.lastLocationMessage.getGeocode();
+        }
+
         if (this.lastLocationMessage != null && preferences.getNotificationLocation()) {
             builder.setContentTitle(this.lastLocationMessage.getGeocode());
             builder.setWhen(TimeUnit.SECONDS.toMillis(this.lastLocationMessage.getTimestamp()));

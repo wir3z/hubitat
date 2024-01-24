@@ -85,8 +85,8 @@ open class MessageLocation(private val dep: MessageWithCreatedAt = MessageCreate
     @JsonProperty("loc")
     var locationPermission = 0
 
+    @JsonProperty("address")
     @set:JsonIgnore
-    @get:JsonIgnore
     var geocode: String? = null
         get() {
             return field ?: fallbackGeocode
