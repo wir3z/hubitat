@@ -42,6 +42,7 @@
  *  1.6.21     2023-01-20      - Fixed issue where it was impossible to edit a different region after selecting one.  Added the ability to have private members to not receive member updates or regions.  Added note to edit regions for iOS devices. Added the ability to reset location and display to default.  Home location cleanup.
  *  1.6.22     2023-01-21      - Updated the add/edit/delete flow.  Add a banner to the member status table and delete screen for regions pending deletion.
  *  1.6.23     2023-01-22      - Add a red information banner to delete old +follow regions if the locater interval changed.  Fixed issue where a home region mismatch would be displayed when a user left home.
+ *  1.6.24     2023-01-23      - Expose the member delete button to eliminate confusion.
  */
 
 import groovy.transform.Field
@@ -50,7 +51,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.23"}
+def appVersion() { return "1.6.24"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -598,9 +599,7 @@ def deleteMembers() {
             input "deleteFamilyMembers", "enum", multiple: true, title:"Select family member(s) to delete.", options: state.members.name.sort(), submitOnChange: true
             
             paragraph("<b>NOTE: Selected user(s) will be deleted from the app and their corresponding child device will be removed.  Ensure no automations are dependent on their device before proceeding!</b>")
-            if (deleteFamilyMembers) {
-                input name: "deleteMembersButton", type: "button", title: "Delete", state: "submit"
-            }
+            input name: "deleteMembersButton", type: "button", title: "Delete", state: "submit"
         }
     }
 }
@@ -696,19 +695,21 @@ String appButtonHandler(btn) {
             }
         break
         case "deleteMembersButton":
-            deleteFamilyMembers.each { name ->
-                deleteIndex = state.members.findIndexOf {it.name==name}
-                def deviceWrapper = getChildDevice(state.members[deleteIndex].id)
-                try {
-                    deleteChildDevice(deviceWrapper.deviceNetworkId)
-                } catch(e) {
-                    logDebug("Device for ${name} does not exist.")
+            if (deleteFamilyMembers) {
+                deleteFamilyMembers.each { name ->
+                    deleteIndex = state.members.findIndexOf {it.name==name}
+                    def deviceWrapper = getChildDevice(state.members[deleteIndex].id)
+                    try {
+                        deleteChildDevice(deviceWrapper.deviceNetworkId)
+                    } catch(e) {
+                        logDebug("Device for ${name} does not exist.")
+                    }
+                    state.members.remove(deleteIndex)               
                 }
-                state.members.remove(deleteIndex)               
+                result = "Deleting family members '${deleteFamilyMembers}'"
+                logWarn(result)
+                app.removeSetting("deleteFamilyMembers")
             }
-            result = "Deleting family members '${deleteFamilyMembers}'"
-            logWarn(result)
-            app.removeSetting("deleteFamilyMembers")
         break
         case "resetAllDefaultsButton":
             initialize(true)

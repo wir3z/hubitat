@@ -82,12 +82,13 @@
  *  1.6.9      2024-01-20      - Allow for members data to be private.  Only presence and report time is captured.
  *  1.6.10     2024-01-21      - Added address that will be displayed in location instead of lat/lon, if present.  Wifi attribute is removed from devices that are not reporting it.
  *  1.6.11     2024-01-22      - Expose the ENUM variants for monitoringMode, batteryStatus, dataConnection, and triggerSource.
+ *  1.6.12     2024-01-23      - Changed battery field to show just the battery level number.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.11" }
+def driverVersion() { return "1.6.12" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -376,7 +377,7 @@ Boolean generatePresenceEvent(data) {
             // we are using the battery field on the presence tile for selectable display
             switch (presenceTileBatteryField) {
                 case "0":
-                    batteryField = (data?.batt ? "Battery " + data.batt + "%" : "")
+                    batteryField = (data?.batt ? data.batt : "")
                 break
                 case "1":
                     batteryField = currentStatus + " - " + tileDate
