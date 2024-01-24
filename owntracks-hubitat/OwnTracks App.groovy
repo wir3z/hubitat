@@ -1257,7 +1257,7 @@ def checkRegionConfiguration(member, data) {
         if (regionHighAccuracyRadiusHomeOnly) {
             // only switch to faster reporting when near home
             closestWaypointDistance = (getDistanceFromHome(data)*1000).toDouble()
-            closestWaypointRadius = getHomeRegion().rad.toDouble()
+            closestWaypointRadius = getHomeRegion()?.rad.toDouble()
         } else {
              // loop through all the waypoints, and find the one that is closet to the location
             state.places.each { waypoint->
@@ -1315,7 +1315,7 @@ def createConfiguration(member, useDynamicLocaterAccuracy) {
 
 private def getDistanceFromHome(data) {
     // return distance in kilometers, rounded to 3 decimal places (meters)
-    return (haversine(data.lat.toDouble(), data.lon.toDouble(), getHomeRegion().lat.toDouble(), getHomeRegion().lon.toDouble()).round(3))
+    return (haversine(data.lat.toDouble(), data.lon.toDouble(), getHomeRegion()?.lat.toDouble(), getHomeRegion()?.lon.toDouble()).round(3))
 }
 
 private def logDistanceTraveledAndElapsedTime(member, data) {
