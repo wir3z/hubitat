@@ -84,6 +84,7 @@
  *  1.6.11     2024-01-22      - Expose the ENUM variants for monitoringMode, batteryStatus, dataConnection, and triggerSource.
  *  1.6.12     2024-01-23      - Changed battery field to show just the battery level number.
  *  1.6.13     2024-01-25      - Changed battery field for location to show region, address or lat/lon.  Added a battery field to show distance from home.  Removed the 'status' attribute due to redundance. Added HTML MemberLocation tile.
+ *  1.6.13     2024-01-26      - Removed setting initialization that was breaking new settings.
  **/
 
 import java.text.SimpleDateFormat
@@ -100,7 +101,7 @@ def driverVersion() { return "1.6.13" }
 
 @Field Boolean DEFAULT_presenceTileBatteryField = 0
 @Field Boolean DEFAULT_displayExtendedAttributes = true
-@Field Boolean DEFAULT_displayMemberTile = true
+@Field Boolean DEFAULT_displayMemberTile = false
 @Field Boolean DEFAULT_colorMemberTile = true
 @Field Boolean DEFAULT_descriptionTextOutput = true
 @Field Boolean DEFAULT_debugOutput = false
@@ -181,17 +182,6 @@ def updated() {
         deleteExtendedAttributes(false)
     }
 }
-
-def initializeNullSettings() {
-    // initialize any undefined settings
-    if (presenceTileBatteryField == null) app.updateSetting("presenceTileBatteryField", [value: DEFAULT_presenceTileBatteryField, type: "number"])
-    if (displayExtendedAttributes == null) app.updateSetting("displayExtendedAttributes", [value: DEFAULT_displayExtendedAttributes, type: "bool"])
-    if (displayMemberTile == null) app.updateSetting("displayMemberTile", [value: DEFAULT_displayMemberTile, type: "bool"])
-    if (colorMemberTile == null) app.updateSetting("colorMemberTile", [value: DEFAULT_colorMemberTile, type: "bool"])
-    if (descriptionTextOutput == null) app.updateSetting("descriptionTextOutput", [value: DEFAULT_descriptionTextOutput, type: "bool"])
-    if (debugOutput == null) app.updateSetting("debugOutput", [value: DEFAULT_debugOutput, type: "bool"])
-    if (logLocationChanges == null) app.updateSetting("logLocationChanges", [value: DEFAULT_logLocationChanges, type: "bool"])
-}    
 
 def deleteExtendedAttributes(makePrivate) {
     device.deleteCurrentState('batteryPercent')
@@ -288,9 +278,6 @@ def updatePresence(data, allowAttributeDelete) {
 }
 
 Boolean generatePresenceEvent(data) {
-    // allow for seamless migration
-    initializeNullSettings()
-    
     // update the driver version if necessary
     if (state.driverVersion != driverVersion()) {
         state.driverVersion = driverVersion()
