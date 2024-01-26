@@ -43,6 +43,7 @@
  *  1.6.22     2023-01-21      - Updated the add/edit/delete flow.  Add a banner to the member status table and delete screen for regions pending deletion.
  *  1.6.23     2023-01-22      - Add a red information banner to delete old +follow regions if the locater interval changed.  Fixed issue where a home region mismatch would be displayed when a user left home.
  *  1.6.24     2023-01-23      - Expose the member delete button to eliminate confusion.
+ *  1.6.25     2023-01-24      - Removed nag warning about home region mismatch.
  */
 
 import groovy.transform.Field
@@ -51,7 +52,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.24"}
+def appVersion() { return "1.6.25"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -1219,6 +1220,7 @@ def updateDevicePresence(member, data) {
             memberWiFiHome = (data.currentDistanceFromHome < DEFAULT_wifiPresenceKeepRadius) && isSSIDMatch(homeSSID, deviceWrapper)
             // or the mobile is reporting the member is home
             memberMobileHome = (data?.inregions.find {it==getHomeRegion().desc} || ((data?.desc == getHomeRegion().desc) && (data?.event == 'enter')))
+            
             // if either the hub or the mobile reports it is home, then make the member present
             if (memberHubHome || memberWiFiHome || memberMobileHome) {
                 data.currentDistanceFromHome = 0.0
@@ -1230,10 +1232,6 @@ def updateDevicePresence(member, data) {
                 if (!data.inregions.find {it==getHomeRegion().desc}) {
                     data.inregions << getHomeRegion().desc
                 }
-            }
-            // catch the corner case where the mobile and the hub have a mismatched 'Home'
-            if (memberHubHome != memberMobileHome) {
-                logWarn("The 'Latitude', 'Longitude' and 'Radius' of the selected home region in the Hubitat OwnTracks app does not the corresponding region in ${member.name}'s mobile app.  Select this member to have their regions updated or manually correct the mobile app coordinates.")
             }
         } else {
             data.currentDistanceFromHome = 0.0

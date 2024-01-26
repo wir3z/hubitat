@@ -83,19 +83,29 @@
  *  1.6.10     2024-01-21      - Added address that will be displayed in location instead of lat/lon, if present.  Wifi attribute is removed from devices that are not reporting it.
  *  1.6.11     2024-01-22      - Expose the ENUM variants for monitoringMode, batteryStatus, dataConnection, and triggerSource.
  *  1.6.12     2024-01-23      - Changed battery field to show just the battery level number.
+ *  1.6.13     2024-01-25      - Changed battery field for location to show region, address or lat/lon.  Added a battery field to show distance from home.  Removed the 'status' attribute due to redundance. Added HTML MemberLocation tile.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.12" }
+def driverVersion() { return "1.6.13" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
 @Field static final Map TRIGGER_TYPE = [ "p": "Ping", "c": "Region", "r": "Report Location", "u": "Manual", "b": "Beacon", "t": "Timer", "v": "Monitoring", "l": "Location" ]
-@Field static final Map PRESENCE_TILE_BATTERY_FIELD = [ 0: "Battery %", 1: "Current Location and Since Time", 2: "Distance from Home", 3: "Last Speed", 4: "Battery Status (Unplugged/Charging/Full)", 5: "Data Connection (WiFi/Mobile)", 6: "Update Trigger (Ping/Region/Report Location/Manual)" ]
+@Field static final Map PRESENCE_TILE_BATTERY_FIELD = [ 0: "Battery %", 1: "Current Location and Since Time", 2: "Distance from Home", 3: "Last Speed", 4: "Battery Status (Unplugged/Charging/Full)", 5: "Data Connection (WiFi/Mobile)", 6: "Update Trigger (Ping/Region/Report Location/Manual)", 7: "Distance from Home and Since Time" ]
 @Field static final Map LOCATION_PERMISION = [ "0": "Background - Fine", "-1": "Background - Coarse", "-2": "Foreground - Fine", "-3": "Foreground - Coarse", "-4": "Disabled" ]
+
+@Field Boolean DEFAULT_presenceTileBatteryField = 0
+@Field Boolean DEFAULT_displayExtendedAttributes = true
+@Field Boolean DEFAULT_displayMemberTile = true
+@Field Boolean DEFAULT_colorMemberTile = true
+@Field Boolean DEFAULT_descriptionTextOutput = true
+@Field Boolean DEFAULT_debugOutput = false
+@Field Boolean DEFAULT_logLocationChanges = false
+
 
 metadata {
   definition (
@@ -111,7 +121,6 @@ metadata {
         command    "departed"
 
         attribute  "location", "string"
-        attribute  "status", "string"
         attribute  "transition", "string"
         attribute  "since", "string"
         attribute  "battery", "string"
@@ -126,6 +135,7 @@ metadata {
         attribute  "locationPermissions", "string"
 
         attribute  "imageURL", "string"
+        attribute  "MemberLocation", "string"
       
         // extended attributes
         attribute  "batteryPercent", "number"
@@ -138,6 +148,7 @@ metadata {
         attribute  "BSSID", "string"
         attribute  "SSID", "string"
         attribute  "address", "string"
+        attribute  "streetAddress", "string"
         attribute  "dataConnection", "enum", [ "WiFi", "Mobile" ]
         attribute  "batteryStatus", "enum", [ "Unknown", "Unplugged", "Charging", "Full" ]
         attribute  "triggerSource", "enum", [ "Ping", "Region", "Report Location", "Manual", "Beacon", "Timer", "Monitoring", "Location" ]
@@ -146,12 +157,14 @@ metadata {
 }
 
 preferences {
-    input name: "presenceTileBatteryField", type: "enum", title: "What is displayed on the presence tile battery field", required: true, options: PRESENCE_TILE_BATTERY_FIELD, defaultValue: "0"
-    input name: "displayExtendedAttributes", type: "bool", title: "Display extended location attributes", defaultValue: true
+    input name: "presenceTileBatteryField", type: "enum", title: "What is displayed on the presence tile battery field", required: true, options: PRESENCE_TILE_BATTERY_FIELD, defaultValue: DEFAULT_presenceTileBatteryField
+    input name: "displayExtendedAttributes", type: "bool", title: "Display extended location attributes", defaultValue: DEFAULT_displayExtendedAttributes
+    input name: "displayMemberTile", type: "bool", title: "Create a HTML MemberTile", defaultValue: DEFAULT_displayMemberTile
+    input name: "colorMemberTile", type: "bool", title: "Change MemberTile background color based on presence", defaultValue: DEFAULT_colorMemberTile
 
-    input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: true
-    input name: "logLocationChanges", type: "bool", title: "Enable Logging of location changes", defaultValue: false
-    input name: "debugOutput", type: "bool", title: "Enable Debug Logging", defaultValue: false
+    input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: DEFAULT_descriptionTextOutput
+    input name: "debugOutput", type: "bool", title: "Enable Debug Logging", defaultValue: DEFAULT_debugOutput
+    input name: "logLocationChanges", type: "bool", title: "Enable Logging of location changes", defaultValue: DEFAULT_logLocationChanges
 }
 
 def installed() {
@@ -169,6 +182,17 @@ def updated() {
     }
 }
 
+def initializeNullSettings() {
+    // initialize any undefined settings
+    if (presenceTileBatteryField == null) app.updateSetting("presenceTileBatteryField", [value: DEFAULT_presenceTileBatteryField, type: "number"])
+    if (displayExtendedAttributes == null) app.updateSetting("displayExtendedAttributes", [value: DEFAULT_displayExtendedAttributes, type: "bool"])
+    if (displayMemberTile == null) app.updateSetting("displayMemberTile", [value: DEFAULT_displayMemberTile, type: "bool"])
+    if (colorMemberTile == null) app.updateSetting("colorMemberTile", [value: DEFAULT_colorMemberTile, type: "bool"])
+    if (descriptionTextOutput == null) app.updateSetting("descriptionTextOutput", [value: DEFAULT_descriptionTextOutput, type: "bool"])
+    if (debugOutput == null) app.updateSetting("debugOutput", [value: DEFAULT_debugOutput, type: "bool"])
+    if (logLocationChanges == null) app.updateSetting("logLocationChanges", [value: DEFAULT_logLocationChanges, type: "bool"])
+}    
+
 def deleteExtendedAttributes(makePrivate) {
     device.deleteCurrentState('batteryPercent')
     device.deleteCurrentState('lat')
@@ -184,7 +208,6 @@ def deleteExtendedAttributes(makePrivate) {
     device.deleteCurrentState('monitoringMode')
     if (makePrivate) {
         device.deleteCurrentState('location')
-        device.deleteCurrentState('status')
         device.deleteCurrentState('transition')
         device.deleteCurrentState('since')
         device.deleteCurrentState('battery')
@@ -195,7 +218,8 @@ def deleteExtendedAttributes(makePrivate) {
         device.deleteCurrentState('hiberateAllowed')
         device.deleteCurrentState('batteryOptimizations')
         device.deleteCurrentState('locationPermissions')
-        device.deleteCurrentState('address')        
+        device.deleteCurrentState('address')
+        device.deleteCurrentState('streetAddress')
     }
 }
 
@@ -241,7 +265,13 @@ def updatePresence(data, allowAttributeDelete) {
             if (data?.BSSID)   sendEvent (name: "BSSID", value: data.BSSID)                                else if (allowAttributeDelete) device.deleteCurrentState('BSSID')
             if (data?.t)       sendEvent (name: "triggerSource", value: TRIGGER_TYPE[data.t])              else if (allowAttributeDelete) device.deleteCurrentState('triggerSource')
             if (data?.m)       sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])          else if (allowAttributeDelete) device.deleteCurrentState('monitoringMode')
-            if (data?.address) sendEvent (name: "address", value: data.address)                            else if (allowAttributeDelete) device.deleteCurrentState('address')
+            if (data?.address) {
+                sendEvent (name: "address", value: data.address)                           
+                sendEvent (name: "streetAddress", value: getStreetAddress(data.address))
+            } else {
+                if (allowAttributeDelete) device.deleteCurrentState('address')
+                if (allowAttributeDelete) device.deleteCurrentState('streetAddress')
+            }
         } else {
             deleteExtendedAttributes(true)
         }
@@ -258,20 +288,22 @@ def updatePresence(data, allowAttributeDelete) {
 }
 
 Boolean generatePresenceEvent(data) {
+    // allow for seamless migration
+    initializeNullSettings()
+    
     // update the driver version if necessary
     if (state.driverVersion != driverVersion()) {
         state.driverVersion = driverVersion()
     }
     // defaults for the private member case
     descriptionText = ""
-    currentStatus = "private"
     currentLocation = "private"
-
+    
     //logDebug("Member Data: $data")
     if (data.private) {
         logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits()}")
     } else {
-        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: ${data.lat},${data.lon}")
+        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: ${data.lat},${data.lon} ${(data?.address ? ", Address: ${data.address}" : "")}")
     }    
 
     // update the last location time
@@ -284,12 +316,12 @@ Boolean generatePresenceEvent(data) {
         memberPresence = updatePresence(data, false)
         // only log additional data if the user is not marked as private
         if (!data.private) {
-            currentStatus = (( data.event == "enter" ) ? "arrived $data.desc" : "left $data.desc")
             currentLocation = data.desc
-            descriptionText = device.displayName +  " has " + currentStatus
+            currentTransition = (( data.event == "enter" ) ? "arrived $data.desc" : "left $data.desc")
+            descriptionText = device.displayName +  " has " + currentTransition
             logDescriptionText("$descriptionText")
             // update the transition
-            sendEvent( name: "transition", value: "$currentStatus at $locationTime" )	
+            sendEvent( name: "transition", value: "$currentTransition at $locationTime" )	
         }
     } else {
         // check if we need to update the presence
@@ -306,14 +338,12 @@ Boolean generatePresenceEvent(data) {
                     }
                 }
                 // remove the trailing comma
-                currentStatus = locationList.substring(0, locationList.length() - 1)
-                currentLocation = currentStatus 
+                currentLocation = locationList.substring(0, locationList.length() - 1) 
             } else {
-                currentStatus = "${parent.displayKmMiVal(data.currentDistanceFromHome).round(1)} ${parent.getLargeUnits()} from Home"
                 // display the address if it was reported, or the lat/lon if not
                 currentLocation = (data?.address ? "${data.address}" : "${data.lat},${data.lon}")
             }
-            descriptionText = device.displayName +  " is at " + currentStatus
+            descriptionText = device.displayName +  " is at " + currentLocation
 
             // process the additional setting information
             if (data?.wifi) {
@@ -351,7 +381,7 @@ Boolean generatePresenceEvent(data) {
             }
 
             // only log if there was a valid time, a location change and log changes is enabled
-            if ((data.tst != 0) && (device.currentValue("status") != currentStatus)) {
+            if ((data.tst != 0) && (device.currentValue("location") != currentLocation)) {
                 if (logLocationChanges) log.info "$descriptionText"
                 state.sinceTime = data.tst
             }
@@ -361,7 +391,6 @@ Boolean generatePresenceEvent(data) {
     // if we get a blank timestamp, then the phone has no location or this is a ping with high inaccuracy, so do not update any location fields
     if (data.tst != 0) {
         sendEvent( name: "presence", value: memberPresence, descriptionText: descriptionText)
-        sendEvent( name: "status", value: currentStatus )
         sendEvent( name: "location", value: currentLocation )
         
         // only log additional data if the user is not marked as private
@@ -380,7 +409,7 @@ Boolean generatePresenceEvent(data) {
                     batteryField = (data?.batt ? data.batt : "")
                 break
                 case "1":
-                    batteryField = currentStatus + " - " + tileDate
+                    batteryField = getStreetAddress(currentLocation) + " - " + tileDate
                 break
                 case "2":
                     batteryField = parent.displayKmMiVal(data.currentDistanceFromHome) + " ${parent.getLargeUnits()} from Home"
@@ -397,14 +426,78 @@ Boolean generatePresenceEvent(data) {
                 case "6":
                     batteryField = (data?.t ? TRIGGER_TYPE[data.t] : "")
                 break
+                case "7":
+                    batteryField = "${parent.displayKmMiVal(data.currentDistanceFromHome).round(1)} ${parent.getLargeUnits()} from Home - " + tileDate
+                break
             }
 
             // deal with the cases where the above data might not come in a particular event, so leave the previous event
             if (batteryField) sendEvent( name: "battery", value: batteryField  )
         }
     }
+   
+    // create the HTML member tile
+    if (displayMemberTile && !data.private) {
+        generateMemberTile(sinceDate, tileDate)
+    } else {
+        device.deleteCurrentState('MemberLocation')
+    }
     
     return true
+}
+
+def generateMemberTile(sinceDate, tileDate) {
+    String tiledata = "";
+    tiledata += '<div style="overflow:auto;font-size:0.7em;">'
+    tiledata += '<table align="center" style="width:100%;height:90%">'     
+
+    tiledata += '<tr>'
+    tiledata += '&nbsp;'
+    if (colorMemberTile) {
+        tiledata += '<div style="background:' + ((device.currentValue('presence') == "present") ? 'green;">' : '#b40000;">')
+    } else {
+        tiledata += '<div>'
+    }
+    tiledata += "${getStreetAddress(device.currentValue('location'))} - ${tileDate}</br>"
+    tiledata += ((device.currentValue('presence') == "present") ? 'Present' : 'Not Present')
+    tiledata += "<iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>"
+    tiledata += "Last Update: ${device.currentValue('lastLocationtime')}"
+    tiledata += '</div>'
+    tiledata += '</tr>'
+
+    tiledata += '<tr>'
+    tiledata += '<td width=25%>Distance</td>'
+    if (device.currentValue('lastSpeed') != null) tiledata += '<th width=25%>Speed</th>'
+    if (device.currentValue('batteryPercent') != null) tiledata += '<th width=25%>Battery</th>'
+    if (device.currentValue('dataConnection') != null) tiledata += '<th width=25%>Data</th>'
+    tiledata += '</tr>'
+ 
+    tiledata += '<tr>'
+    tiledata += "<td width=25%>${parent.displayKmMiVal(device.currentValue('distanceFromHome'))} ${parent.getLargeUnits()}</td>"
+    if (device.currentValue('lastSpeed') != null)  tiledata += "<td width=25%>${parent.displayKmMiVal(device.currentValue('lastSpeed'))} ${parent.getVelocityUnits()}</td>"
+    if (device.currentValue('batteryPercent') != null) tiledata += "<td width=25%>${device.currentValue('batteryPercent')} %" + (device.currentValue('batteryStatus') ? "</br>${device.currentValue('batteryStatus')}" : "") + "</td>"
+    if (device.currentValue('dataConnection') != null) tiledata += "<td width=25%>${device.currentValue('dataConnection')}</td>"
+    tiledata += '</tr>'
+    tiledata += '</table>'
+    tiledata += '</div>'
+    
+    // deal with the 1024 byte attribute limit
+    if ((tiledata.length() + 11) > 1024) {
+        tiledata = "Too much data to display.</br></br>Exceeds maximum tile length by " + ((tiledata.length() + 11) - 1024) + " characters."
+    }
+ 
+    sendEvent(name: "MemberLocation", value: tiledata, displayed: true)
+}
+
+private getStreetAddress(address) {
+    addressList = address.split(',')
+    // check if the first two entries in the address are numbers (lat,lon), and just return them if they are
+    if (addressList[0]?.isNumber() && addressList[1]?.isNumber()) {
+        return (address)
+    } else {
+        // only report the street address, not the city and country
+        return (addressList[0])
+    }
 }
 
 private logDebug(msg) {

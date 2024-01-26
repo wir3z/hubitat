@@ -240,6 +240,14 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 	- Select what is displayed in the 'battery' field which is displayed at the top of the presence tile from the pull-down menu. This can be battery voltage, location, distance from home, etc.
 - Display extended location attributes:
 	- Displays additional location attributes (battery status, altitude, accuracy, etc.)
+- Create a HTML MemberTile
+	- Creates a 'Member_Location' HTML attribute that can be added to the dashboards.  Displays the map location, information as well as presence.
+- Change MemberTile background color based on presence
+	- Background for the map in the MemberTile will be green for present, red for not present if enabled.  Otherwise the default background color is used.
+- Enable Description Text logging
+	- Displays general descriptive logs (arrived, departed, etc.)
+- Enable Debug Logging
+	- Displays more verbose diagnostic logging.  Recommended to be off.
 - Enable Logging of location changes:
 	- Logs an entry when a change in user location occurs
 
@@ -262,10 +270,12 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 	- presence : present/not present
 	- since : timestamp on the last location change - only updates if the location has moved
 	- sourceTopic : user/device information
-	- status : region the user is in, or the distance from home if outside a region
 	- transition : region the user arrived/left and the time of the transition
 	- triggerSource : Ping/Region/Report Location/Manual/Beacon/Timer/Monitoring/Location
 	- verticalAccuracy : vertical accuracy
+	- address : Full address of the location (if available) or lat,lon
+	- streetAddress : Street address of the location (if available) or lat,lon
+	- Member_Location : HTML status tile
 - Additional Attribute Description for APK 2.4.16.  
 	- wifi : on/off
 	- batterySaver : 0/1, 1 indicates the phone is in battery saver mode
