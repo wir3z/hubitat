@@ -87,12 +87,13 @@
  *  1.6.14     2024-01-26      - Removed setting initialization that was breaking new settings.
  *  1.6.15     2024-01-28      - Create / remove the member tile if the setting is toggled.  Added a 'isImperialUnits' attribute.  Set speed to 0 when it no longer reports.  Created responsive member tile.
  *  1.6.16     2024-01-29      - Added SSID to debug output.
+ *  1.6.17     2024-01-29      - Reduced member tile map height to prevent overlapping into the other metrics.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.16" }
+def driverVersion() { return "1.6.17" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -477,7 +478,7 @@ def generateMemberTile() {
         tiledata += '</table>'
         tiledata += '</div>'
 
-        tiledata += '<table align="center" style="width:100%;height:75%">'
+        tiledata += '<table align="center" style="width:100%;height:70%">'
         tiledata += '<tr>'
         tiledata += "<td><iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&output=embed&' style='height:100%;width:100%;border:none;'></iframe></td>"
         tiledata += '</tr>'
