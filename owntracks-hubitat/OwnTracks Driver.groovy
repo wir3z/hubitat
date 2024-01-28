@@ -84,13 +84,14 @@
  *  1.6.11     2024-01-22      - Expose the ENUM variants for monitoringMode, batteryStatus, dataConnection, and triggerSource.
  *  1.6.12     2024-01-23      - Changed battery field to show just the battery level number.
  *  1.6.13     2024-01-25      - Changed battery field for location to show region, address or lat/lon.  Added a battery field to show distance from home.  Removed the 'status' attribute due to redundance. Added HTML MemberLocation tile.
- *  1.6.13     2024-01-26      - Removed setting initialization that was breaking new settings.
+ *  1.6.14     2024-01-26      - Removed setting initialization that was breaking new settings.
+ *  1.6.15     2024-01-28      - Create / remove the member tile if the setting is toggled.  Added a 'isImperialUnits' attribute.  Set speed to 0 when it no longer reports.  Created responsive member tile.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.13" }
+def driverVersion() { return "1.6.15" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -106,6 +107,7 @@ def driverVersion() { return "1.6.13" }
 @Field Boolean DEFAULT_descriptionTextOutput = true
 @Field Boolean DEFAULT_debugOutput = false
 @Field Boolean DEFAULT_logLocationChanges = false
+@Field String  DEFAULT_privateLocation = "private"
 
 
 metadata {
@@ -120,6 +122,7 @@ metadata {
 
         command    "arrived"
         command    "departed"
+//        command    "createTile"
 
         attribute  "location", "string"
         attribute  "transition", "string"
@@ -129,6 +132,7 @@ metadata {
         attribute  "distanceFromHome", "number"
         attribute  "wifi", "string"
         attribute  "lastLocationtime", "string"
+        attribute  "imperialUnits", "string"
 
         attribute  "batterySaver", "string"
         attribute  "hiberateAllowed", "string"
@@ -177,6 +181,8 @@ def installed() {
 
 def updated() {
     logDescriptionText("${device.name}: Location Tracker User Driver has been Updated")
+    // generate / remove the member tile as required
+    generateMemberTile()
     // remove the extended attributes if not enabled
     if (!displayExtendedAttributes) {
         deleteExtendedAttributes(false)
@@ -223,6 +229,10 @@ def departed() {
     descriptionText = device.displayName +  " has departed"
     sendEvent (name: "presence", value: "not present", descriptionText: descriptionText)
     logDescriptionText("$descriptionText")
+}
+
+def createTile() {
+    generateMemberTile()
 }
 
 def updatePresence(data, allowAttributeDelete) {
@@ -282,9 +292,10 @@ Boolean generatePresenceEvent(data) {
     if (state.driverVersion != driverVersion()) {
         state.driverVersion = driverVersion()
     }
+    
     // defaults for the private member case
     descriptionText = ""
-    currentLocation = "private"
+    currentLocation = DEFAULT_privateLocation
     
     //logDebug("Member Data: $data")
     if (data.private) {
@@ -296,6 +307,7 @@ Boolean generatePresenceEvent(data) {
     // update the last location time
     locationTime = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date())
     sendEvent( name: "lastLocationtime", value: locationTime )
+    sendEvent( name: "imperialUnits", value: parent.isimperialUnits() )
     
     // if we have a push event, there is limited data to process
     if (data._type == "transition") {
@@ -388,7 +400,11 @@ Boolean generatePresenceEvent(data) {
 
             sendEvent( name: "since", value: sinceDate )
             sendEvent( name: "distanceFromHome", value:  parent.displayKmMiVal(data.currentDistanceFromHome) )
-            if (data?.vel) sendEvent( name: "lastSpeed", value:  parent.displayKmMiVal(data.vel).toInteger() )
+            if (data?.vel) {
+                sendEvent( name: "lastSpeed", value:  parent.displayKmMiVal(data.vel).toInteger() )
+            } else {
+                sendEvent( name: "lastSpeed", value:  0 )
+            } 
 
             // we are using the battery field on the presence tile for selectable display
             switch (presenceTileBatteryField) {
@@ -414,77 +430,112 @@ Boolean generatePresenceEvent(data) {
                     batteryField = (data?.t ? TRIGGER_TYPE[data.t] : "")
                 break
                 case "7":
-                    batteryField = "${parent.displayKmMiVal(data.currentDistanceFromHome).round(1)} ${parent.getLargeUnits()} from Home - " + tileDate
+                    batteryField = "${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home - " + tileDate
                 break
             }
 
             // deal with the cases where the above data might not come in a particular event, so leave the previous event
             if (batteryField) sendEvent( name: "battery", value: batteryField  )
         }
+        
+        // create the HTML member tile if it's enabled and allowed
+        generateMemberTile()
     }
    
-    // create the HTML member tile
-    if (displayMemberTile && !data.private) {
-        generateMemberTile(sinceDate, tileDate)
-    } else {
-        device.deleteCurrentState('MemberLocation')
-    }
-    
     return true
 }
 
-def generateMemberTile(sinceDate, tileDate) {
-    String tiledata = "";
-    tiledata += '<div style="overflow:auto;font-size:0.7em;">'
-    tiledata += '<table align="center" style="width:100%;height:90%">'     
+def generateMemberTile() {
+    if (displayMemberTile && (device.currentValue('location') != DEFAULT_privateLocation)) {
+        long sinceTimeMilliSeconds = state.sinceTime
+        tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))        
+        
+        String tiledata = "";
+        tiledata += '<div style="width:100%;height:100%;font-size:0.7em">'
+        
+        if (colorMemberTile) {
+            tiledata += '<div style="background:' + ((device.currentValue('presence') == "present") ? 'green">' : '#b40000">')
+        } else {
+            tiledata += '<div>'
+        }
+        tiledata += '<table align="center" style="width:100%">'          
+        tiledata += '<tr>'
+        
+        if (device.currentValue('imageURL') != "false") {
+            tiledata += '<td width=10%><img src="' + device.currentValue('imageURL') + '" width="35" height="35"></td>'
+        } else {
+            tiledata += '<td width=10%></td>'
+        }
 
-    tiledata += '<tr>'
-    tiledata += '&nbsp;'
-    if (colorMemberTile) {
-        tiledata += '<div style="background:' + ((device.currentValue('presence') == "present") ? 'green;">' : '#b40000;">')
+        tiledata += '<td width=80% style="padding-top:15px;">'
+        tiledata += "${getStreetAddress(device.currentValue('location'))} - ${tileDate}</br>"
+        tiledata += ((device.currentValue('presence') == "present") ? 'Present' : 'Not Present')
+        tiledata += '</td>'
+        tiledata += '<td></td>'
+        tiledata += '</tr>'
+        tiledata += '</table>'
+        tiledata += '</div>'
+
+        tiledata += '<table align="center" style="width:100%;height:75%">'
+        tiledata += '<tr>'
+        tiledata += "<td><iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&output=embed&' style='height:100%;width:100%;border:none;'></iframe></td>"
+        tiledata += '</tr>'
+        tiledata += '</table>'
+        
+        if (colorMemberTile) {
+            tiledata += '<div style="background:' + ((device.currentValue('presence') == "present") ? 'green">' : '#b40000">')
+        } else {
+            tiledata += '<div>'
+        }
+        tiledata += '<table align="center" style="width:100%">'
+        tiledata += '<tr>'
+        tiledata += "<td>Last Update: ${device.currentValue('lastLocationtime')}</td>"
+        tiledata += '</tr>'
+        tiledata += '</table>'
+        tiledata += '</div>'
+        
+        tiledata += '<table align="center" style="width:100%;padding-bottom:15px">'     
+        tiledata += '<tr>'
+        tiledata += '<td width=25%>Distance</td>'
+        if (device.currentValue('lastSpeed') != null) tiledata += '<th width=25%>Speed</th>'
+        if (device.currentValue('batteryPercent') != null) tiledata += '<th width=25%>Battery</th>'
+        if (device.currentValue('dataConnection') != null) tiledata += '<th width=25%>Data</th>'
+        tiledata += '</tr>'
+ 
+        tiledata += '<tr>'
+        tiledata += "<td width=25%>${parent.displayKmMiVal(device.currentValue('distanceFromHome'))} ${parent.getLargeUnits()}</td>"
+        if (device.currentValue('lastSpeed') != null)  tiledata += "<td width=25%>${parent.displayKmMiVal(device.currentValue('lastSpeed'))} ${parent.getVelocityUnits()}</td>"
+        if (device.currentValue('batteryPercent') != null) tiledata += "<td width=25%>${device.currentValue('batteryPercent')} %" + (device.currentValue('batteryStatus') ? "</br>${device.currentValue('batteryStatus')}" : "") + "</td>"
+        if (device.currentValue('dataConnection') != null) tiledata += "<td width=25%>${device.currentValue('dataConnection')}</td>"
+        tiledata += '</tr>'
+        tiledata += '</table>'
+        
+        tiledata += '</div>'
+        
+        // deal with the 1024 byte attribute limit
+        if ((tiledata.length() + 11) > 1024) {
+            tiledata = "Too much data to display.</br></br>Exceeds maximum tile length by " + ((tiledata.length() + 11) - 1024) + " characters."
+        }
+ 
+        sendEvent(name: "MemberLocation", value: tiledata, displayed: true)
     } else {
-        tiledata += '<div>'
+        device.deleteCurrentState('MemberLocation')
     }
-    tiledata += "${getStreetAddress(device.currentValue('location'))} - ${tileDate}</br>"
-    tiledata += ((device.currentValue('presence') == "present") ? 'Present' : 'Not Present')
-    tiledata += "<iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>"
-    tiledata += "Last Update: ${device.currentValue('lastLocationtime')}"
-    tiledata += '</div>'
-    tiledata += '</tr>'
-
-    tiledata += '<tr>'
-    tiledata += '<td width=25%>Distance</td>'
-    if (device.currentValue('lastSpeed') != null) tiledata += '<th width=25%>Speed</th>'
-    if (device.currentValue('batteryPercent') != null) tiledata += '<th width=25%>Battery</th>'
-    if (device.currentValue('dataConnection') != null) tiledata += '<th width=25%>Data</th>'
-    tiledata += '</tr>'
- 
-    tiledata += '<tr>'
-    tiledata += "<td width=25%>${parent.displayKmMiVal(device.currentValue('distanceFromHome'))} ${parent.getLargeUnits()}</td>"
-    if (device.currentValue('lastSpeed') != null)  tiledata += "<td width=25%>${parent.displayKmMiVal(device.currentValue('lastSpeed'))} ${parent.getVelocityUnits()}</td>"
-    if (device.currentValue('batteryPercent') != null) tiledata += "<td width=25%>${device.currentValue('batteryPercent')} %" + (device.currentValue('batteryStatus') ? "</br>${device.currentValue('batteryStatus')}" : "") + "</td>"
-    if (device.currentValue('dataConnection') != null) tiledata += "<td width=25%>${device.currentValue('dataConnection')}</td>"
-    tiledata += '</tr>'
-    tiledata += '</table>'
-    tiledata += '</div>'
-    
-    // deal with the 1024 byte attribute limit
-    if ((tiledata.length() + 11) > 1024) {
-        tiledata = "Too much data to display.</br></br>Exceeds maximum tile length by " + ((tiledata.length() + 11) - 1024) + " characters."
-    }
- 
-    sendEvent(name: "MemberLocation", value: tiledata, displayed: true)
 }
 
 private getStreetAddress(address) {
-    addressList = address.split(',')
-    // check if the first two entries in the address are numbers (lat,lon), and just return them if they are
-    if (addressList[0]?.isNumber() && addressList[1]?.isNumber()) {
+    try {
+        addressList = address?.split(',')
+        // check if the first two entries in the address are numbers (lat,lon), and just return them if they are
+        if (addressList[0]?.isNumber() && addressList[1]?.isNumber()) {
+            return (address)
+        } else {
+            // only report the street address, not the city and country
+            return (addressList[0])
+        }
+    } catch (e) {
         return (address)
-    } else {
-        // only report the street address, not the city and country
-        return (addressList[0])
-    }
+    }    
 }
 
 private logDebug(msg) {

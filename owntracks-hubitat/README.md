@@ -70,9 +70,10 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 - Click the up arrow button in the top right of the map to trigger a 'Send Location Now' to register the device with the Hubitat App.  
 
 ## Configure Regions
-- Select region to check coordinates.
-	- Select a region from the selection box, and click the link to view the pin on Google Maps to confirm the latitude and longitude is correct.  Right click on Google Maps to get the lat/lon.
 - Add Regions:
+    - If a geocode provider has been configured in 'Additional Hub Settings', a text box will be displayed to allow entering street addresses to be converted to latitude/longitude.
+		- NOTE: Google provides the best lookup accuracy.  If using other providers, confirm the map pin looks correct.
+		- Click 'View larger Map' on the map and then right click on the map to get the correct latitude/longitude.
 	- Enter the name, detection radius and coordinates.
 	- Click the 'Save' button.
 	- Click the 'Next' button to leave the screen, or abandon changes if 'Save' was not pressed.
@@ -81,6 +82,7 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	- Click the 'Save' button.
 	- Click the 'Next' button to leave the screen, or abandon changes if 'Save' was not pressed.
 	- NOTE: Changing the 'Region Name' will create a new region on iOS devices.  The previous named region will need to be manually delete from each device.
+	- If the map pin is incorrect, click 'View larger Map' on the map and then right click on the map to get the correct latitude/longitude.
 - Delete Regions:
     - If region(s) are pending deletion, a banner will be displayed at the bottom of the table in red.
 	- Select the region to delete. 
@@ -95,9 +97,9 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 
 - Select your 'Home' place:
 	- Select the region where 'Home' is for presence detection.  
+		- The map will show the current pin location. 
 	- If the list is empty select 'Add Regions', above, to create a home location.
 	- When the member is within the region radius, they will be 'present'.  When they are outside this radius, they will be 'not present'.
-	- Click the link to view the pin on Google Maps to confirm the latitude and longitude is correct.  Right click on Google Maps to get the lat/lon.
 		   
 - Hubitat can retrieve regions from a member's OwnTracks mobile device and merge them into the Hubitat region list. 
 	- If member(s) OwnTracks app already has configured regions, select member(s) that you wish to retrieve their regions when they report their location.
@@ -144,6 +146,20 @@ The defaults for the rest of these settings should be sufficient for verifying o
 - Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (Android ONLY)
 	- If selected, members reporting a ping or manual location will be requested to send a high accuracy location on their next location report
 
+- Select the optional geocode provider for address lookups. Allows location latitude/longitude to be displayed as physical address.	
+	- A geocode provider can be used to convert latitude/longitude into addresses and street addresses, as well as allow entering street address in the 'Add Region' section.
+	- Three providers are supported: Google, Geoapify, and Opencage.  When a provider is selected, the link to sign up for an API key will changes.
+	- Google provides the best accuracy in the forward and reverse lookups, but has the lowest quota.  NOTE: Google uses a monthly quota versus the daily quota of the other providers.
+- Prevent geocode lookups once free quota has been exhausted.  Current usage: x/y per z	
+	- Each provider has a free quota level.  This slider should be selected unless you are on a paid geocoder plan.
+	- The usage total indicates the current usage in the quota period.  Google resets the total at the first of every month, the other providers daily, at 00:00 GMT.
+	- Click the 'Sign up for a xxx API Key' link, and follow the directions to get the API key (this will be a string of random letters and numbers).
+	- Once the quota has been exhuasted for the period, the application will stop converting locations until the next quote period.
+- Geocode API key for address lookups:
+	- Paste the API key provided into the box.
+- All three providers can be configured, but only the select on will be used for geocode look ups.
+- Select 'Disabled' to disable geocode lookups.
+	
 
 # Optional Features
 ## Enabling User Thumbnails:  

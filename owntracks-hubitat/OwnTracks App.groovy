@@ -44,6 +44,7 @@
  *  1.6.23     2023-01-22      - Add a red information banner to delete old +follow regions if the locater interval changed.  Fixed issue where a home region mismatch would be displayed when a user left home.
  *  1.6.24     2023-01-23      - Expose the member delete button to eliminate confusion.
  *  1.6.25     2023-01-24      - Removed nag warning about home region mismatch.
+ *  1.6.26     2023-01-26      - Added direct links to the file manager and logs in the setup screens.  Added reverse geocode address support.
  */
 
 import groovy.transform.Field
@@ -52,7 +53,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.25"}
+def appVersion() { return "1.6.26"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -63,6 +64,17 @@ def appVersion() { return "1.6.25"}
 //@Field static final Map MONITORING_MODES = [ 0: "Manual (user triggered events)", 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
 @Field static final Map MONITORING_MODES = [ 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
 @Field static final Map IOS_PLUS_FOLLOW = [ "rad":50, "tst":1700000000, "_type":"waypoint", "lon":0.0, "lat":0.0, "desc":"+follow" ]
+@Field static final Map GEOCODE_PROVIDERS = [ 0: "Disabled", 1: "Google", 2: "Geoapify", 3: "Opencage" ]
+@Field static final Map GEOCODE_ADDRESS = [ 1: "https://maps.googleapis.com/maps/api/geocode/json", 2: "https://api.geoapify.com/v1/geocode/", 3: "https://api.opencagedata.com/geocode/v1/json" ]
+@Field static final Map GEOCODE_REQUEST = [ 1: "?address=", 2: "search?text=", 3: "?q=" ]
+@Field static final Map REVERSE_GEOCODE_REQUEST_LAT = [ 1: "?latlng=", 2: "reverse?lat=", 3: "?q=" ]
+@Field static final Map REVERSE_GEOCODE_REQUEST_LON = [ 1: ",", 2: "&lon=", 3: "," ]
+@Field static final Map GEOCODE_KEY = [ 1: "&key=", 2: "&format=json&apiKey=", 3: "&key=" ]
+@Field static final Map ADDRESS_JSON = [ 1: "formatted_address", 2: "formatted", 3: "formatted" ]
+@Field static final Map GEOCODE_USAGE_COUNTER = [ 1: "googleUsage", 2: "geoapifyUsage", 3: "opencageUsage" ]
+@Field static final Map GEOCODE_QUOTA = [ 1: 40000, 2: 3000, 3: 2500 ]
+@Field static final Map GEOCODE_QUOTA_INTERVAL_DAILY = [ 1: false, 2: true, 3: true ]
+@Field static final Map GEOCODE_API_KEY_LINK = [ 1: "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>", 2: "<a href='https://apidocs.geoapify.com/docs/geocoding/reverse-geocoding/#about' target='_blank'>Sign up for a Geoapify API Key</a>", 3: "<a href='https://opencagedata.com/api#quickstart' target='_blank'>Sign up for a Opencage API Key</a>" ]
 
 // Main defaults
 @Field String  CHILDPREFIX = "OwnTracks - "
@@ -84,6 +96,9 @@ def appVersion() { return "1.6.25"}
 @Field Boolean DEFAULT_descriptionTextOutput = true
 @Field Boolean DEFAULT_debugOutput = false
 @Field Number  DEFAULT_debugResetHours = 1
+@Field Number  DEFAULT_geocodeProvider = 0
+@Field Boolean DEFAULT_geocodeFreeOnly = true
+
 // Mobile app location defaults
 @Field Number  DEFAULT_monitoring = 1
 @Field Number  DEFAULT_locatorPriority = 2
@@ -255,6 +270,17 @@ def configureHubApp() {
             input name: "highAccuracyOnPing", type: "bool", title: "Request a high accuracy location from members on their next location report after a ping/manual update to keep location fresh (<b>Android ONLY</b>)", defaultValue: DEFAULT_highAccuracyOnPing
             input name: "autoRequestLocation", type: "bool", title: "Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (<b>Android ONLY</b>)", defaultValue: DEFAULT_autoRequestLocation
         }
+        section(getFormat("line", "")) {
+            input name: "geocodeProvider", type: "enum", title: "Select the optional geocode provider for address lookups.  Allows location latitude/longitude to be displayed as physical address.", description: "Enter", defaultValue: DEFAULT_geocodeProvider, options: GEOCODE_PROVIDERS, submitOnChange: true
+            if (geocodeProvider != "0") {
+                paragraph ("<b><i>Google provides the best accuracy, but offers the least amount of free locations - Google usage quota is reset MONTHLY vs DAILY for the other providers.</i></b>")
+                String provider = GEOCODE_USAGE_COUNTER[geocodeProvider.toInteger()]
+                usageCounter = state."$provider"
+                input name: "geocodeFreeOnly", type: "bool", title: "Prevent geocode lookups once free quota has been exhausted.  Current usage: <b>${usageCounter}/${GEOCODE_QUOTA[geocodeProvider.toInteger()]} per ${(GEOCODE_QUOTA_INTERVAL_DAILY[geocodeProvider.toInteger()] ? "day" : "month")}</b>.", defaultValue: DEFAULT_geocodeFreeOnly
+                paragraph (GEOCODE_API_KEY_LINK[geocodeProvider.toInteger()])
+                input name: "geocodeAPIKey_$geocodeProvider", type: "string", title: "Geocode API key for address lookups:"
+            }
+        }
     }
 }
 
@@ -298,7 +324,7 @@ def thumbnailCreation() {
                        "     1. Create a thumbnail for the user at a maximum resolution 192x192 pixels in JPG format using your computer.\r" +
                        "     2. Name the thumbnail 'MyUser.jpg' where 'MyUser' is the same name as the user name (case sensitive) entered in the mobile app.\r" +
                        "     3. In Hubitat:\r" +
-                       "          a. Navigate to 'Settings->File Manager'.\r" +
+                       "          a. Navigate to the <a href='http://${location.hubs[0].getDataValue("localIP")}/hub/fileManager' target='_blank'>Hubitat File Manager</a> ('Settings->File Manager').\r" +
                        "          b. Select '+ Choose' and select the 'MyUser.jpg' that was created above.\r" +
                        "          c. Select 'Upload'.\r" +
                        "          d. Repeat for any additional users.\r" +
@@ -345,7 +371,7 @@ def recorderInstallationInstructions() {
                 logMemberCardJSON()
                 app.updateSetting("generateMemberCardJSON",[value: false, type: "bool"])
             }
-            paragraph ("3. In the Hubitat log, look for the 'trace' output that looks like this:\r" +
+            paragraph ("3. In the <a href='http://${location.hubs[0].getDataValue("localIP")}/logs' target='_blank'>Hubitat log</a>, look for the 'trace' output that looks like this:\r" +
                        "          For recorder cards, copy the bold JSON text between | |, and save this file to 'STORAGEDIR/cards/myuser/myuser.json' (user name is in lower case): \r" + 
                        "          |<b>{\"_type\":\"card\",\"name\":\"MyUser\",\"face\":\"....\",\"tid\":\"MyUser\"}</b>|\r\n\r\n" + 
                        "4. Save the <b>{\"_type\":\"card\",\"name\":\"MyUser\",\"face\":\"....\",\"tid\":\"MyUser\"}</b> to a text file with the name <b>myuser.json</b> (user name is in lower case), as listed in step 3.\r\n\r\n" +
@@ -455,14 +481,16 @@ def configureRegions() {
         // clear the setting fields
         clearSettingFields()        
         section(getFormat("box", "Configure Regions")) {
-            input "regionToCheck", "enum", multiple: false, title:"Select region to check coordinates.  ${(regionToCheck ? "<a href='https://maps.google.com/?q=${state.places.find {it.desc==regionToCheck}?.lat},${state.places.find {it.desc==regionToCheck}?.lon}' target='_blank'>Click to verify the coordinates of '${regionToCheck}'.</a>" : "")}", options: getNonFollowRegions(false), submitOnChange: true
             href(title: "Add Regions", description: "", style: "page", page: "addRegions")
             href(title: "Edit Regions", description: "", style: "page", page: "editRegions")
             href(title: "Delete Regions", description: "", style: "page", page: "deleteRegions")
         }
         section(getFormat("line", "")) {
-            input "homePlace", "enum", multiple: false, title:(homePlace ? '<div>' : '<div style="color:#ff0000">') + "Select your 'Home' place. ${(homePlace ? "<a href='https://maps.google.com/?q=${getHomeRegion()?.lat},${getHomeRegion()?.lon}' target='_blank'>Click to verify the coordinates of '${getHomeRegion()?.desc}.'</a>" : "Use 'Configure Regions'->'Add Regions' to create a home location.")}" + '</div>', options: getNonFollowRegions(true), submitOnChange: true
+            input "homePlace", "enum", multiple: false, title:(homePlace ? '<div>' : '<div style="color:#ff0000">') + "Select your 'Home' place. ${(homePlace ? "" : "Use 'Configure Regions'->'Add Regions' to create a home location.")}" + '</div>', options: getNonFollowRegions(true), submitOnChange: true
+            paragraph("<iframe src='https://maps.google.com/?q=${getHomeRegion()?.lat},${getHomeRegion()?.lon}&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
             checkForHome()
+        }
+        section(getFormat("line", "")) {
             input "getMobileRegions", "enum", multiple: true, title:"Hubitat can retrieve regions from a member's OwnTracks mobile device and merge them into the Hubitat region list. Select family member(s) to retrieve their region list on next location update.", options: getEnabledAndNotHiddenMembers()
         }
     }
@@ -521,10 +549,27 @@ def addRegions() {
             paragraph ("1. Add the region to be information.\r" +
                        "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" 
             )
+            
+            if (geocodeProvider == "0") {
+                paragraph ("<b>Configure a geocode provider in 'Additional Hub App Settings' to enable address to latitude/longitude lookup.</b>")
+            } else {
+                input "regionAddress", "text", title: "Enter address to populate the latitude/longitude.  Confirm the location is correct using the map below.", submitOnChange: true
+                if (regionAddress) {
+                    (addressLat, addressLon) = geocode(regionAddress)
+                    app.updateSetting("regionLat",[value:addressLat,type:"double"])
+                    app.updateSetting("regionLon",[value:addressLon,type:"double"])
+                }
+            }
+        }
+        section(getFormat("line", "")) {
             input "regionName", "text", title: "Name", submitOnChange: true
             input name: "regionRadius", type: "number", title: "Detection radius (${getSmallUnits()}) (${displayMFtVal(50)}..${displayMFtVal(1000)})", range: "${displayMFtVal(50)}..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_RADIUS)
-            input name: "regionLat", type: "double", title: "Latitude (-90.0..90.0)", range: "-90.0..90.0", defaultValue: location.getLatitude()
-            input name: "regionLon", type: "double", title: "Longitude (-180.0..180.0)", range: "-180.0..180.0", defaultValue: location.getLongitude()
+            input name: "regionLat", type: "double", title: "Latitude (-90.0..90.0)", range: "-90.0..90.0", defaultValue: location.getLatitude(), submitOnChange: true
+            input name: "regionLon", type: "double", title: "Longitude (-180.0..180.0)", range: "-180.0..180.0", defaultValue: location.getLongitude(), submitOnChange: true
+            // assign defaults so the map populates properly
+            if (settings["regionLat"] == null) settings["regionLat"] = location.getLatitude()
+            if (settings["regionLon"] == null) settings["regionLon"] = location.getLongitude()
+            paragraph("<iframe src='https://maps.google.com/?q=${settings["regionLat"]},${settings["regionLon"]}&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
             input name: "addRegionButton", type: "button", title: "Save", state: "submit"
         }
     }
@@ -546,17 +591,20 @@ def editRegions() {
                 // get the place map and assign the current values
                 def foundPlace = state.places.find {it.desc==regionToEdit}
                 app.updateSetting("regionName",[value:foundPlace.desc,type:"text"])
-                app.updateSetting("regionRadius",[value:displayMFtVal(foundPlace.rad.toInteger()),type:"number"])
-                app.updateSetting("regionLat",[value:foundPlace.lat,type:"double"])
-                app.updateSetting("regionLon",[value:foundPlace.lon,type:"double"])
+                if (state.previousRegionName != regionName) {
+                    app.updateSetting("regionRadius",[value:displayMFtVal(foundPlace.rad.toInteger()),type:"number"])
+                    app.updateSetting("regionLat",[value:foundPlace.lat,type:"double"])
+                    app.updateSetting("regionLon",[value:foundPlace.lon,type:"double"])
+                }
                 // save the name in so we can retrieve the values should it get changed below
                 state.previousRegionName = regionName
 
                 input name: "regionName", type: "text", title: "Name", required: true
                 input name: "regionRadius", type: "number", title: "Detection radius (${getSmallUnits()})", required: true, range: "${displayMFtVal(50)}..${displayMFtVal(1000)}"
-                input name: "regionLat", type: "double", title: "Latitude (-90.0..90.0)", required: true, range: "-90.0..90.0"
-                input name: "regionLon", type: "double", title: "Longitude (-180.0..180.0)", required: true, range: "-180.0..180.0"
+                input name: "regionLat", type: "double", title: "Latitude (-90.0..90.0)", required: true, range: "-90.0..90.0", submitOnChange: true
+                input name: "regionLon", type: "double", title: "Longitude (-180.0..180.0)", required: true, range: "-180.0..180.0", submitOnChange: true
 
+                paragraph("<iframe src='https://maps.google.com/?q=${settings["regionLat"]},${settings["regionLon"]}&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
                 input name: "editRegionButton", type: "button", title: "Save", state: "submit"
             }
         }
@@ -573,6 +621,8 @@ def deleteRegions() {
             displayRegionsPendingDelete()
             input "regionName", "enum", multiple: false, title:"Select region to delete", options: getNonFollowRegions(false), submitOnChange: true
             if (regionName) {
+                deleteRegion = state.places.find {it.desc==regionName}
+                paragraph("<iframe src='https://maps.google.com/?q=${deleteRegion?.lat},${deleteRegion?.lon}&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
                 paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.</b></div>")
                 paragraph("<h3><b>Delete Region from Hub Only - Manually Delete Region from Mobile</b></h3>" +
                           "1. Click the 'Delete Region from Hubitat ONLY' button.\r" +
@@ -751,6 +801,7 @@ String appButtonHandler(btn) {
 def clearSettingFields() {
     // clear the setting fields
     app.removeSetting("regionToEdit")
+    app.removeSetting("regionAddress")
     app.removeSetting("regionName")
     app.removeSetting("regionRadius")
     app.removeSetting("regionLat")
@@ -780,6 +831,12 @@ def initialize(forceDefaults) {
     if (state.ignoreInaccurateLocations == null) state.ignoreInaccurateLocations = DEFAULT_ignoreInaccurateLocations
     if (state.imperialUnits == null) state.imperialUnits = DEFAULT_imperialUnits
     if (state.highPowerMode == null) state.highPowerMode = DEFAULT_highPowerMode
+    GEOCODE_USAGE_COUNTER.eachWithIndex { entry, index ->
+        String provider = GEOCODE_USAGE_COUNTER[index+1]
+        if (state."$provider" == null) {
+            state."$provider" = 0
+        }     
+    }
     
     // assign hubitat defaults
     if (homeSSID == null) app.updateSetting("homeSSID", [value: "", type: "string"])
@@ -810,6 +867,7 @@ def initialize(forceDefaults) {
 def initializeHub(forceDefaults) {
     if (forceDefaults) {
         app.removeSetting("regionHighAccuracyRadius")
+        app.removeSetting("geocodeProvider")
     }
     if (forceDefaults || (regionHighAccuracyRadius == null)) app.updateSetting("regionHighAccuracyRadius", [value: DEFAULT_regionHighAccuracyRadius, type: "number"])
     if (forceDefaults || (regionHighAccuracyRadiusHomeOnly == null)) app.updateSetting("regionHighAccuracyRadiusHomeOnly", [value: DEFAULT_regionHighAccuracyRadiusHomeOnly, type: "bool"])
@@ -818,6 +876,8 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (warnOnMemberSettings == null)) app.updateSetting("warnOnMemberSettings", [value: DEFAULT_warnOnMemberSettings, type: "bool"])
     if (forceDefaults || (highAccuracyOnPing == null)) app.updateSetting("highAccuracyOnPing", [value: DEFAULT_highAccuracyOnPing, type: "bool"])    
     if (forceDefaults || (autoRequestLocation == null)) app.updateSetting("autoRequestLocation", [value: DEFAULT_autoRequestLocation, type: "bool"])
+    if (forceDefaults || (geocodeProvider == null)) app.updateSetting("geocodeProvider", [value: DEFAULT_geocodeProvider, type: "number"])
+    if (forceDefaults || (geocodeFreeOnly == null)) app.updateSetting("geocodeFreeOnly", [value: DEFAULT_geocodeFreeOnly, type: "bool"])
 }
 
 def initializeMobileLocation(forceDefaults) {
@@ -927,6 +987,23 @@ def updated() {
     if (debugOutput) {
         runIn(debugResetHours*3600, resetLogging)
     }
+    
+    /*
+    0/2 0 0 * * * *
+    XXX                  Every 2 seconds
+        X                during minute zero
+          X              during hour zero
+            X            any day of the month
+              X          every month
+                X        every day of the week
+                  X      every year
+    */
+    // get the time zone offset so we can schedule at midnight GMT
+    def timeZoneOffset = (location.timeZone.rawOffset) / (3600 * 1000)
+    if (timeZoneOffset < 0) {
+        timeZoneOffset = 24 + timeZoneOffset
+    }
+    schedule("0 0 $timeZoneOffset * * ? *", dailyScheduler)    
 }
 
 def refresh() {
@@ -1089,6 +1166,9 @@ def webhookEventHandler() {
                 switch (data._type) {
                     case "location":
                     case "transition":
+                        // do a reverse lookup for the address if it doesn't exist, and we have an API enabled
+                        data.address = getReverseGeocodeAddress(data);
+                    
                         // Pass the location to a secondary hub with OwnTracks running
                         if (secondaryHubURL && enableSecondaryHub) {
                             def postParams = [ uri: secondaryHubURL, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
@@ -1207,9 +1287,8 @@ def updateDevicePresence(member, data) {
         if (imageCards) {
             deviceWrapper.sendEvent( name: "imageURL", value: getImageURL(member.name) )
         } else {
-            deviceWrapper.sendEvent( name: "imageURL", value: "" )
+            deviceWrapper.sendEvent( name: "imageURL", value: imageCards )
         }
-
         // check if the user defined a home place
         if (homePlace) {
             // append the distance from home to the data packet
@@ -1689,7 +1768,7 @@ def haversine(lat1, lon1, lat2, lon2) {
 }
 
 def displayKmMiVal(val) {
-    return (imperialUnits ? (val.toFloat()*0.621371).round(3) : val.toFloat().round(3))
+    return (imperialUnits ? (val.toFloat()*0.621371).round(1) : val.toFloat().round(1))
 }
 
 def displayMFtVal(val) {
@@ -1714,6 +1793,111 @@ def getVelocityUnits() {
     return (imperialUnits ? "mph" : "kph")
 }
 
+def isimperialUnits() {
+    return (imperialUnits)
+}
+
+private def getReverseGeocodeAddress(data) {
+    try {
+        // if we have received an address field from the phone
+        if (data?.address) {
+            addressList = data.address?.split(',')
+            // check if it's a lat/lon
+            if (!addressList[0]?.isNumber() || !addressList[1]?.isNumber()) {
+                // we already have an address, so pass it back out
+                return(data.address)
+            } 
+        }
+    } catch (e) {
+        // ignore the error and continue
+    }
+    
+    // do a reverse geocode lookup to get the address
+    return(reverseGeocode(data.lat, data.lon))
+}       
+    
+private def reverseGeocode(lat,lon) {
+    if ((geocodeProvider != "0") && (geocodeProvider != null) && isGeocodeAllowed()) {
+        // generate the reverse loopup URL based on the provider
+        lookupUrl = GEOCODE_ADDRESS[geocodeProvider.toInteger()] + REVERSE_GEOCODE_REQUEST_LAT[geocodeProvider.toInteger()] + lat + REVERSE_GEOCODE_REQUEST_LON[geocodeProvider.toInteger()] + lon + GEOCODE_KEY[geocodeProvider.toInteger()] + settings["geocodeAPIKey_$geocodeProvider"]
+        String address = ADDRESS_JSON[geocodeProvider.toInteger()]
+        // replace the spaces with %20 to make it URL friendly
+        response = syncHttpGet(lookupUrl.replaceAll(" ","%20"))
+        if (response != "") {
+            return(response.results."$address"[0])
+        }
+    }
+    
+    return("$lat,$lon")
+}
+
+private def geocode(address) {
+    def lat = "0"
+    def lon = "0"
+    if ((geocodeProvider != "0") && (geocodeProvider != null) && isGeocodeAllowed()) {
+        // generate the forward loopup URL based on the provider
+        lookupUrl = GEOCODE_ADDRESS[geocodeProvider.toInteger()] + GEOCODE_REQUEST[geocodeProvider.toInteger()] + address + GEOCODE_KEY[geocodeProvider.toInteger()] + settings["geocodeAPIKey_$geocodeProvider"]
+        // replace the spaces with %20 to make it URL friendly
+        response = syncHttpGet(lookupUrl.replaceAll(" ","%20"))
+        if (response != "") {
+            switch (geocodeProvider.toInteger()) {
+                case 1:
+                    // Google
+                    lat = response.results.geometry.location.lat[0]
+                    lon = response.results.geometry.location.lng[0]
+                break
+                case 2:
+                    // Geoapify
+                    lat = response.results.lat[0]
+                    lon = response.results.lon[0]
+                break
+                case 3:
+                    // Opencage
+                    lat = response.results.geometry.lat[0]
+                    lon = response.results.geometry.lng[0]
+                break
+                default:
+                    // do nothing
+                break
+            }
+            logDescriptionText("Address: '$address' resolves to $lat,$lon")
+        } 
+    } else {
+        logWarn("Geocode not configured or quota has been exceeded.  Select 'Additional Hub App Settings' to configure/verify geocode provider.")
+    }
+    
+    return[lat,lon]
+}
+
+private def isGeocodeAllowed() {
+    String provider = GEOCODE_USAGE_COUNTER[geocodeProvider.toInteger()]
+    // check if we are allowing paid lookups or we are under our quota
+    if (!geocodeFreeOnly || (state."$provider" < GEOCODE_QUOTA[geocodeProvider.toInteger()])) {
+        // increment the usage counter
+        state."$provider"++
+        return(true)
+    } else {
+        return(false)        
+    }
+}
+
+def dailyScheduler() {
+    logDescriptionText("Running daily geocode quota maintenance.")
+    // runs midnight GMT - reset the quota's based on if the provider resets daily or monthly
+    GEOCODE_USAGE_COUNTER.eachWithIndex { entry, index ->
+        String provider = GEOCODE_USAGE_COUNTER[index+1]
+        if (GEOCODE_QUOTA_INTERVAL_DAILY[index+1]) {
+            state."$provider" = 0
+        } else {
+            // check if it's the first of the month
+            dayOfMonth = new SimpleDateFormat("d").format(new Date())
+            if (dayOfMonth.toInteger() == 1) {
+                state."$provider" = 0
+            }
+        }
+    }    
+}
+
 mappings {
 	path("/webhook") {
     	action: [
@@ -1728,6 +1912,23 @@ private def webhookGetHandler() {
     result = sendUpdate(testMember, [ "t":"p", "lat":12.345, "lon":-123.45678 ] )
     log.warn "ADDED FOR TESTING THROUGH THE BROWSER LINK - not currently handled"
     return render(contentType: "text/html", data: result, status: 200)
+}
+
+private def syncHttpGet(url) {
+    try {
+        // limit the timeout since this is a blocking call
+        httpGet(uri: url, headers: [timeout: 5]) {
+            // return full response:
+            //   response.success (true/false)
+            //   response.status  (http code)
+            //   response.data    (payload)
+            response -> result = response
+        }
+        return (result.data)
+    } catch (e) {
+        logError(e.message)
+        return ("")
+    }
 }
 
 private def getFormat(type, myText="", myError="") {
