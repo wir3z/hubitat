@@ -45,6 +45,7 @@
  *  1.6.24     2023-01-23      - Expose the member delete button to eliminate confusion.
  *  1.6.25     2023-01-24      - Removed nag warning about home region mismatch.
  *  1.6.26     2023-01-26      - Added direct links to the file manager and logs in the setup screens.  Added reverse geocode address support.
+ *  1.6.27     2023-01-26      - Fixed error when configuring the geocode provider for the first time.
  */
 
 import groovy.transform.Field
@@ -53,7 +54,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.26"}
+def appVersion() { return "1.6.27"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -274,10 +275,10 @@ def configureHubApp() {
             input name: "geocodeProvider", type: "enum", title: "Select the optional geocode provider for address lookups.  Allows location latitude/longitude to be displayed as physical address.", description: "Enter", defaultValue: DEFAULT_geocodeProvider, options: GEOCODE_PROVIDERS, submitOnChange: true
             if (geocodeProvider != "0") {
                 paragraph ("<b><i>Google provides the best accuracy, but offers the least amount of free locations - Google usage quota is reset MONTHLY vs DAILY for the other providers.</i></b>")
-                String provider = GEOCODE_USAGE_COUNTER[geocodeProvider.toInteger()]
+                String provider = GEOCODE_USAGE_COUNTER[geocodeProvider?.toInteger()]
                 usageCounter = state."$provider"
-                input name: "geocodeFreeOnly", type: "bool", title: "Prevent geocode lookups once free quota has been exhausted.  Current usage: <b>${usageCounter}/${GEOCODE_QUOTA[geocodeProvider.toInteger()]} per ${(GEOCODE_QUOTA_INTERVAL_DAILY[geocodeProvider.toInteger()] ? "day" : "month")}</b>.", defaultValue: DEFAULT_geocodeFreeOnly
-                paragraph (GEOCODE_API_KEY_LINK[geocodeProvider.toInteger()])
+                input name: "geocodeFreeOnly", type: "bool", title: "Prevent geocode lookups once free quota has been exhausted.  Current usage: <b>${usageCounter}/${GEOCODE_QUOTA[geocodeProvider?.toInteger()]} per ${(GEOCODE_QUOTA_INTERVAL_DAILY[geocodeProvider?.toInteger()] ? "day" : "month")}</b>.", defaultValue: DEFAULT_geocodeFreeOnly
+                paragraph (GEOCODE_API_KEY_LINK[geocodeProvider?.toInteger()])
                 input name: "geocodeAPIKey_$geocodeProvider", type: "string", title: "Geocode API key for address lookups:"
             }
         }
@@ -1768,17 +1769,17 @@ def haversine(lat1, lon1, lat2, lon2) {
 }
 
 def displayKmMiVal(val) {
-    return (imperialUnits ? (val.toFloat()*0.621371).round(1) : val.toFloat().round(1))
+    return (imperialUnits ? (val?.toFloat()*0.621371).round(1) : val?.toFloat().round(1))
 }
 
 def displayMFtVal(val) {
     // round up and convert to an integer
-    return (imperialUnits ? (val.toFloat()*3.28084).round(0).toInteger() : val.toInteger())
+    return (imperialUnits ? (val?.toFloat()*3.28084).round(0).toInteger() : val?.toInteger())
 }
 
 def convertToMeters(val) {
     // round up and convert to an integer
-    return (imperialUnits ? (val.toFloat()*0.3048).round(0).toInteger() : val.toInteger())
+    return (imperialUnits ? (val?.toFloat()*0.3048).round(0).toInteger() : val?.toInteger())
 }
 
 def getLargeUnits() {
