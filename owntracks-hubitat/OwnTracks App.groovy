@@ -45,7 +45,8 @@
  *  1.6.24     2023-01-23      - Expose the member delete button to eliminate confusion.
  *  1.6.25     2023-01-24      - Removed nag warning about home region mismatch.
  *  1.6.26     2023-01-26      - Added direct links to the file manager and logs in the setup screens.  Added reverse geocode address support.
- *  1.6.27     2023-01-26      - Fixed error when configuring the geocode provider for the first time.
+ *  1.6.27     2023-01-28      - Fixed error when configuring the geocode provider for the first time.
+ *  1.6.28     2023-01-28      - Added 6-decimal place rounding to geocode lat/lon.
  */
 
 import groovy.transform.Field
@@ -54,7 +55,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.27"}
+def appVersion() { return "1.6.28"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -1820,7 +1821,7 @@ private def getReverseGeocodeAddress(data) {
 private def reverseGeocode(lat,lon) {
     if ((geocodeProvider != "0") && (geocodeProvider != null) && isGeocodeAllowed()) {
         // generate the reverse loopup URL based on the provider
-        lookupUrl = GEOCODE_ADDRESS[geocodeProvider.toInteger()] + REVERSE_GEOCODE_REQUEST_LAT[geocodeProvider.toInteger()] + lat + REVERSE_GEOCODE_REQUEST_LON[geocodeProvider.toInteger()] + lon + GEOCODE_KEY[geocodeProvider.toInteger()] + settings["geocodeAPIKey_$geocodeProvider"]
+        lookupUrl = GEOCODE_ADDRESS[geocodeProvider.toInteger()] + REVERSE_GEOCODE_REQUEST_LAT[geocodeProvider.toInteger()] + lat.toDouble().round(6) + REVERSE_GEOCODE_REQUEST_LON[geocodeProvider.toInteger()] + lon.toDouble().round(6) + GEOCODE_KEY[geocodeProvider.toInteger()] + settings["geocodeAPIKey_$geocodeProvider"]
         String address = ADDRESS_JSON[geocodeProvider.toInteger()]
         // replace the spaces with %20 to make it URL friendly
         response = syncHttpGet(lookupUrl.replaceAll(" ","%20"))
@@ -1867,7 +1868,7 @@ private def geocode(address) {
         logWarn("Geocode not configured or quota has been exceeded.  Select 'Additional Hub App Settings' to configure/verify geocode provider.")
     }
     
-    return[lat,lon]
+    return[lat.toDouble().round(6),lon.toDouble().round(6)]
 }
 
 private def isGeocodeAllowed() {
