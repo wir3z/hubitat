@@ -1823,8 +1823,6 @@ private def updateAddress(currentMember, data) {
         // do the address lookup
         data.address = getReverseGeocodeAddress(data)
         currentMember.address = data.address
-        
-        log.warn haversine(data.lat,data.lon,currentMember.latitude,currentMember.longitude)
     }
 }
 
