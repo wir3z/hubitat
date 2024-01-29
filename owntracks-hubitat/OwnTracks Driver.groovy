@@ -88,12 +88,13 @@
  *  1.6.15     2024-01-28      - Create / remove the member tile if the setting is toggled.  Added a 'isImperialUnits' attribute.  Set speed to 0 when it no longer reports.  Created responsive member tile.
  *  1.6.16     2024-01-29      - Added SSID to debug output.
  *  1.6.17     2024-01-29      - Reduced member tile map height to prevent overlapping into the other metrics.
+ *  1.6.18     2024-01-29      - Reduced member tile size to prevent overflow.  Re-factored the attribute updates to allow invalid location packets to update non-location information.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.17" }
+def driverVersion() { return "1.6.18" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -183,6 +184,10 @@ def installed() {
 
 def updated() {
     logDescriptionText("${device.name}: Location Tracker User Driver has been Updated")
+    // if the member tile is selected, then enable the extended attriutes
+    if (displayMemberTile) {
+        device.updateSetting("displayExtendedAttributes",[value: true, type: "bool"])
+    }
     // generate / remove the member tile as required
     generateMemberTile()
     // remove the extended attributes if not enabled
@@ -253,20 +258,28 @@ def updatePresence(data, allowAttributeDelete) {
         if (previousPresence != memberPresence) {
             state.sinceTime = data.tst
         }
-        // display the extended attributes if they were received, but only allow them to be removed on non-tranisition events
-        if (displayExtendedAttributes && !data.private) {
-            if (data?.batt)    sendEvent (name: "batteryPercent", value: data.batt)                        else if (allowAttributeDelete) device.deleteCurrentState('batteryPercent')
+    } else {
+        // echo back the past value
+        memberPresence = previousPresence
+    }
+
+    // update the attributes
+    updateAttributes(data)
+    
+    // return with the updated presence
+    return (memberPresence)
+}
+
+def updateAttributes(data) {
+    // display the extended attributes if they were received, but only allow them to be removed on non-tranisition events
+    if (displayExtendedAttributes && !data.private) {
+        // requires a valid location report
+        if (data.tst != 0) {
             if (data?.lat)     sendEvent (name: "lat", value: data.lat)                                    else if (allowAttributeDelete) device.deleteCurrentState('lat')
             if (data?.lon)     sendEvent (name: "lon", value: data.lon)                                    else if (allowAttributeDelete) device.deleteCurrentState('lon')
             if (data?.acc)     sendEvent (name: "accuracy", value: parent.displayMFtVal(data.acc))         else if (allowAttributeDelete) device.deleteCurrentState('accuracy')
             if (data?.vac)     sendEvent (name: "verticalAccuracy", value: parent.displayMFtVal(data.vac)) else if (allowAttributeDelete) device.deleteCurrentState('verticalAccuracy')
             if (data?.alt)     sendEvent (name: "altitude", value: parent.displayMFtVal(data.alt))         else if (allowAttributeDelete) device.deleteCurrentState('altitude')
-            if (data?.topic)   sendEvent (name: "sourceTopic", value: data.topic)                          else if (allowAttributeDelete) device.deleteCurrentState('sourceTopic')
-            if (data?.bs)      sendEvent (name: "batteryStatus", value: BATTERY_STATUS[data.bs])           else if (allowAttributeDelete) device.deleteCurrentState('batteryStatus')
-            if (data?.conn)    sendEvent (name: "dataConnection", value: DATA_CONNECTION[data.conn])       else if (allowAttributeDelete) device.deleteCurrentState('dataConnection')
-            if (data?.BSSID)   sendEvent (name: "BSSID", value: data.BSSID)                                else if (allowAttributeDelete) device.deleteCurrentState('BSSID')
-            if (data?.t)       sendEvent (name: "triggerSource", value: TRIGGER_TYPE[data.t])              else if (allowAttributeDelete) device.deleteCurrentState('triggerSource')
-            if (data?.m)       sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])          else if (allowAttributeDelete) device.deleteCurrentState('monitoringMode')
             if (data?.address) {
                 sendEvent (name: "address", value: data.address)                           
                 sendEvent (name: "streetAddress", value: getStreetAddress(data.address))
@@ -274,19 +287,20 @@ def updatePresence(data, allowAttributeDelete) {
                 if (allowAttributeDelete) device.deleteCurrentState('address')
                 if (allowAttributeDelete) device.deleteCurrentState('streetAddress')
             }
-        } else {
-            deleteExtendedAttributes(true)
         }
-        
-        // needed for the presence detection check
-        if (data?.SSID)  sendEvent (name: "SSID", value: data.SSID)                                      else if (allowAttributeDelete) device.deleteCurrentState('SSID')
+        // can be updated all the time
+        if (data?.batt)    sendEvent (name: "batteryPercent", value: data.batt)                        else if (allowAttributeDelete) device.deleteCurrentState('batteryPercent')
+        if (data?.topic)   sendEvent (name: "sourceTopic", value: data.topic)                          else if (allowAttributeDelete) device.deleteCurrentState('sourceTopic')
+        if (data?.bs)      sendEvent (name: "batteryStatus", value: BATTERY_STATUS[data.bs])           else if (allowAttributeDelete) device.deleteCurrentState('batteryStatus')
+        if (data?.conn)    sendEvent (name: "dataConnection", value: DATA_CONNECTION[data.conn])       else if (allowAttributeDelete) device.deleteCurrentState('dataConnection')
+        if (data?.BSSID)   sendEvent (name: "BSSID", value: data.BSSID)                                else if (allowAttributeDelete) device.deleteCurrentState('BSSID')
+        if (data?.t)       sendEvent (name: "triggerSource", value: TRIGGER_TYPE[data.t])              else if (allowAttributeDelete) device.deleteCurrentState('triggerSource')
+        if (data?.m)       sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])          else if (allowAttributeDelete) device.deleteCurrentState('monitoringMode')
     } else {
-        // echo back the past value
-        memberPresence = previousPresence
+        deleteExtendedAttributes(true)
     }
-
-    // return with the updated presence
-    return (memberPresence)
+    // needed for the presence detection check
+    if (data?.SSID)  sendEvent (name: "SSID", value: data.SSID)                                      else if (allowAttributeDelete) device.deleteCurrentState('SSID')
 }
 
 Boolean generatePresenceEvent(data) {
@@ -476,7 +490,6 @@ def generateMemberTile() {
         tiledata += '<td></td>'
         tiledata += '</tr>'
         tiledata += '</table>'
-        tiledata += '</div>'
 
         tiledata += '<table align="center" style="width:100%;height:70%">'
         tiledata += '<tr>'
@@ -484,11 +497,6 @@ def generateMemberTile() {
         tiledata += '</tr>'
         tiledata += '</table>'
         
-        if (colorMemberTile) {
-            tiledata += '<div style="background:' + ((device.currentValue('presence') == "present") ? 'green">' : '#b40000">')
-        } else {
-            tiledata += '<div>'
-        }
         tiledata += '<table align="center" style="width:100%">'
         tiledata += '<tr>'
         tiledata += "<td>Last Update: ${device.currentValue('lastLocationtime')}</td>"
