@@ -90,12 +90,13 @@
  *  1.6.17     2024-01-28      - Reduced member tile map height to prevent overlapping into the other metrics.
  *  1.6.18     2024-01-28      - Reduced member tile size to prevent overflow.  Re-factored the attribute updates to allow invalid location packets to update non-location information.
  *  1.6.19     2024-01-29      - Fixed issue where SSID was getting stuck holding member at home.
+ *  1.6.20     2024-01-29      - Fixed map size after tile size was reduced.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.19" }
+def driverVersion() { return "1.6.20" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -491,6 +492,7 @@ def generateMemberTile() {
         tiledata += '<td></td>'
         tiledata += '</tr>'
         tiledata += '</table>'
+        tiledata += '</div>'
 
         tiledata += '<table align="center" style="width:100%;height:70%">'
         tiledata += '<tr>'
@@ -503,7 +505,6 @@ def generateMemberTile() {
         tiledata += "<td>Last Update: ${device.currentValue('lastLocationtime')}</td>"
         tiledata += '</tr>'
         tiledata += '</table>'
-        tiledata += '</div>'
         
         tiledata += '<table align="center" style="width:100%;padding-bottom:15px">'     
         tiledata += '<tr>'

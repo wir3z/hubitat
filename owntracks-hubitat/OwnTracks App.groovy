@@ -48,6 +48,7 @@
  *  1.6.27     2023-01-28      - Fixed error when configuring the geocode provider for the first time.
  *  1.6.28     2023-01-28      - Added 6-decimal place rounding to geocode lat/lon.
  *  1.6.29     2023-01-29      - Store the users past address, and re-use that instead of a geocode lookup if their current coordinates are within 10m of that location.
+ *  1.6.30     2023-01-29      - Fixed typo.
  */
 
 import groovy.transform.Field
@@ -56,7 +57,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.29"}
+def appVersion() { return "1.6.30"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -197,7 +198,7 @@ def mainPage() {
                 input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + 'Select family member(s) to monitor</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                 input "privateMembers", "enum", multiple: true, title:(privateMembers ? '<div style="color:#ff0000">' : '<div>') + 'Select family member(s) to remain private.  Locations and regions will <B>NOT</b> be shared with other members or the Recorder.  Their Hubitat device will only display presence information.</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                 input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: DEFAULT_imperialUnits, submitOnChange: true
-                href(title: "Addtional Hubitat App Settings", description: "", style: "page", page: "configureHubApp")
+                href(title: "Additional Hubitat App Settings", description: "", style: "page", page: "configureHubApp")
             }
             section(getFormat("box", "Optional Features")) {
                 href(title: "Enabling User Thumbnails", description: "", style: "page", page: "thumbnailCreation")
