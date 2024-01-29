@@ -86,15 +86,16 @@
  *  1.6.13     2024-01-25      - Changed battery field for location to show region, address or lat/lon.  Added a battery field to show distance from home.  Removed the 'status' attribute due to redundance. Added HTML MemberLocation tile.
  *  1.6.14     2024-01-26      - Removed setting initialization that was breaking new settings.
  *  1.6.15     2024-01-28      - Create / remove the member tile if the setting is toggled.  Added a 'isImperialUnits' attribute.  Set speed to 0 when it no longer reports.  Created responsive member tile.
- *  1.6.16     2024-01-29      - Added SSID to debug output.
- *  1.6.17     2024-01-29      - Reduced member tile map height to prevent overlapping into the other metrics.
- *  1.6.18     2024-01-29      - Reduced member tile size to prevent overflow.  Re-factored the attribute updates to allow invalid location packets to update non-location information.
+ *  1.6.16     2024-01-28      - Added SSID to debug output.
+ *  1.6.17     2024-01-28      - Reduced member tile map height to prevent overlapping into the other metrics.
+ *  1.6.18     2024-01-28      - Reduced member tile size to prevent overflow.  Re-factored the attribute updates to allow invalid location packets to update non-location information.
+ *  1.6.19     2024-01-29      - Fixed issue where SSID was getting stuck holding member at home.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.18" }
+def driverVersion() { return "1.6.19" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -264,13 +265,13 @@ def updatePresence(data, allowAttributeDelete) {
     }
 
     // update the attributes
-    updateAttributes(data)
+    updateAttributes(data, allowAttributeDelete)
     
     // return with the updated presence
     return (memberPresence)
 }
 
-def updateAttributes(data) {
+def updateAttributes(data, allowAttributeDelete) {
     // display the extended attributes if they were received, but only allow them to be removed on non-tranisition events
     if (displayExtendedAttributes && !data.private) {
         // requires a valid location report
