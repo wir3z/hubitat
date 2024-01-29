@@ -47,6 +47,7 @@
  *  1.6.26     2023-01-26      - Added direct links to the file manager and logs in the setup screens.  Added reverse geocode address support.
  *  1.6.27     2023-01-28      - Fixed error when configuring the geocode provider for the first time.
  *  1.6.28     2023-01-28      - Added 6-decimal place rounding to geocode lat/lon.
+ *  1.6.29     2023-01-29      - Store the users past address, and re-use that instead of a geocode lookup if their current coordinates are within 10m of that location.
  */
 
 import groovy.transform.Field
@@ -55,7 +56,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.28"}
+def appVersion() { return "1.6.29"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -100,6 +101,7 @@ def appVersion() { return "1.6.28"}
 @Field Number  DEFAULT_debugResetHours = 1
 @Field Number  DEFAULT_geocodeProvider = 0
 @Field Boolean DEFAULT_geocodeFreeOnly = true
+@Field Number  DEFAULT_geocodeLookupHysteresis = 0.010
 
 // Mobile app location defaults
 @Field Number  DEFAULT_monitoring = 1
@@ -1169,7 +1171,7 @@ def webhookEventHandler() {
                     case "location":
                     case "transition":
                         // do a reverse lookup for the address if it doesn't exist, and we have an API enabled
-                        data.address = getReverseGeocodeAddress(data);
+                        updateAddress(findMember, data)
                     
                         // Pass the location to a secondary hub with OwnTracks running
                         if (secondaryHubURL && enableSecondaryHub) {
@@ -1799,17 +1801,40 @@ def isimperialUnits() {
     return (imperialUnits)
 }
 
+private isAddress(address) {
+    if (address) {
+        addressList = address?.split(',')
+        // check if the first two entries in the address are not numbers (lat,lon), then it's an address
+        if (!addressList[0]?.isNumber() || !addressList[1]?.isNumber()) {
+            return (true)
+        }
+    }
+    // default to not address
+    return (false)
+}
+
+private def updateAddress(currentMember, data) {
+    // check if the incoming coordinates are the same as the past coordinates, and we have a previously stored address
+//    if ((data.lat == currentMember.latitude) && (data.lon == currentMember.longitude) && isAddress(currentMember.address)) {
+    // check if the incoming coordinates within the hystersis of past coordinates, and we have a previously stored address
+    if ((haversine(data.lat,data.lon,currentMember.latitude,currentMember.longitude) < DEFAULT_geocodeLookupHysteresis) && isAddress(currentMember.address)) {
+        data.address = currentMember.address
+    } else {
+        // do the address lookup
+        data.address = getReverseGeocodeAddress(data)
+        currentMember.address = data.address
+        
+        log.warn haversine(data.lat,data.lon,currentMember.latitude,currentMember.longitude)
+    }
+}
+
 private def getReverseGeocodeAddress(data) {
     try {
         // if we have received an address field from the phone
-        if (data?.address) {
-            addressList = data.address?.split(',')
-            // check if it's a lat/lon
-            if (!addressList[0]?.isNumber() || !addressList[1]?.isNumber()) {
-                // we already have an address, so pass it back out
-                return(data.address)
-            } 
-        }
+        if (isAddress(data?.address)) {
+            // we already have an address, so pass it back out
+            return(data.address)
+        } 
     } catch (e) {
         // ignore the error and continue
     }
@@ -1826,6 +1851,7 @@ private def reverseGeocode(lat,lon) {
         // replace the spaces with %20 to make it URL friendly
         response = syncHttpGet(lookupUrl.replaceAll(" ","%20"))
         if (response != "") {
+            logDebug ("Coodindate lookup results in addess: ${response.results."$address"[0]}")
             return(response.results."$address"[0])
         }
     }
@@ -1834,8 +1860,8 @@ private def reverseGeocode(lat,lon) {
 }
 
 private def geocode(address) {
-    def lat = "0"
-    def lon = "0"
+    Double lat = 0.0
+    Double lon = 0.0
     if ((geocodeProvider != "0") && (geocodeProvider != null) && isGeocodeAllowed()) {
         // generate the forward loopup URL based on the provider
         lookupUrl = GEOCODE_ADDRESS[geocodeProvider.toInteger()] + GEOCODE_REQUEST[geocodeProvider.toInteger()] + address + GEOCODE_KEY[geocodeProvider.toInteger()] + settings["geocodeAPIKey_$geocodeProvider"]
@@ -1862,13 +1888,15 @@ private def geocode(address) {
                     // do nothing
                 break
             }
+            lat = lat?.toDouble()?.round(6)
+            lon = lon?.toDouble()?.round(6)
             logDescriptionText("Address: '$address' resolves to $lat,$lon")
         } 
     } else {
         logWarn("Geocode not configured or quota has been exceeded.  Select 'Additional Hub App Settings' to configure/verify geocode provider.")
     }
-    
-    return[lat.toDouble().round(6),lon.toDouble().round(6)]
+
+    return[lat,lon]
 }
 
 private def isGeocodeAllowed() {
