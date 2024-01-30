@@ -91,12 +91,13 @@
  *  1.6.18     2024-01-28      - Reduced member tile size to prevent overflow.  Re-factored the attribute updates to allow invalid location packets to update non-location information.
  *  1.6.19     2024-01-29      - Fixed issue where SSID was getting stuck holding member at home.
  *  1.6.20     2024-01-29      - Fixed map size after tile size was reduced.
+ *  1.6.21     2024-01-29      - Schedule the member tile update to occur later to allow attibutes to save.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.20" }
+def driverVersion() { return "1.6.21" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -127,7 +128,7 @@ metadata {
 
         command    "arrived"
         command    "departed"
-//        command    "createTile"
+        command    "createMemberTile"
 
         attribute  "location", "string"
         attribute  "transition", "string"
@@ -186,10 +187,6 @@ def installed() {
 
 def updated() {
     logDescriptionText("${device.name}: Location Tracker User Driver has been Updated")
-    // if the member tile is selected, then enable the extended attriutes
-    if (displayMemberTile) {
-        device.updateSetting("displayExtendedAttributes",[value: true, type: "bool"])
-    }
     // generate / remove the member tile as required
     generateMemberTile()
     // remove the extended attributes if not enabled
@@ -200,8 +197,6 @@ def updated() {
 
 def deleteExtendedAttributes(makePrivate) {
     device.deleteCurrentState('batteryPercent')
-    device.deleteCurrentState('lat')
-    device.deleteCurrentState('lon')
     device.deleteCurrentState('accuracy')
     device.deleteCurrentState('verticalAccuracy')
     device.deleteCurrentState('altitude')
@@ -232,15 +227,17 @@ def arrived() {
     descriptionText = device.displayName +  " has arrived"
     sendEvent (name: "presence", value: "present", descriptionText: descriptionText)
     logDescriptionText("$descriptionText")
+    generateMemberTile()
 }
 
 def departed() {
     descriptionText = device.displayName +  " has departed"
     sendEvent (name: "presence", value: "not present", descriptionText: descriptionText)
     logDescriptionText("$descriptionText")
+    generateMemberTile()
 }
 
-def createTile() {
+def createMemberTile() {
     generateMemberTile()
 }
 
@@ -260,6 +257,10 @@ def updatePresence(data, allowAttributeDelete) {
         if (previousPresence != memberPresence) {
             state.sinceTime = data.tst
         }
+
+        // update the coordinates so the member tile can populate correctly
+        if (data?.lat) sendEvent (name: "lat", value: data.lat) else if (allowAttributeDelete) device.deleteCurrentState('lat')
+        if (data?.lon) sendEvent (name: "lon", value: data.lon) else if (allowAttributeDelete) device.deleteCurrentState('lon')
     } else {
         // echo back the past value
         memberPresence = previousPresence
@@ -277,8 +278,6 @@ def updateAttributes(data, allowAttributeDelete) {
     if (displayExtendedAttributes && !data.private) {
         // requires a valid location report
         if (data.tst != 0) {
-            if (data?.lat)     sendEvent (name: "lat", value: data.lat)                                    else if (allowAttributeDelete) device.deleteCurrentState('lat')
-            if (data?.lon)     sendEvent (name: "lon", value: data.lon)                                    else if (allowAttributeDelete) device.deleteCurrentState('lon')
             if (data?.acc)     sendEvent (name: "accuracy", value: parent.displayMFtVal(data.acc))         else if (allowAttributeDelete) device.deleteCurrentState('accuracy')
             if (data?.vac)     sendEvent (name: "verticalAccuracy", value: parent.displayMFtVal(data.vac)) else if (allowAttributeDelete) device.deleteCurrentState('verticalAccuracy')
             if (data?.alt)     sendEvent (name: "altitude", value: parent.displayMFtVal(data.alt))         else if (allowAttributeDelete) device.deleteCurrentState('altitude')
@@ -456,8 +455,8 @@ Boolean generatePresenceEvent(data) {
             if (batteryField) sendEvent( name: "battery", value: batteryField  )
         }
         
-        // create the HTML member tile if it's enabled and allowed
-        generateMemberTile()
+        // create the HTML member tile if it's enabled and allowed -- schedule for 1-second so that the attributes are saved
+        runIn(1, generateMemberTile)
     }
    
     return true
@@ -484,7 +483,6 @@ def generateMemberTile() {
         } else {
             tiledata += '<td width=10%></td>'
         }
-
         tiledata += '<td width=80% style="padding-top:15px;">'
         tiledata += "${getStreetAddress(device.currentValue('location'))} - ${tileDate}</br>"
         tiledata += ((device.currentValue('presence') == "present") ? 'Present' : 'Not Present')
@@ -499,16 +497,11 @@ def generateMemberTile() {
         tiledata += "<td><iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&output=embed&' style='height:100%;width:100%;border:none;'></iframe></td>"
         tiledata += '</tr>'
         tiledata += '</table>'
-        
-        tiledata += '<table align="center" style="width:100%">'
-        tiledata += '<tr>'
-        tiledata += "<td>Last Update: ${device.currentValue('lastLocationtime')}</td>"
-        tiledata += '</tr>'
-        tiledata += '</table>'
-        
+
         tiledata += '<table align="center" style="width:100%;padding-bottom:15px">'     
+        tiledata += "<caption>Last Update: ${device.currentValue('lastLocationtime')}</caption>"
         tiledata += '<tr>'
-        tiledata += '<td width=25%>Distance</td>'
+        tiledata += '<th width=25%>Distance</th>'
         if (device.currentValue('lastSpeed') != null) tiledata += '<th width=25%>Speed</th>'
         if (device.currentValue('batteryPercent') != null) tiledata += '<th width=25%>Battery</th>'
         if (device.currentValue('dataConnection') != null) tiledata += '<th width=25%>Data</th>'

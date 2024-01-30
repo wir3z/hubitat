@@ -49,6 +49,7 @@
  *  1.6.28     2023-01-28      - Added 6-decimal place rounding to geocode lat/lon.
  *  1.6.29     2023-01-29      - Store the users past address, and re-use that instead of a geocode lookup if their current coordinates are within 10m of that location.
  *  1.6.30     2023-01-29      - Fixed typo.
+ *  1.6.31     2023-01-29      - Prevent exceptions when converting units if a null was passed.
  */
 
 import groovy.transform.Field
@@ -57,7 +58,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.30"}
+def appVersion() { return "1.6.31"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -1773,17 +1774,17 @@ def haversine(lat1, lon1, lat2, lon2) {
 }
 
 def displayKmMiVal(val) {
-    return (imperialUnits ? (val?.toFloat()*0.621371).round(1) : val?.toFloat().round(1))
+    return (imperialUnits ? (val?.toFloat()*0.621371)?.round(1) : val?.toFloat()?.round(1))
 }
 
 def displayMFtVal(val) {
     // round up and convert to an integer
-    return (imperialUnits ? (val?.toFloat()*3.28084).round(0).toInteger() : val?.toInteger())
+    return (imperialUnits ? (val?.toFloat()*3.28084)?.round(0)?.toInteger() : val?.toInteger())
 }
 
 def convertToMeters(val) {
     // round up and convert to an integer
-    return (imperialUnits ? (val?.toFloat()*0.3048).round(0).toInteger() : val?.toInteger())
+    return (imperialUnits ? (val?.toFloat()*0.3048)?.round(0)?.toInteger() : val?.toInteger())
 }
 
 def getLargeUnits() {
