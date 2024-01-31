@@ -51,6 +51,7 @@
  *  1.6.30     2023-01-29      - Fixed typo.
  *  1.6.31     2023-01-29      - Prevent exceptions when converting units if a null was passed.
  *  1.6.32     2023-01-30      - Updated member attributes before address lookup to prevent errors.  Added a warning to Member Status if no home place is defined.
+ *  1.7.0      2023-01-30      - Moved street address logic to app.
  */
 
 import groovy.transform.Field
@@ -59,7 +60,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.32"}
+def appVersion() { return "1.7.0"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -1331,7 +1332,8 @@ def updateDevicePresence(member, data) {
             data.currentDistanceFromHome = 0.0
             logWarn("No 'Home' location has been defined.  Create a 'Home' region to enable presence detection.")
         }
-        
+        // add the street address and regions, if they exist
+        addStreetAddressAndRegions(data)
         // update the child information
         deviceWrapper.generatePresenceEvent(data)
     } catch(e) {
@@ -1348,6 +1350,33 @@ def addRegionToInregions(place, data) {
     if (!data.inregions.find {it==place}) {
         data.inregions << place
     }
+}
+
+def addStreetAddressAndRegions(data) {
+    try {
+        addressList = data.address?.split(',')
+        // The address will be:
+        // place, street address
+        // street address, city
+        // lat, lon
+        // if the first digit of the first entry is not a number, but the second is, then we were returned a place, street adress
+        if (!((addressList[0])[0])?.isNumber() && ((addressList[1])[0])?.isNumber()) {
+            // save the place to the region list
+            addRegionToInregions(addressList[0], data)
+            data.streetAddress = addressList[1]
+        } else {
+            // if the first entry is not a number, then we have a street address
+            if (!addressList[0]?.isNumber()) {
+                data.streetAddress = addressList[0]
+            } else {
+                // pass through since it is a lat,lon or a format we don't know how to parse
+                data.streetAddress = data.address
+            }
+        }
+    } catch (e) {
+        // pass the address through
+        data.streetAddress = data.address
+    }     
 }
 
 def checkRegionConfiguration(member, data) {
@@ -1837,9 +1866,9 @@ private isAddress(address) {
 
 private def updateAddress(currentMember, data) {
     // check if the incoming coordinates are the same as the past coordinates, and we have a previously stored address
-//    if ((data.lat == currentMember.latitude) && (data.lon == currentMember.longitude) && isAddress(currentMember.address)) {
+//    if ((data.lat == currentMember.latitude) && (data.lon == currentMember.longitude) && isAddress(currentMember.address) && !isAddress(data.address)) {
     // check if the incoming coordinates within the hystersis of past coordinates, and we have a previously stored address
-    if ((haversine(data.lat,data.lon,currentMember.latitude,currentMember.longitude) < DEFAULT_geocodeLookupHysteresis) && isAddress(currentMember.address)) {
+    if ((haversine(data.lat,data.lon,currentMember.latitude,currentMember.longitude) < DEFAULT_geocodeLookupHysteresis) && isAddress(currentMember.address) && !isAddress(data.address)) {
         data.address = currentMember.address
     } else {
         // do the address lookup

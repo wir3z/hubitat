@@ -92,12 +92,13 @@
  *  1.6.19     2024-01-29      - Fixed issue where SSID was getting stuck holding member at home.
  *  1.6.20     2024-01-29      - Fixed map size after tile size was reduced.
  *  1.6.21     2024-01-29      - Schedule the member tile update to occur later to allow attibutes to save.
+ *  1.7.0      2024-01-30      - Move street address logic to app.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.6.21" }
+def driverVersion() { return "1.7.0" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -283,7 +284,7 @@ def updateAttributes(data, allowAttributeDelete) {
             if (data?.alt)     sendEvent (name: "altitude", value: parent.displayMFtVal(data.alt))         else if (allowAttributeDelete) device.deleteCurrentState('altitude')
             if (data?.address) {
                 sendEvent (name: "address", value: data.address)                           
-                sendEvent (name: "streetAddress", value: getStreetAddress(data.address))
+                sendEvent (name: "streetAddress", value: data.streetAddress)
             } else {
                 if (allowAttributeDelete) device.deleteCurrentState('address')
                 if (allowAttributeDelete) device.deleteCurrentState('streetAddress')
@@ -318,7 +319,7 @@ Boolean generatePresenceEvent(data) {
     if (data.private) {
         logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits()}")
     } else {
-        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: ${data.lat},${data.lon} ${(data?.address ? ", Address: ${data.address}" : "")} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")}   ")
+        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: [${data.lat},${data.lon}] ${(data?.address ? ", Address: [${data.address}]" : "")} ${(data?.streetAddress ? ", Street Address: [${data.streetAddress}]" : "")} ${(data?.inregions ? ", Regions: ${data.inregions}" : "")} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")}   ")
     }    
 
     // update the last location time
@@ -356,8 +357,8 @@ Boolean generatePresenceEvent(data) {
                 // remove the trailing comma
                 currentLocation = locationList.substring(0, locationList.length() - 1) 
             } else {
-                // display the address if it was reported, or the lat/lon if not
-                currentLocation = (data?.address ? "${data.address}" : "${data.lat},${data.lon}")
+                // display the street address if it was reported (or the default lat,lon if no geocodeing was sent from the app)
+                currentLocation = data.streetAddress
             }
             descriptionText = device.displayName +  " is at " + currentLocation
 
@@ -429,7 +430,7 @@ Boolean generatePresenceEvent(data) {
                     batteryField = (data?.batt ? data.batt : "")
                 break
                 case "1":
-                    batteryField = getStreetAddress(currentLocation) + " - " + tileDate
+                    batteryField = currentLocation + " - " + tileDate
                 break
                 case "2":
                     batteryField = parent.displayKmMiVal(data.currentDistanceFromHome) + " ${parent.getLargeUnits()} from Home"
@@ -484,7 +485,7 @@ def generateMemberTile() {
             tiledata += '<td width=10%></td>'
         }
         tiledata += '<td width=80% style="padding-top:15px;">'
-        tiledata += "${getStreetAddress(device.currentValue('location'))} - ${tileDate}</br>"
+        tiledata += "${device.currentValue('location')} - ${tileDate}</br>"
         tiledata += ((device.currentValue('presence') == "present") ? 'Present' : 'Not Present')
         tiledata += '</td>'
         tiledata += '<td></td>'
@@ -526,21 +527,6 @@ def generateMemberTile() {
     } else {
         device.deleteCurrentState('MemberLocation')
     }
-}
-
-private getStreetAddress(address) {
-    try {
-        addressList = address?.split(',')
-        // check if the first two entries in the address are numbers (lat,lon), and just return them if they are
-        if (addressList[0]?.isNumber() && addressList[1]?.isNumber()) {
-            return (address)
-        } else {
-            // only report the street address, not the city and country
-            return (addressList[0])
-        }
-    } catch (e) {
-        return (address)
-    }    
 }
 
 private logDebug(msg) {
