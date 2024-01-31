@@ -50,6 +50,7 @@
  *  1.6.29     2023-01-29      - Store the users past address, and re-use that instead of a geocode lookup if their current coordinates are within 10m of that location.
  *  1.6.30     2023-01-29      - Fixed typo.
  *  1.6.31     2023-01-29      - Prevent exceptions when converting units if a null was passed.
+ *  1.6.32     2023-01-30      - Updated member attributes before address lookup to prevent errors.  Added a warning to Member Status if no home place is defined.
  */
 
 import groovy.transform.Field
@@ -58,7 +59,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.6.31"}
+def appVersion() { return "1.6.32"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -191,6 +192,7 @@ def mainPage() {
         } else {
             section(getFormat("box", "Member Status")) {
                 displayMemberStatus()
+                displayMissingHomePlace()
                 displayRegionsPendingDelete()
             }            
             section(getFormat("box", "Installation")) {
@@ -542,6 +544,13 @@ def displayRegionsPendingDelete() {
     pendingDelete = state?.places.findAll{it.lat == INVALID_COORDINATE}.collect{place -> place.desc}
     if (pendingDelete) {
         paragraph "<div style='color:#ff0000'><b>${pendingDelete} pending deletion once all members report a location update.</b></div>"
+    }
+}    
+
+def displayMissingHomePlace() {
+    // display an error if the home place is missing
+    if (!homePlace) {
+        paragraph "<div style='color:#ff0000'><b>'Home' place not set. Use 'Configure Regions' to select or add a home location.</b></div>"
     }
 }    
 
@@ -1172,9 +1181,7 @@ def webhookEventHandler() {
                 switch (data._type) {
                     case "location":
                     case "transition":
-                        // do a reverse lookup for the address if it doesn't exist, and we have an API enabled
-                        updateAddress(findMember, data)
-                    
+                        updateMemberAttributes(findMember, data)
                         // Pass the location to a secondary hub with OwnTracks running
                         if (secondaryHubURL && enableSecondaryHub) {
                             def postParams = [ uri: secondaryHubURL, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
@@ -1185,10 +1192,6 @@ def webhookEventHandler() {
 
                         // log the elapsed distance and time
                         logDistanceTraveledAndElapsedTime(findMember, data)
-                        // replace the tracker ID with the member name.  NOTE: if the TID is undefined, it will be the last 2-characters of the Device ID
-                        if (replaceTIDwithUsername) {
-                            data.tid = findMember.name
-                        }
                         // send push event to driver
                         updateDevicePresence(findMember, data)
                         // return with the rest of the users positions and waypoints if pending
@@ -1266,7 +1269,15 @@ def isSSIDMatch(dataString, deviceID) {
     return (result)
 }
 
-def updateDevicePresence(member, data) {
+def updateMemberAttributes(member, data) {
+    // round to 6-decimal places
+    data.lat = data?.lat?.toDouble()?.round(6)
+    data.lon = data?.lon?.toDouble()?.round(6)
+    // replace the tracker ID with the member name.  NOTE: if the TID is undefined, it will be the last 2-characters of the Device ID
+    if (replaceTIDwithUsername) {
+        data.tid = member.name
+    }
+    
     // save the position and timestamp so we can push to other users
     member.lastReportTime = now()
     member.latitude       = data?.lat
@@ -1283,7 +1294,11 @@ def updateDevicePresence(member, data) {
     member.ps             = data?.ps
     member.bo             = data?.bo
     member.loc            = data?.loc
+    // do a reverse lookup for the address if it doesn't exist, and we have an API enabled
+    updateAddress(member, data)
+}
 
+def updateDevicePresence(member, data) {
     // update the presence information for the member
     try {
         // find the appropriate child device based on app id and the device network id
@@ -1309,14 +1324,8 @@ def updateDevicePresence(member, data) {
             // if either the hub or the mobile reports it is home, then make the member present
             if (memberHubHome || memberWiFiHome || memberMobileHome) {
                 data.currentDistanceFromHome = 0.0
-                // if there was no defined regions, create a blank list
-                if (!data.inregions) {
-                    data.inregions = []
-                }
                 // if the home name isn't present, at it to the regions
-                if (!data.inregions.find {it==getHomeRegion().desc}) {
-                    data.inregions << getHomeRegion().desc
-                }
+                addRegionToInregions(getHomeRegion().desc, data)
             }
         } else {
             data.currentDistanceFromHome = 0.0
@@ -1327,6 +1336,17 @@ def updateDevicePresence(member, data) {
         deviceWrapper.generatePresenceEvent(data)
     } catch(e) {
         logError("updateDevicePresence: Exception for member: ${member.name}  $e")
+    }
+}
+
+def addRegionToInregions(place, data) {
+    // if there was no defined regions, create a blank list
+    if (!data.inregions) {
+        data.inregions = []
+    }
+    // if the region isn't present, then add it
+    if (!data.inregions.find {it==place}) {
+        data.inregions << place
     }
 }
 
