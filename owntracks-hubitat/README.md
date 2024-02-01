@@ -124,6 +124,10 @@ NOTE: A region named '+follow' is automatically created to allow iOS phones to h
 - All distances are stored in metric and may have minor rounding errors when converted to imperial for display.
 NOTE: The OwnTracks mobile app stores and displays all units in metric.
 		
+## Select notification devices to get region enter/leave notifications.  
+- Select notification devices to received notifications.
+NOTE: 'enter/leave' notifications must be enabled on each member device.
+	
 ## Additional Hubitat App Settings
 - Enter your 'Home' WiFi SSID(s), separated by commas (optional):
 	- This will prevent devices from being 'non-present' if currently connected to these WiFi access points.
@@ -146,10 +150,6 @@ The defaults for the rest of these settings should be sufficient for verifying o
 - Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (Android ONLY)
 	- If selected, members reporting a ping or manual location will be requested to send a high accuracy location on their next location report
 
-- Select notification devices to get region enter/leave notifications.  
-	- Select notification devices.
-	NOTE: 'enter/leave' notifications must be enabled on each member device.
-	
 - Select the optional geocode provider for address lookups. Allows location latitude/longitude to be displayed as physical address.	
 	- A geocode provider can be used to convert latitude/longitude into addresses and street addresses, as well as allow entering street address in the 'Add Region' section.
 	- Three providers are supported: Google, Geoapify, and Opencage.  When a provider is selected, the link to sign up for an API key will changes.

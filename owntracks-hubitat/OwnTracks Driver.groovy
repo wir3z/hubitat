@@ -94,12 +94,13 @@
  *  1.6.21     2024-01-29      - Schedule the member tile update to occur later to allow attibutes to save.
  *  1.7.0      2024-01-30      - Move street address logic to app.
  *  1.7.1      2024-01-31      - Refactored flow to prevent dirty location reports from triggering transitions.  Allow enter/leave transition notifications.
+ *  1.7.2      2024-02-01      - Clarified the notification settings.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.1" }
+def driverVersion() { return "1.7.2" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -177,8 +178,8 @@ preferences {
     input name: "displayExtendedAttributes", type: "bool", title: "Display extended location attributes", defaultValue: DEFAULT_displayExtendedAttributes
     input name: "displayMemberTile", type: "bool", title: "Create a HTML MemberTile", defaultValue: DEFAULT_displayMemberTile
     input name: "colorMemberTile", type: "bool", title: "Change MemberTile background color based on presence", defaultValue: DEFAULT_colorMemberTile
-    input name: "createNotificationOnTransitionEnter", type: "bool", title: "Create a notification if member enters a region", defaultValue: DEFAULT_createNotificationOnTransitionEnter
-    input name: "createNotificationOnTransitionLeave", type: "bool", title: "Create a notification if member leaves a region", defaultValue: DEFAULT_createNotificationOnTransitionLeave
+    input name: "createNotificationOnTransitionEnter", type: "bool", title: "Send a notification if member 'enters' a region.", description: "<i>Select devices in the Hubitat OwnTracks app to receive these notifications.</i>", defaultValue: DEFAULT_createNotificationOnTransitionEnter
+    input name: "createNotificationOnTransitionLeave", type: "bool", title: "Send a notification if member 'leaves' a region.", description: "<i>Select devices in the Hubitat OwnTracks app to receive these notifications.</i>", defaultValue: DEFAULT_createNotificationOnTransitionLeave
 
     input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: DEFAULT_descriptionTextOutput
     input name: "debugOutput", type: "bool", title: "Enable Debug Logging", defaultValue: DEFAULT_debugOutput

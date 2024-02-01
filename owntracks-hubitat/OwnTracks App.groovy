@@ -53,6 +53,7 @@
  *  1.6.32     2023-01-30      - Updated member attributes before address lookup to prevent errors.  Added a warning to Member Status if no home place is defined.
  *  1.7.0      2023-01-30      - Moved street address logic to app.
  *  1.7.1      2023-01-31      - Fixed issue where geocode location would get stuck and never request a new address.  Added enter/leave transition notification.
+ *  1.7.2      2023-02-01      - Moved the notification selection box to the main screen.  Fix issue where Geoapify geocodes added leading spaces to fields.
  */
 
 import groovy.transform.Field
@@ -61,7 +62,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.1"}
+def appVersion() { return "1.7.2"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -203,6 +204,7 @@ def mainPage() {
                 input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + 'Select family member(s) to monitor</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                 input "privateMembers", "enum", multiple: true, title:(privateMembers ? '<div style="color:#ff0000">' : '<div>') + 'Select family member(s) to remain private.  Locations and regions will <B>NOT</b> be shared with other members or the Recorder.  Their Hubitat device will only display presence information.</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                 input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: DEFAULT_imperialUnits, submitOnChange: true
+                input "notificationList", "capability.notification", title: "Select notification devices to get region enter/leave notifications.  Enable the 'enter/leave' notification sliders in each member device that you wish to received notifications from.", multiple: true, required: false, submitOnChange: true
                 href(title: "Additional Hubitat App Settings", description: "", style: "page", page: "configureHubApp")
             }
             section(getFormat("box", "Optional Features")) {
@@ -280,9 +282,6 @@ def configureHubApp() {
             input name: "highAccuracyOnPing", type: "bool", title: "Request a high accuracy location from members on their next location report after a ping/manual update to keep location fresh (<b>Android ONLY</b>)", defaultValue: DEFAULT_highAccuracyOnPing
             input name: "autoRequestLocation", type: "bool", title: "Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (<b>Android ONLY</b>)", defaultValue: DEFAULT_autoRequestLocation
         }
-        section(getFormat("line", "")) {
-            input "notificationList", "capability.notification", title: "Select notification devices to get region enter/leave notifications.  Enable 'enter/leave' notifications in each member device.", multiple: true, required: false, submitOnChange: true
-        }        
         section(getFormat("line", "")) {
             input name: "geocodeProvider", type: "enum", title: "Select the optional geocode provider for address lookups.  Allows location latitude/longitude to be displayed as physical address.", description: "Enter", defaultValue: DEFAULT_geocodeProvider, options: GEOCODE_PROVIDERS, submitOnChange: true
             if (geocodeProvider != "0") {
@@ -1198,7 +1197,7 @@ def webhookEventHandler() {
                         updateMemberAttributes(findMember, data)
                         // Pass the location to a secondary hub with OwnTracks running
                         if (secondaryHubURL && enableSecondaryHub) {
-                            def postParams = [ uri: secondaryHubURL, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
+                            def postParams = [ uri: secondaryHubURL?.trim(), requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
                             asynchttpPost("httpCallbackMethod", postParams)
                         }
                         // flag the data as private if necessary, but let the raw message pass to the secondary hub to be filtered
@@ -1217,7 +1216,7 @@ def webhookEventHandler() {
                         if (!data.cog) { data.cog = data.currentDistanceFromHome }
                         // if we have the OwnTracks recorder configured, and the timestamp is valid, and the user is not parked as private, pass the location data to it
                         if (recorderURL && enableRecorder && (data.tst != 0) && !data.private) {
-                            def postParams = [ uri: recorderURL, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
+                            def postParams = [ uri: recorderURL?.trim(), requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
                             asynchttpPost("httpCallbackMethod", postParams)
                         }
                     break
@@ -1372,6 +1371,9 @@ def addRegionToInregions(place, data) {
 def addStreetAddressAndRegions(data) {
     try {
         addressList = data.address?.split(',')
+        // trim whitespace to allow the parser to work
+        addressList[0] = addressList[0]?.trim()
+        addressList[1] = addressList[1]?.trim()
         // The address will be:
         // place, street address
         // street address, city
@@ -1912,7 +1914,7 @@ private def getReverseGeocodeAddress(data) {
 private def reverseGeocode(lat,lon) {
     if ((geocodeProvider != "0") && (geocodeProvider != null) && isGeocodeAllowed()) {
         // generate the reverse loopup URL based on the provider
-        lookupUrl = GEOCODE_ADDRESS[geocodeProvider.toInteger()] + REVERSE_GEOCODE_REQUEST_LAT[geocodeProvider.toInteger()] + lat.toDouble().round(6) + REVERSE_GEOCODE_REQUEST_LON[geocodeProvider.toInteger()] + lon.toDouble().round(6) + GEOCODE_KEY[geocodeProvider.toInteger()] + settings["geocodeAPIKey_$geocodeProvider"]
+        lookupUrl = GEOCODE_ADDRESS[geocodeProvider.toInteger()] + REVERSE_GEOCODE_REQUEST_LAT[geocodeProvider.toInteger()] + lat.toDouble().round(6) + REVERSE_GEOCODE_REQUEST_LON[geocodeProvider.toInteger()] + lon.toDouble().round(6) + GEOCODE_KEY[geocodeProvider.toInteger()] + settings["geocodeAPIKey_$geocodeProvider"]?.trim()
         String address = ADDRESS_JSON[geocodeProvider.toInteger()]
         // replace the spaces with %20 to make it URL friendly
         response = syncHttpGet(lookupUrl.replaceAll(" ","%20"))
@@ -1930,7 +1932,7 @@ private def geocode(address) {
     Double lon = 0.0
     if ((geocodeProvider != "0") && (geocodeProvider != null) && isGeocodeAllowed()) {
         // generate the forward loopup URL based on the provider
-        lookupUrl = GEOCODE_ADDRESS[geocodeProvider.toInteger()] + GEOCODE_REQUEST[geocodeProvider.toInteger()] + address + GEOCODE_KEY[geocodeProvider.toInteger()] + settings["geocodeAPIKey_$geocodeProvider"]
+        lookupUrl = GEOCODE_ADDRESS[geocodeProvider.toInteger()] + GEOCODE_REQUEST[geocodeProvider.toInteger()] + address + GEOCODE_KEY[geocodeProvider.toInteger()] + settings["geocodeAPIKey_$geocodeProvider"]?.trim()
         // replace the spaces with %20 to make it URL friendly
         response = syncHttpGet(lookupUrl.replaceAll(" ","%20"))
         if (response != "") {
@@ -1968,7 +1970,7 @@ private def geocode(address) {
 private def isGeocodeAllowed() {
     String provider = GEOCODE_USAGE_COUNTER[geocodeProvider.toInteger()]
     // check if we are allowing paid lookups or we are under our quota and we have a key defined
-    if (settings["geocodeAPIKey_$geocodeProvider"] && (!geocodeFreeOnly || (state."$provider" < GEOCODE_QUOTA[geocodeProvider.toInteger()]))) {
+    if (settings["geocodeAPIKey_$geocodeProvider"]?.trim() && (!geocodeFreeOnly || (state."$provider" < GEOCODE_QUOTA[geocodeProvider.toInteger()]))) {
         // increment the usage counter
         state."$provider"++     
         return(true)
