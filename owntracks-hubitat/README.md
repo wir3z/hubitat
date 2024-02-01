@@ -146,6 +146,10 @@ The defaults for the rest of these settings should be sufficient for verifying o
 - Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (Android ONLY)
 	- If selected, members reporting a ping or manual location will be requested to send a high accuracy location on their next location report
 
+- Select notification devices to get region enter/leave notifications.  
+	- Select notification devices.
+	NOTE: 'enter/leave' notifications must be enabled on each member device.
+	
 - Select the optional geocode provider for address lookups. Allows location latitude/longitude to be displayed as physical address.	
 	- A geocode provider can be used to convert latitude/longitude into addresses and street addresses, as well as allow entering street address in the 'Add Region' section.
 	- Three providers are supported: Google, Geoapify, and Opencage.  When a provider is selected, the link to sign up for an API key will changes.
@@ -260,6 +264,12 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 	- Creates a 'Member_Location' HTML attribute that can be added to the dashboards.  Displays the map location, information as well as presence.
 - Change MemberTile background color based on presence
 	- Background for the map in the MemberTile will be green for present, red for not present if enabled.  Otherwise the default background color is used.
+- Create a notification if member enters a region
+	- Sends Hubitat app notifications when the member arrives
+	NOTE:  Requires a notification device to be selected in the 'Additional Hub App Settings' -> 'Select notification devices to get region enter/leave notifications."
+- Create a notification if member leaves a region
+	- Sends Hubitat app notifications when the member leaves
+	NOTE:  Requires a notification device to be selected in the 'Additional Hub App Settings' -> 'Select notification devices to get region enter/leave notifications."
 - Enable Description Text logging
 	- Displays general descriptive logs (arrived, departed, etc.)
 - Enable Debug Logging
@@ -286,7 +296,9 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 	- presence : present/not present
 	- since : timestamp on the last location change - only updates if the location has moved
 	- sourceTopic : user/device information
-	- transition : region the user arrived/left and the time of the transition
+	- transitionRegion : region the user arrived/left
+	- transitionDirection : direction of travel from the region (arrived/left)
+	- transitionTime : time the user arrived/left the region
 	- triggerSource : Ping/Region/Report Location/Manual/Beacon/Timer/Monitoring/Location
 	- verticalAccuracy : vertical accuracy
 	- address : Full address of the location (if available) or lat,lon

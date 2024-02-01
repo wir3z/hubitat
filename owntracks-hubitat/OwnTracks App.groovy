@@ -52,6 +52,7 @@
  *  1.6.31     2023-01-29      - Prevent exceptions when converting units if a null was passed.
  *  1.6.32     2023-01-30      - Updated member attributes before address lookup to prevent errors.  Added a warning to Member Status if no home place is defined.
  *  1.7.0      2023-01-30      - Moved street address logic to app.
+ *  1.7.1      2023-01-31      - Fixed issue where geocode location would get stuck and never request a new address.  Added enter/leave transition notification.
  */
 
 import groovy.transform.Field
@@ -60,7 +61,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.0"}
+def appVersion() { return "1.7.1"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -279,6 +280,9 @@ def configureHubApp() {
             input name: "highAccuracyOnPing", type: "bool", title: "Request a high accuracy location from members on their next location report after a ping/manual update to keep location fresh (<b>Android ONLY</b>)", defaultValue: DEFAULT_highAccuracyOnPing
             input name: "autoRequestLocation", type: "bool", title: "Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (<b>Android ONLY</b>)", defaultValue: DEFAULT_autoRequestLocation
         }
+        section(getFormat("line", "")) {
+            input "notificationList", "capability.notification", title: "Select notification devices to get region enter/leave notifications.  Enable 'enter/leave' notifications in each member device.", multiple: true, required: false, submitOnChange: true
+        }        
         section(getFormat("line", "")) {
             input name: "geocodeProvider", type: "enum", title: "Select the optional geocode provider for address lookups.  Allows location latitude/longitude to be displayed as physical address.", description: "Enter", defaultValue: DEFAULT_geocodeProvider, options: GEOCODE_PROVIDERS, submitOnChange: true
             if (geocodeProvider != "0") {
@@ -1035,6 +1039,15 @@ def getImageURL(memberName) {
     return ("http://${location.hubs[0].getDataValue("localIP")}/local/${memberName}.jpg")
 }
 
+def generateTransitionNotification(memberName, transitionRegion, transitionEvent, transitionTime) {
+    // send notification to mobile if selected
+    if (notificationList) {
+        notificationList.each { val ->
+            val.deviceNotification("${memberName} ${transitionEvent} ${transitionRegion} at ${transitionTime}")
+        }
+    }    
+}
+
 def checkForHome() {
     if (!homePlace) {
         logError("No 'Home' location has been defined.  Create a 'Home' region to enable presence detection.")
@@ -1279,6 +1292,12 @@ def updateMemberAttributes(member, data) {
         data.tid = member.name
     }
     
+    // pre-seed the member lat/lon for the first update address lookup
+    if (member.latitude == null)  member.latitude = data?.lat
+    if (member.longitude == null) member.longitude = data?.lon
+    // do a reverse lookup for the address if it doesn't exist, and we have an API enabled
+    updateAddress(member, data)
+    
     // save the position and timestamp so we can push to other users
     member.lastReportTime = now()
     member.latitude       = data?.lat
@@ -1295,8 +1314,6 @@ def updateMemberAttributes(member, data) {
     member.ps             = data?.ps
     member.bo             = data?.bo
     member.loc            = data?.loc
-    // do a reverse lookup for the address if it doesn't exist, and we have an API enabled
-    updateAddress(member, data)
 }
 
 def updateDevicePresence(member, data) {
@@ -1950,10 +1967,10 @@ private def geocode(address) {
 
 private def isGeocodeAllowed() {
     String provider = GEOCODE_USAGE_COUNTER[geocodeProvider.toInteger()]
-    // check if we are allowing paid lookups or we are under our quota
-    if (!geocodeFreeOnly || (state."$provider" < GEOCODE_QUOTA[geocodeProvider.toInteger()])) {
+    // check if we are allowing paid lookups or we are under our quota and we have a key defined
+    if (settings["geocodeAPIKey_$geocodeProvider"] && (!geocodeFreeOnly || (state."$provider" < GEOCODE_QUOTA[geocodeProvider.toInteger()]))) {
         // increment the usage counter
-        state."$provider"++
+        state."$provider"++     
         return(true)
     } else {
         return(false)        
