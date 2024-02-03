@@ -41,6 +41,8 @@
  *      // added to packet
  *      currentDistanceFromHome:0.234,  // distance from home in current units
  *      private:false                   // if true, user is configured to not share their information, only their current presence
+ *      memberWiFiHome:true             // if true, user is connected to the home wifi SSID   
+ *      memberAtHome:true               // if true, user is at home  
  *
  *      // added in the sided load APK
  *      hib:0,                          // App can pause when unused (1=yes, 0=no)
@@ -95,12 +97,13 @@
  *  1.7.0      2024-01-30      - Move street address logic to app.
  *  1.7.1      2024-01-31      - Refactored flow to prevent dirty location reports from triggering transitions.  Allow enter/leave transition notifications.
  *  1.7.2      2024-02-01      - Clarified the notification settings.
+ *  1.7.3      2024-02-01      - 'Since' time was not updating properly after refactor.  Block transition if still connected to home WiFi SSID.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.2" }
+def driverVersion() { return "1.7.3" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -249,7 +252,7 @@ def createMemberTile() {
     generateMemberTile()
 }
 
-def updateAttributes(data, locationType) {
+def updateAttributes(data, locationType) { 
     // remove the attributes if not enabled or the member is private
     if (data.private || !displayExtendedAttributes) {
          deleteExtendedAttributes(true)    
@@ -332,9 +335,9 @@ Boolean generatePresenceEvent(data) {
     
     //logDebug("Member Data: $data")
     if (data.private) {
-        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits()}")
+        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${(data.memberAtHome ? "'present'" : "'not present'")}, accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits()} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")}")
     } else {
-        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: [${data.lat},${data.lon}] ${(data?.address ? ", Address: [${data.address}]" : "")} ${(data?.streetAddress ? ", Street Address: [${data.streetAddress}]" : "")} ${(data?.inregions ? ", Regions: ${data.inregions}" : "")} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")}   ")
+        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${(data.memberAtHome ? "'present'" : "'not present'")}, ${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: [${data.lat},${data.lon}] ${(data?.address ? ", Address: [${data.address}]" : "")} ${(data?.streetAddress ? ", Street Address: [${data.streetAddress}]" : "")} ${(data?.inregions ? ", Regions: ${data.inregions}" : "")} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")}")
     }    
 
     // update the last location time
@@ -348,40 +351,45 @@ Boolean generatePresenceEvent(data) {
     // if we get a blank timestamp, then the phone has no location or this is a ping with high inaccuracy, so do not update any location fields
     if (data.tst != 0) {
         // only update the presence for 'home'
-        if (data.currentDistanceFromHome == 0) {
+        if (data.memberAtHome) {
             memberPresence = "present"
+            // clamp to home to prevent noise in displayed value
+//            data.currentDistanceFromHome = 0
         } else {
             memberPresence = "not present"
         }
 
-        // only update the time if there was a state change
-        if (previousPresence != memberPresence) {
-            state.sinceTime = data.tst
-        }
-
         // update the coordinates so the member tile can populate correctly
-        if (data?.lat) sendEvent (name: "lat", value: data.lat) else if (allowAttributeDelete) device.deleteCurrentState('lat')
-        if (data?.lon) sendEvent (name: "lon", value: data.lon) else if (allowAttributeDelete) device.deleteCurrentState('lon')       
+        if (data?.lat) sendEvent (name: "lat", value: data.lat)
+        if (data?.lon) sendEvent (name: "lon", value: data.lon)  
         
         // only log additional data if the user is not marked as private
         if (!data.private) {
             // if we have a tranistion event
             if (data._type == "transition") {
                 currentLocation = data.desc
-                if (data.event == "enter") {
-                    currentTransition = "arrived $data.desc"
-                    if (createNotificationOnTransitionEnter) parent.generateTransitionNotification(device.displayName, data.desc, data.event, locationTime)
-                } else {
-                    currentTransition = "left $data.desc"
-                    if (createNotificationOnTransitionLeave) parent.generateTransitionNotification(device.displayName, data.desc, data.event, locationTime)
-                }
+                // only allow the transition event if not connected to home wifi
+                if (!data.memberWiFiHome) {
+                    if (data.event == "enter") {
+                        currentTransition = "arrived $data.desc"
+                        if (createNotificationOnTransitionEnter) parent.generateTransitionNotification(device.displayName, data.desc, data.event, locationTime)
+                    } else {
+                        currentTransition = "left $data.desc"
+                        if (createNotificationOnTransitionLeave) parent.generateTransitionNotification(device.displayName, data.desc, data.event, locationTime)
+                    }
 
-                descriptionText = device.displayName +  " has " + currentTransition
-                logDescriptionText("$descriptionText")
-                // update the transition
-                sendEvent( name: "transitionRegion", value: data.desc )	
-                sendEvent( name: "transitionTime", value: locationTime )	
-                sendEvent( name: "transitionDirection", value: data.event )	
+                    descriptionText = device.displayName +  " has " + currentTransition
+                    logDescriptionText("$descriptionText")
+                
+                    // only update the time if there was a state change
+                    if ((device.currentValue('transitionDirection') != data.event) || (device.currentValue('transitionRegion') != data.desc)) {
+                        state.sinceTime = data.tst
+                    }
+                    // update the transition
+                    sendEvent( name: "transitionRegion", value: data.desc )	
+                    sendEvent( name: "transitionTime", value: locationTime )	
+                    sendEvent( name: "transitionDirection", value: data.event )	
+                }
             } else {
                 // if we are in a region stored in the app
                 if (data.inregions) {
@@ -399,10 +407,9 @@ Boolean generatePresenceEvent(data) {
                     currentLocation = data.streetAddress
                 }
                 descriptionText = device.displayName +  " is at " + currentLocation
-    
 
                 // only log if there was a valid time, a location change and log changes is enabled
-                if ((data.tst != 0) && (device.currentValue("location") != currentLocation)) {
+                if (device.currentValue("location") != currentLocation) {
                     if (logLocationChanges) log.info "$descriptionText"
                     state.sinceTime = data.tst
                 }
@@ -456,6 +463,9 @@ Boolean generatePresenceEvent(data) {
         }
         
         // allowed all the time
+        if (device.currentValue("presence") != memberPresence) {
+            logDescriptionText "$device.displayName is $memberPresence"
+        }
         sendEvent( name: "presence", value: memberPresence, descriptionText: descriptionText)
         sendEvent( name: "location", value: currentLocation )
     }
@@ -482,14 +492,15 @@ def generateMemberTile() {
         if (device.currentValue('imageURL') != "false") {
             tiledata += '<td width=20%><img src="' + device.currentValue('imageURL') + '" alt="' + device.displayName + '" width="35" height="35"></td>'
         } else {
-            tiledata += '<td width=20%></td>'
+            tiledata += '<td width=20%>' + device.displayName + '</td>'
         }
         tiledata += '<td width=60% style="padding-top:15px;">'
         tiledata += "${device.currentValue('location')}</br>"
-        tiledata += "Since: ${tileDate}</br>"
-        tiledata += ((device.currentValue('presence') == "present") ? 'Present' : 'Not Present')
+        tiledata += "${tileDate}</br>"
         tiledata += '</td>'
-        tiledata += '<td></td>'
+        tiledata += '<td width=20%>'
+        tiledata += ((device.currentValue('presence') == "present") ? '&#10004</br>Present' : '&#10008</br>Not Present')
+        tiledata += '</td>'
         tiledata += '</tr>'
         tiledata += '</table>'
         tiledata += '</div>'
@@ -499,11 +510,11 @@ def generateMemberTile() {
         // mobile has bottom metrics hidden in 4x height tile in portrait, full screen in landscape
         tiledata += '<table align="center" style="width:100%;height:calc(100% - 185px)">'
         tiledata += '<tr>'
-        tiledata += "<td><iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&output=embed&' style='height:100%;width:100%;border:none;'></iframe></td>"
+        tiledata += "<td><iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&output=embed&' style='height:100%;width:100%'></iframe></td>"
         tiledata += '</tr>'
         tiledata += '</table>'
 
-        tiledata += '<table align="center" style="width:100%;padding-bottom:15px">'     
+        tiledata += '<table align="center" style="width:100%">'     
         tiledata += "<caption>Last Update: ${device.currentValue('lastLocationtime')}</caption>"
         tiledata += '<tr>'
         tiledata += '<th width=25%>Distance</th>'
@@ -526,7 +537,7 @@ def generateMemberTile() {
         if ((tiledata.length() + 11) > 1024) {
             tiledata = "Too much data to display.</br></br>Exceeds maximum tile length by " + ((tiledata.length() + 11) - 1024) + " characters."
         }
- 
+
         sendEvent(name: "MemberLocation", value: tiledata, displayed: true)
     } else {
         device.deleteCurrentState('MemberLocation')

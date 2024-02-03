@@ -54,6 +54,7 @@
  *  1.7.0      2023-01-30      - Moved street address logic to app.
  *  1.7.1      2023-01-31      - Fixed issue where geocode location would get stuck and never request a new address.  Added enter/leave transition notification.
  *  1.7.2      2023-02-01      - Moved the notification selection box to the main screen.  Fix issue where Geoapify geocodes added leading spaces to fields.
+ *  1.7.3      2023-02-02      - Pass distance from home directly to driver for better logging.
  */
 
 import groovy.transform.Field
@@ -62,7 +63,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.2"}
+def appVersion() { return "1.7.3"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -1333,23 +1334,25 @@ def updateDevicePresence(member, data) {
             data.currentDistanceFromHome = getDistanceFromHome(data)
             // check if the member is within our home geofence
             memberHubHome = (data.currentDistanceFromHome <= ((getHomeRegion().rad.toDouble()) / 1000))
-            // or connected to a listed SSID and within the next geofence
-            memberWiFiHome = (data.currentDistanceFromHome < DEFAULT_wifiPresenceKeepRadius) && isSSIDMatch(homeSSID, deviceWrapper)
             // or the mobile is reporting the member is home
             memberMobileHome = (data?.inregions.find {it==getHomeRegion().desc} || ((data?.desc == getHomeRegion().desc) && (data?.event == 'enter')))
+            // or connected to a listed SSID and within the next geofence
+            data.memberWiFiHome = (data.currentDistanceFromHome < DEFAULT_wifiPresenceKeepRadius) && isSSIDMatch(homeSSID, deviceWrapper)
             
             // if either the hub or the mobile reports it is home, then make the member present
-            if (memberHubHome || memberWiFiHome || memberMobileHome) {
-                data.currentDistanceFromHome = 0.0
+            if (memberHubHome || memberMobileHome || data.memberWiFiHome) {
+                data.memberAtHome = true
                 // if the home name isn't present, at it to the regions
                 addRegionToInregions(getHomeRegion().desc, data)
+            } else {
+                data.memberAtHome = false
             }
         } else {
             data.currentDistanceFromHome = 0.0
             logWarn("No 'Home' location has been defined.  Create a 'Home' region to enable presence detection.")
         }
         // add the street address and regions, if they exist
-        addStreetAddressAndRegions(data)
+        addStreetAddressAndRegions(data)   
         // update the child information
         deviceWrapper.generatePresenceEvent(data)
     } catch(e) {
