@@ -55,6 +55,7 @@
  *  1.7.1      2023-01-31      - Fixed issue where geocode location would get stuck and never request a new address.  Added enter/leave transition notification.
  *  1.7.2      2023-02-01      - Moved the notification selection box to the main screen.  Fix issue where Geoapify geocodes added leading spaces to fields.
  *  1.7.3      2023-02-02      - Pass distance from home directly to driver for better logging.
+ *  1.7.4      2023-02-03      - Changed the notification message.  Moved notification control to app.
  */
 
 import groovy.transform.Field
@@ -63,7 +64,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.3"}
+def appVersion() { return "1.7.4"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -148,6 +149,7 @@ preferences {
     page(name: "configureHubApp")
     page(name: "installationInstructions")
     page(name: "thumbnailCreation")
+    page(name: "configureNotifications")
     page(name: "configureRecorder")
     page(name: "configureSecondaryHub")
     page(name: "recorderInstallationInstructions")
@@ -205,7 +207,7 @@ def mainPage() {
                 input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + 'Select family member(s) to monitor</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                 input "privateMembers", "enum", multiple: true, title:(privateMembers ? '<div style="color:#ff0000">' : '<div>') + 'Select family member(s) to remain private.  Locations and regions will <B>NOT</b> be shared with other members or the Recorder.  Their Hubitat device will only display presence information.</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                 input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: DEFAULT_imperialUnits, submitOnChange: true
-                input "notificationList", "capability.notification", title: "Select notification devices to get region enter/leave notifications.  Enable the 'enter/leave' notification sliders in each member device that you wish to received notifications from.", multiple: true, required: false, submitOnChange: true
+                href(title: "Configure Region Arrived/Left Notifications", description: "", style: "page", page: "configureNotifications")
                 href(title: "Additional Hubitat App Settings", description: "", style: "page", page: "configureHubApp")
             }
             section(getFormat("box", "Optional Features")) {
@@ -509,6 +511,26 @@ def configureRegions() {
     }
 }
 
+def configureNotifications() {
+    return dynamicPage(name: "configureNotifications", title: "", nextPage: "mainPage") {
+        section(getFormat("box", "Configure Region Arrived/Left Notifications")) {
+            input "notificationList", "capability.notification", title: "Global enable/disable of notification devices.  Select per member enter/leave notifications below.", multiple: true, required: false, submitOnChange: true
+            if (state.submit) {
+                paragraph "<b>${appButtonHandler(state.submit)}</b>"
+                state.submit = ""
+            }
+            app.removeSetting("notificationEnter")
+            app.removeSetting("notificationLeave")            
+            input "selectFamilyMembers", "enum", multiple: false, title:"Select family member to change notifications.", options: state.members.name.sort(), submitOnChange: true
+            if (selectFamilyMembers) {
+                input "notificationEnter", "enum", title: "Select device(s) to get notifications when this member <b>enters</b> a region.", multiple: true, required: false, options: notificationList.collect{entry -> entry.displayName}, defaultValue: state.members.find {it.name==selectFamilyMembers}?.enterDevices
+                input "notificationLeave", "enum", title: "Select device(s) to get notifications when this member <b>leaves</b> a region.", multiple: true, required: false, options: notificationList.collect{entry -> entry.displayName}, defaultValue: state.members.find {it.name==selectFamilyMembers}?.leaveDevices
+            }
+            input name: "saveNotificationsButton", type: "button", title: "Save", state: "submit"         
+        }
+    }
+}
+
 def getEnabledAndNotHiddenMembers() {
     allowedMembers = []
     // build a list of enabled and not hidden members
@@ -667,7 +689,7 @@ def deleteMembers() {
                 paragraph "<b>${getFormat("redText", appButtonHandler(state.submit))}</b>"
                 state.submit = ""
             }
-            input "deleteFamilyMembers", "enum", multiple: true, title:"Select family member(s) to delete.", options: state.members.name.sort(), submitOnChange: true
+            input "selectFamilyMembers", "enum", multiple: true, title:"Select family member(s) to delete.", options: state.members.name.sort(), submitOnChange: true
             
             paragraph("<b>NOTE: Selected user(s) will be deleted from the app and their corresponding child device will be removed.  Ensure no automations are dependent on their device before proceeding!</b>")
             input name: "deleteMembersButton", type: "button", title: "Delete", state: "submit"
@@ -766,8 +788,8 @@ String appButtonHandler(btn) {
             }
         break
         case "deleteMembersButton":
-            if (deleteFamilyMembers) {
-                deleteFamilyMembers.each { name ->
+            if (selectFamilyMembers) {
+                selectFamilyMembers.each { name ->
                     deleteIndex = state.members.findIndexOf {it.name==name}
                     def deviceWrapper = getChildDevice(state.members[deleteIndex].id)
                     try {
@@ -777,9 +799,17 @@ String appButtonHandler(btn) {
                     }
                     state.members.remove(deleteIndex)               
                 }
-                result = "Deleting family members '${deleteFamilyMembers}'"
+                result = "Deleting family members '${selectFamilyMembers}'"
                 logWarn(result)
-                app.removeSetting("deleteFamilyMembers")
+                app.removeSetting("selectFamilyMembers")
+            }
+        break
+        case "saveNotificationsButton":
+            if (selectFamilyMembers) {
+                member = state.members.find {it.name==selectFamilyMembers}
+                member.enterDevices = notificationEnter
+                member.leaveDevices = notificationLeave
+                result = "Updated notification settings for family member '${selectFamilyMembers}'"
             }
         break
         case "resetAllDefaultsButton":
@@ -827,7 +857,9 @@ def clearSettingFields() {
     app.removeSetting("regionLat")
     app.removeSetting("regionLon")
     state.previousRegionName = ""
-    app.removeSetting("deleteFamilyMembers")    
+    app.removeSetting("selectFamilyMembers")    
+    app.removeSetting("notificationEnter")    
+    app.removeSetting("notificationLeave")    
 }
 
 def installed() {
@@ -1039,11 +1071,21 @@ def getImageURL(memberName) {
     return ("http://${location.hubs[0].getDataValue("localIP")}/local/${memberName}.jpg")
 }
 
-def generateTransitionNotification(memberName, transitionRegion, transitionEvent, transitionTime) {
+def generateTransitionNotification(deviceName, transitionEvent, transitionRegion, transitionTime) {
+    // parse the member name from the device name
+    memberName = deviceName.minus("${CHILDPREFIX}")
+    if (transitionEvent == "arrived") {
+        notificationDevices = state.members.find {it.name==memberName}?.enterDevices
+    } else {
+        notificationDevices = state.members.find {it.name==memberName}?.leaveDevices
+    }
+    
     // send notification to mobile if selected
-    if (notificationList) {
+    if (notificationDevices) {
         notificationList.each { val ->
-            val.deviceNotification("${memberName} ${transitionEvent} ${transitionRegion} at ${transitionTime}")
+            if (notificationDevices.find {it==val.displayName}) {
+                val.deviceNotification("${memberName} ${transitionEvent} ${transitionRegion} at ${transitionTime}")
+            }
         }
     }    
 }

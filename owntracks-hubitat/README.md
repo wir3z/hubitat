@@ -124,9 +124,16 @@ NOTE: A region named '+follow' is automatically created to allow iOS phones to h
 - All distances are stored in metric and may have minor rounding errors when converted to imperial for display.
 NOTE: The OwnTracks mobile app stores and displays all units in metric.
 		
-## Select notification devices to get region enter/leave notifications.  
-- Select notification devices to received notifications.
-NOTE: 'enter/leave' notifications must be enabled on each member device.
+## Configure Region Arrived/Left Notifications
+- Global enable/disable of notification devices.
+	- Select notification devices that can be used to receive notifications.
+	- Disabling a device will stop ALL member notifications, without changing each member, below.
+- Select family member to change notifications.
+	- Select a family member to change their notification settings.
+	- Select device(s) to get notifications when this member enters a region. (Only selected devices in the global settings, above are displayed.)
+	- Select device(s) to get notifications when this member leaves a region. (Only selected devices in the global settings, above are displayed.)
+	- Click 'Save' to store the notification settings for the user.
+	NOTE: The notifications can be checked by clicking the 'Arrviced' and 'Departed' buttons in that member's Hubitat device.
 	
 ## Additional Hubitat App Settings
 - Enter your 'Home' WiFi SSID(s), separated by commas (optional):

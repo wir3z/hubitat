@@ -98,12 +98,13 @@
  *  1.7.1      2024-01-31      - Refactored flow to prevent dirty location reports from triggering transitions.  Allow enter/leave transition notifications.
  *  1.7.2      2024-02-01      - Clarified the notification settings.
  *  1.7.3      2024-02-01      - 'Since' time was not updating properly after refactor.  Block transition if still connected to home WiFi SSID.
+ *  1.7.4      2024-02-03      - Fixed grammar on the transition notifications.  Arrived/Departed buttons update the tranistions.  Moved notification control to the app.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.3" }
+def driverVersion() { return "1.7.4" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -111,6 +112,7 @@ def driverVersion() { return "1.7.3" }
 @Field static final Map TRIGGER_TYPE = [ "p": "Ping", "c": "Region", "r": "Report Location", "u": "Manual", "b": "Beacon", "t": "Timer", "v": "Monitoring", "l": "Location" ]
 @Field static final Map PRESENCE_TILE_BATTERY_FIELD = [ 0: "Battery %", 1: "Current Location and Since Time", 2: "Distance from Home", 3: "Last Speed", 4: "Battery Status (Unplugged/Charging/Full)", 5: "Data Connection (WiFi/Mobile)", 6: "Update Trigger (Ping/Region/Report Location/Manual)", 7: "Distance from Home and Since Time" ]
 @Field static final Map LOCATION_PERMISION = [ "0": "Background - Fine", "-1": "Background - Coarse", "-2": "Foreground - Fine", "-3": "Foreground - Coarse", "-4": "Disabled" ]
+@Field static final Map TRANSITION_PHRASES = [ "enter": "arrived", "leave": "left" ]
 
 @Field Boolean DEFAULT_presenceTileBatteryField = 0
 @Field Boolean DEFAULT_displayExtendedAttributes = true
@@ -120,8 +122,6 @@ def driverVersion() { return "1.7.3" }
 @Field Boolean DEFAULT_debugOutput = false
 @Field Boolean DEFAULT_logLocationChanges = false
 @Field String  DEFAULT_privateLocation = "private"
-@Field Boolean DEFAULT_createNotificationOnTransitionEnter = false
-@Field Boolean DEFAULT_createNotificationOnTransitionLeave = false
 
 metadata {
   definition (
@@ -181,8 +181,6 @@ preferences {
     input name: "displayExtendedAttributes", type: "bool", title: "Display extended location attributes", defaultValue: DEFAULT_displayExtendedAttributes
     input name: "displayMemberTile", type: "bool", title: "Create a HTML MemberTile", defaultValue: DEFAULT_displayMemberTile
     input name: "colorMemberTile", type: "bool", title: "Change MemberTile background color based on presence", defaultValue: DEFAULT_colorMemberTile
-    input name: "createNotificationOnTransitionEnter", type: "bool", title: "Send a notification if member 'enters' a region.", description: "<i>Select devices in the Hubitat OwnTracks app to receive these notifications.</i>", defaultValue: DEFAULT_createNotificationOnTransitionEnter
-    input name: "createNotificationOnTransitionLeave", type: "bool", title: "Send a notification if member 'leaves' a region.", description: "<i>Select devices in the Hubitat OwnTracks app to receive these notifications.</i>", defaultValue: DEFAULT_createNotificationOnTransitionLeave
 
     input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: DEFAULT_descriptionTextOutput
     input name: "debugOutput", type: "bool", title: "Enable Debug Logging", defaultValue: DEFAULT_debugOutput
@@ -237,15 +235,21 @@ def deleteExtendedAttributes(makePrivate) {
 def arrived() {
     descriptionText = device.displayName +  " has arrived"
     sendEvent (name: "presence", value: "present", descriptionText: descriptionText)
+    sendEvent( name: "transitionTime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )	
+    sendEvent( name: "transitionDirection", value: "enter" )	
     logDescriptionText("$descriptionText")
-    generateMemberTile()
+    parent.generateTransitionNotification(device.displayName, TRANSITION_PHRASES[device.currentValue('transitionDirection',true)], device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
+    runIn(1, generateMemberTile)
 }
 
 def departed() {
     descriptionText = device.displayName +  " has departed"
     sendEvent (name: "presence", value: "not present", descriptionText: descriptionText)
+    sendEvent( name: "transitionTime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )	
+    sendEvent( name: "transitionDirection", value: "leave" )	
     logDescriptionText("$descriptionText")
-    generateMemberTile()
+    parent.generateTransitionNotification(device.displayName, TRANSITION_PHRASES[device.currentValue('transitionDirection',true)], device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
+    runIn(1, generateMemberTile)
 }
 
 def createMemberTile() {
@@ -370,15 +374,8 @@ Boolean generatePresenceEvent(data) {
                 currentLocation = data.desc
                 // only allow the transition event if not connected to home wifi
                 if (!data.memberWiFiHome) {
-                    if (data.event == "enter") {
-                        currentTransition = "arrived $data.desc"
-                        if (createNotificationOnTransitionEnter) parent.generateTransitionNotification(device.displayName, data.desc, data.event, locationTime)
-                    } else {
-                        currentTransition = "left $data.desc"
-                        if (createNotificationOnTransitionLeave) parent.generateTransitionNotification(device.displayName, data.desc, data.event, locationTime)
-                    }
-
-                    descriptionText = device.displayName +  " has " + currentTransition
+                    parent.generateTransitionNotification(device.displayName, TRANSITION_PHRASES[data.event], data.desc, locationTime)
+                    descriptionText = device.displayName +  " has ${TRANSITION_PHRASES[data.event]} " + data.desc
                     logDescriptionText("$descriptionText")
                 
                     // only update the time if there was a state change
