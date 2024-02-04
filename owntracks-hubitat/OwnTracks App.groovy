@@ -57,6 +57,7 @@
  *  1.7.3      2023-02-02      - Pass distance from home directly to driver for better logging.
  *  1.7.4      2023-02-03      - Changed the notification message.  Moved notification control to app.
  *  1.7.5      2023-02-03      - Remove the place from the full address.
+ *  1.7.6      2023-02-04      - Allow device name prefix to be changed.
  */
 
 import groovy.transform.Field
@@ -65,7 +66,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.5"}
+def appVersion() { return "1.7.6"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -89,9 +90,9 @@ def appVersion() { return "1.7.5"}
 @Field static final Map GEOCODE_API_KEY_LINK = [ 1: "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>", 2: "<a href='https://apidocs.geoapify.com/docs/geocoding/reverse-geocoding/#about' target='_blank'>Sign up for a Geoapify API Key</a>", 3: "<a href='https://opencagedata.com/api#quickstart' target='_blank'>Sign up for a Opencage API Key</a>" ]
 
 // Main defaults
-@Field String  CHILDPREFIX = "OwnTracks - "
 @Field String  MQTT_TOPIC_PREFIX = "owntracks"
 @Field Number  INVALID_COORDINATE = 999
+@Field String  DEFAULT_CHILDPREFIX = "OwnTracks - "
 @Field Number  DEFAULT_RADIUS = 75
 @Field Number  DEFAULT_regionHighAccuracyRadius = 750
 @Field Number  DEFAULT_wifiPresenceKeepRadius = 0.750
@@ -208,6 +209,7 @@ def mainPage() {
                 input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + 'Select family member(s) to monitor</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                 input "privateMembers", "enum", multiple: true, title:(privateMembers ? '<div style="color:#ff0000">' : '<div>') + 'Select family member(s) to remain private.  Locations and regions will <B>NOT</b> be shared with other members or the Recorder.  Their Hubitat device will only display presence information.</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                 input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: DEFAULT_imperialUnits, submitOnChange: true
+                input name: "deviceNamePrefix", type: "string", title: "Prefix to be added to each member's device name.  For example, member '<b>Bob</b>' will have a device name of '<b>${(deviceNamePrefix ? deviceNamePrefix.stripLeading() : DEFAULT_CHILDPREFIX)}Bob</b>'.  Enter a space to have no prefix in front of the member name.", defaultValue: DEFAULT_CHILDPREFIX, submitOnChange: true, required: true
                 href(title: "Configure Region Arrived/Left Notifications", description: "", style: "page", page: "configureNotifications")
                 href(title: "Additional Hubitat App Settings", description: "", style: "page", page: "configureHubApp")
             }
@@ -1007,6 +1009,9 @@ def updated() {
             createChild(member.name)
             // force the update to the new device
             syncSettings = true
+        } else {
+            // update the child name if the prefix changed
+            updateChildName(member)
         }
 
         // if we selected member(s) to update settings
@@ -1083,9 +1088,7 @@ def getImageURL(memberName) {
     return ("http://${location.hubs[0].getDataValue("localIP")}/local/${memberName}.jpg")
 }
 
-def generateTransitionNotification(deviceName, transitionEvent, transitionRegion, transitionTime) {
-    // parse the member name from the device name
-    memberName = deviceName.minus("${CHILDPREFIX}")
+def generateTransitionNotification(memberName, transitionEvent, transitionRegion, transitionTime) {
     if (transitionEvent == "arrived") {
         notificationDevices = state.members.find {it.name==memberName}?.enterDevices
     } else {
@@ -1408,7 +1411,7 @@ def updateDevicePresence(member, data) {
         // add the street address and regions, if they exist
         addStreetAddressAndRegions(data)   
         // update the child information
-        deviceWrapper.generatePresenceEvent(data)
+        deviceWrapper.generatePresenceEvent(member.name, data)
     } catch(e) {
         logError("updateDevicePresence: Exception for member: ${member.name}  $e")
     }
@@ -1867,12 +1870,23 @@ private def createChild(name) {
 
     logDescriptionText("Creating OwnTracks Device: $name:$DNI")
     try{
-        addChildDevice("lpakula", "OwnTracks Driver", DNI, ["name": "${CHILDPREFIX}${name}", isComponent: false])
+        addChildDevice("lpakula", "OwnTracks Driver", DNI, ["name": "${deviceNamePrefix.stripLeading()}${name}", isComponent: false])
         state.members.find {it.name==name}.id = DNI
         logDescriptionText("Child Device Successfully Created")
     }
     catch (e) {
         logError("Child device creation failed with error ${e}")
+    }
+}
+
+private def updateChildName(member) {
+    def deviceWrapper = getChildDevice(member.id)
+    def deviceName = "${deviceNamePrefix.stripLeading()}${member.name}"
+    if (deviceWrapper.getName() != deviceName) {
+        deviceWrapper.setName(deviceName)
+        logWarn("Changing ${member.name} device name to '${deviceName}'")
+    } else {
+        logDebug("Leaving ${member.name} device name as '${deviceName}'")
     }
 }
 

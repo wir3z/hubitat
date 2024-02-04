@@ -22,7 +22,7 @@ The OwnTracks app needs to be installed into Hubitat before the URL required for
 ## Quick Start Guide
 To get presence detection working, three things need to be configured:
 1. Install and configure the OwnTracks Mobile app to point to Hubitat
-2. Configure a 'Home' region that will be used to determine if the phone is present or not present.
+2. Configure a 'Home' region that will be used to determine if the phone is present or not present from the 'Configure Regions'/
 3. Select the family member(s) to monitor their presence.
 
 The defaults in the app should give acceptable results without changes.  It is recommended to configure the sections in the 'Installation' portion of the app and test presence detection before changing additional settings.
@@ -124,6 +124,11 @@ NOTE: A region named '+follow' is automatically created to allow iOS phones to h
 - All distances are stored in metric and may have minor rounding errors when converted to imperial for display.
 NOTE: The OwnTracks mobile app stores and displays all units in metric.
 		
+## Prefix to be added to each member's device name. 
+- By default, each member device will be created with a 'OwnTracks - ' prefix.
+- For example, member 'Bob' will have a device name of 'OwnTracks - Bob'. 
+- Enter a space to have no prefix in front of the member name.
+
 ## Configure Region Arrived/Left Notifications
 - Global enable/disable of notification devices.
 	- Select notification devices that can be used to receive notifications.

@@ -100,12 +100,13 @@
  *  1.7.3      2024-02-01      - 'Since' time was not updating properly after refactor.  Block transition if still connected to home WiFi SSID.
  *  1.7.4      2024-02-03      - Fixed grammar on the transition notifications.  Arrived/Departed buttons update the tranistions.  Moved notification control to the app.
  *  1.7.5      2024-02-03      - Removed OwnTracks prefix from the member tile name when no image is available.
+ *  1.7.6      2024-02-04      - Allow device name prefix to be changed.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.5" }
+def driverVersion() { return "1.7.6" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -123,7 +124,6 @@ def driverVersion() { return "1.7.5" }
 @Field Boolean DEFAULT_debugOutput = false
 @Field Boolean DEFAULT_logLocationChanges = false
 @Field String  DEFAULT_privateLocation = "private"
-@Field String  CHILDPREFIX = "OwnTracks - "
 
 metadata {
   definition (
@@ -329,12 +329,15 @@ def updateAttributes(data, locationType) {
     if (data?.SSID)  sendEvent (name: "SSID", value: data.SSID) else if (locationType) device.deleteCurrentState('SSID')
 }
 
-Boolean generatePresenceEvent(data) {
+Boolean generatePresenceEvent(memberName, data) {
     // update the driver version if necessary
     if (state.driverVersion != driverVersion()) {
         state.driverVersion = driverVersion()
     }
-    
+    // update the member name if necessary
+    if (state.memberName != memberName) {
+        state.memberName = memberName
+    }
     // defaults for the private member case
     descriptionText = ""
     currentLocation = DEFAULT_privateLocation
@@ -374,7 +377,7 @@ Boolean generatePresenceEvent(data) {
                 currentLocation = data.desc
                 // only allow the transition event if not connected to home wifi
                 if (!data.memberWiFiHome) {
-                    parent.generateTransitionNotification(device.displayName, TRANSITION_PHRASES[data.event], data.desc, locationTime)
+                    parent.generateTransitionNotification(memberName, TRANSITION_PHRASES[data.event], data.desc, locationTime)
                     descriptionText = device.displayName +  " has ${TRANSITION_PHRASES[data.event]} " + data.desc
                     logDescriptionText("$descriptionText")
                 
@@ -487,7 +490,7 @@ def generateMemberTile() {
         tiledata += '<tr>'
         
         if (device.currentValue('imageURL') != "false") {
-            tiledata += '<td width=20%><img src="' + device.currentValue('imageURL') + '" alt="' + device.displayName.minus("${CHILDPREFIX}") + '" width="35" height="35"></td>'
+            tiledata += '<td width=20%><img src="' + device.currentValue('imageURL') + '" alt="' + state.memberName + '" width="35" height="35"></td>'
         } else {
             tiledata += '<td width=20%>' + device.displayName + '</td>'
         }
