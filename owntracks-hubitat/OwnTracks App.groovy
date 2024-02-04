@@ -59,6 +59,7 @@
  *  1.7.5      2023-02-03      - Remove the place from the full address.
  *  1.7.6      2023-02-04      - Allow device name prefix to be changed.
  *  1.7.7      2023-02-04      - Fixed error on some hubs with the new prefix change.
+ *  1.7.8      2023-02-04      - Removed dynamic prefix display in the settings.
  */
 
 import groovy.transform.Field
@@ -67,7 +68,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.7"}
+def appVersion() { return "1.7.8"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -210,7 +211,7 @@ def mainPage() {
                 input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + 'Select family member(s) to monitor</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                 input "privateMembers", "enum", multiple: true, title:(privateMembers ? '<div style="color:#ff0000">' : '<div>') + 'Select family member(s) to remain private.  Locations and regions will <B>NOT</b> be shared with other members or the Recorder.  Their Hubitat device will only display presence information.</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                 input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: DEFAULT_imperialUnits, submitOnChange: true
-                input name: "deviceNamePrefix", type: "string", title: "Prefix to be added to each member's device name.  For example, member '<b>Bob</b>' will have a device name of '<b>${(deviceNamePrefix ? deviceNamePrefix?.stripLeading() : DEFAULT_CHILDPREFIX)}Bob</b>'.  Enter a space to have no prefix in front of the member name.", defaultValue: DEFAULT_CHILDPREFIX, submitOnChange: true, required: true
+                input name: "deviceNamePrefix", type: "string", title: "Prefix to be added to each member's device name.  For example, member '<b>Bob</b>' with a prefix of '<b>${DEFAULT_CHILDPREFIX}</b>' will have a device name of '<b>${DEFAULT_CHILDPREFIX}Bob</b>'.  Enter a space to have no prefix in front of the member name.", defaultValue: DEFAULT_CHILDPREFIX, submitOnChange: true, required: true
                 href(title: "Configure Region Arrived/Left Notifications", description: "", style: "page", page: "configureNotifications")
                 href(title: "Additional Hubitat App Settings", description: "", style: "page", page: "configureHubApp")
             }
