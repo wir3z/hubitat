@@ -99,12 +99,13 @@
  *  1.7.2      2024-02-01      - Clarified the notification settings.
  *  1.7.3      2024-02-01      - 'Since' time was not updating properly after refactor.  Block transition if still connected to home WiFi SSID.
  *  1.7.4      2024-02-03      - Fixed grammar on the transition notifications.  Arrived/Departed buttons update the tranistions.  Moved notification control to the app.
+ *  1.7.5      2024-02-03      - Removed OwnTracks prefix from the member tile name when no image is available.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.4" }
+def driverVersion() { return "1.7.5" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -122,6 +123,7 @@ def driverVersion() { return "1.7.4" }
 @Field Boolean DEFAULT_debugOutput = false
 @Field Boolean DEFAULT_logLocationChanges = false
 @Field String  DEFAULT_privateLocation = "private"
+@Field String  CHILDPREFIX = "OwnTracks - "
 
 metadata {
   definition (
@@ -136,8 +138,6 @@ metadata {
         command    "arrived"
         command    "departed"
         command    "createMemberTile"
-        command    "mapIframeTile"
-        command    "mapEmbedTile"
 
         attribute  "location", "string"
         attribute  "transitionRegion", "string"
@@ -184,6 +184,8 @@ preferences {
     input name: "displayMemberTile", type: "bool", title: "Create a HTML MemberTile", defaultValue: DEFAULT_displayMemberTile
     input name: "colorMemberTile", type: "bool", title: "Change MemberTile background color based on presence", defaultValue: DEFAULT_colorMemberTile
 
+    input name: "webURL", type: "string", title: "Enter URL to embed into Member Tile"
+    
     input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: DEFAULT_descriptionTextOutput
     input name: "debugOutput", type: "bool", title: "Enable Debug Logging", defaultValue: DEFAULT_debugOutput
     input name: "logLocationChanges", type: "bool", title: "Enable Logging of location changes", defaultValue: DEFAULT_logLocationChanges
@@ -256,22 +258,6 @@ def departed() {
 
 def createMemberTile() {
     generateMemberTile()
-}
-
-def mapIframeTile() {
-    String tiledata = "";
-    tiledata += '<div style="width:100%;height:100%;font-size:0.7em">'
-    tiledata += "<iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&output=embed&' style='height:100%;width:100%'></iframe>"
-    tiledata += '</div>'
-    sendEvent(name: "MemberLocation", value: tiledata, displayed: true)
-}
-
-def mapEmbedTile() {
-    String tiledata = "";
-    tiledata += '<div style="width:100%;height:100%;font-size:0.7em">'
-    tiledata += "<embed type='text/html' src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&output=embed&' style='height:100%;width:100%'>"
-    tiledata += '</div>'
-    sendEvent(name: "MemberLocation", value: tiledata, displayed: true)
 }
 
 def updateAttributes(data, locationType) { 
@@ -366,7 +352,7 @@ Boolean generatePresenceEvent(data) {
     locationTime = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date())
     sendEvent( name: "lastLocationtime", value: locationTime )
     sendEvent( name: "imperialUnits", value: parent.isimperialUnits() )
-
+    
     // update the attributes - only allow attribute deletion on location updates
     updateAttributes(data, (data._type == "location"))
     
@@ -375,8 +361,6 @@ Boolean generatePresenceEvent(data) {
         // only update the presence for 'home'
         if (data.memberAtHome) {
             memberPresence = "present"
-            // clamp to home to prevent noise in displayed value
-//            data.currentDistanceFromHome = 0
         } else {
             memberPresence = "not present"
         }
@@ -505,7 +489,7 @@ def generateMemberTile() {
         tiledata += '<tr>'
         
         if (device.currentValue('imageURL') != "false") {
-            tiledata += '<td width=20%><img src="' + device.currentValue('imageURL') + '" alt="' + device.displayName + '" width="35" height="35"></td>'
+            tiledata += '<td width=20%><img src="' + device.currentValue('imageURL') + '" alt="' + device.displayName.minus("${CHILDPREFIX}") + '" width="35" height="35"></td>'
         } else {
             tiledata += '<td width=20%>' + device.displayName + '</td>'
         }
@@ -525,7 +509,11 @@ def generateMemberTile() {
         // mobile has bottom metrics hidden in 4x height tile in portrait, full screen in landscape
         tiledata += '<table align="center" style="width:100%;height:calc(100% - 185px)">'
         tiledata += '<tr>'
-        tiledata += "<td><iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&output=embed&' style='height:100%;width:100%'></iframe></td>"
+        
+        
+        
+        tiledata += "<td><iframe src='${webURL}&output=embed&' style='height:100%;width:100%'></iframe></td>"
+//        tiledata += "<td><iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&output=embed&' style='height:100%;width:100%'></iframe></td>"
         tiledata += '</tr>'
         tiledata += '</table>'
 
