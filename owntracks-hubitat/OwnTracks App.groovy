@@ -56,6 +56,7 @@
  *  1.7.2      2023-02-01      - Moved the notification selection box to the main screen.  Fix issue where Geoapify geocodes added leading spaces to fields.
  *  1.7.3      2023-02-02      - Pass distance from home directly to driver for better logging.
  *  1.7.4      2023-02-03      - Changed the notification message.  Moved notification control to app.
+ *  1.7.5      2023-02-03      - Remove the place from the full address.
  */
 
 import groovy.transform.Field
@@ -64,7 +65,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.4"}
+def appVersion() { return "1.7.5"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -374,7 +375,18 @@ def recorderInstallationInstructions() {
                        "          d. docker run -d --restart always --name=owntracks -p 8083:8083 -v recorder_store:/store -v config:/config owntracks/recorder\r\n\r\n" +
                        "     3. The above 'recorder_store' (STORAGEDIR) and 'config' is found here in Docker:\r" +
                        "          a. /<b>[HOME_PATH]</b>/docker/volumes/recorder_store/_data\r" +
-                       "          b. /<b>[HOME_PATH]</b>/docker/volumes/config/_data\r\n\r\n"
+                       "          b. /<b>[HOME_PATH]</b>/docker/volumes/config/_data\r\n\r\n" + 
+                       "     4. Access the Owntracks Recorder by opening a web broswer and navigating to 'http://<b>[enter.your.recorder.ip]</b>:8083/'.\r"
+                      )
+        }
+        section(getFormat("box", "Installing and configuring the OwnTracks Frontend (optional UI) using Docker")) {
+            paragraph ("<b>NOTE:</b>  Instructions assume that Docker has already been installed and is operational and the Owntracks Recorder, above, has been installed an configured.\r\n\r\n" +
+                       "For the source code and instructions, navigate to <a href='https://github.com/owntracks/frontend/' target='_blank'>OwnTracks Frontend GitHub</a> \r\n\r\n" +
+                       "     1. Install OwnTracks Recorder:\r" +
+                       "          a. docker pull owntracks/frontend\r\n\r\n" +
+                       "     2. Configure OwnTracks Recorder:\r" +
+                       "          a. docker run -d --restart always --name=owntracks_ui -p 8082:80 -e SERVER_HOST=OwnTracks -e SERVER_PORT=8083 owntracks/frontend\r\n\r\n" +
+                       "     3. Access the Owntracks Frontend by opening a web broswer and navigating to 'http://<b>[enter.your.recorder.ip]</b>:8082'.\r"
                       )
         }
         section(getFormat("box", "Adding user cards to OwnTracks Recorder")) {
@@ -1424,10 +1436,12 @@ def addStreetAddressAndRegions(data) {
         // street address, city
         // lat, lon
         // if the first digit of the first entry is not a number, but the second is, then we were returned a place, street adress
-        if (!((addressList[0])[0])?.isNumber() && ((addressList[1])[0])?.isNumber()) {
+        if ( !((addressList[0])[0])?.isNumber() && (((addressList[1])[0])?.isNumber() || (addressList.size() > 4)) ) {
             // save the place to the region list
             addRegionToInregions(addressList[0], data)
             data.streetAddress = addressList[1]
+            // remove the place from the address
+            data.address = data.address.substring(data.address.indexOf(",") + 1)?.trim()
         } else {
             // if the first entry is not a number, then we have a street address
             if (!addressList[0]?.isNumber()) {
@@ -1440,7 +1454,7 @@ def addStreetAddressAndRegions(data) {
     } catch (e) {
         // pass the address through
         data.streetAddress = data.address
-    }     
+    }
 }
 
 def checkRegionConfiguration(member, data) {
@@ -1932,7 +1946,7 @@ private def updateAddress(currentMember, data) {
     // check if the incoming coordinates are the same as the past coordinates, and we have a previously stored address
 //    if ((data.lat == currentMember.latitude) && (data.lon == currentMember.longitude) && isAddress(currentMember.address) && !isAddress(data.address)) {
     // check if the incoming coordinates within the hystersis of past coordinates, and we have a previously stored address
-    if ((haversine(data.lat,data.lon,currentMember.latitude,currentMember.longitude) < DEFAULT_geocodeLookupHysteresis) && isAddress(currentMember.address) && !isAddress(data.address)) {
+    if ((haversine(data.lat, data.lon, currentMember.latitude, currentMember.longitude) < DEFAULT_geocodeLookupHysteresis) && isAddress(currentMember.address) && !isAddress(data.address)) {
         data.address = currentMember.address
     } else {
         // do the address lookup

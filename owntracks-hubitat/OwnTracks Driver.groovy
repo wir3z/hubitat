@@ -99,12 +99,13 @@
  *  1.7.2      2024-02-01      - Clarified the notification settings.
  *  1.7.3      2024-02-01      - 'Since' time was not updating properly after refactor.  Block transition if still connected to home WiFi SSID.
  *  1.7.4      2024-02-03      - Fixed grammar on the transition notifications.  Arrived/Departed buttons update the tranistions.  Moved notification control to the app.
+ *  1.7.5      2024-02-03      - Removed OwnTracks prefix from the member tile name when no image is available.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.4" }
+def driverVersion() { return "1.7.5" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -122,6 +123,7 @@ def driverVersion() { return "1.7.4" }
 @Field Boolean DEFAULT_debugOutput = false
 @Field Boolean DEFAULT_logLocationChanges = false
 @Field String  DEFAULT_privateLocation = "private"
+@Field String  CHILDPREFIX = "OwnTracks - "
 
 metadata {
   definition (
@@ -357,8 +359,6 @@ Boolean generatePresenceEvent(data) {
         // only update the presence for 'home'
         if (data.memberAtHome) {
             memberPresence = "present"
-            // clamp to home to prevent noise in displayed value
-//            data.currentDistanceFromHome = 0
         } else {
             memberPresence = "not present"
         }
@@ -487,7 +487,7 @@ def generateMemberTile() {
         tiledata += '<tr>'
         
         if (device.currentValue('imageURL') != "false") {
-            tiledata += '<td width=20%><img src="' + device.currentValue('imageURL') + '" alt="' + device.displayName + '" width="35" height="35"></td>'
+            tiledata += '<td width=20%><img src="' + device.currentValue('imageURL') + '" alt="' + device.displayName.minus("${CHILDPREFIX}") + '" width="35" height="35"></td>'
         } else {
             tiledata += '<td width=20%>' + device.displayName + '</td>'
         }

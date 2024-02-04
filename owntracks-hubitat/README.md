@@ -184,6 +184,11 @@ The defaults for the rest of these settings should be sufficient for verifying o
 - HTTP URL of the OwnTracks Recorder will be in the format 'http://enter.your.recorder.ip:8083/pub', assuming using the default port of 8083.
 - Follow the directions on the page 'Installing OwnTracks Recorder and Configuring User Card Instructions' to install OwnTrack Recorder and configure user cards.
 - When 'Enable location updates to be sent to the Recorder URL' is selected, incoming mobile locations are mirrored to the above URL. 
+- To view the OwnTracks recorder, open a web browser and navigate to 'http://enter.your.recorder.ip:8083/'
+## Enable Optional OwnTracks Frontend
+- The optional Owntracks Fronend:  https://github.com/owntracks/frontend/ can be installed to provide a different user experience than the OwnTracks Recorder.
+- NOTE:  OwnTracks Recorder MUST be already installed and operational.
+- To view the OwnTracks frontend, open a web browser and navigate to 'http://enter.your.recorder.ip:8082/'
 ## Link Secondary Hub
 - Allows location updates to be sent to a secondary hub running the OwnTracks app.
 - Enter the host URL of the Seconday Hub from the OwnTracks app 'Mobile App Installation Instructions' page.
@@ -390,3 +395,7 @@ If a more accurate location is needed, enable the 'Use GPS' slider in 'Advanced 
 ## OwnTracks Recorder
 ### What is Recorder, and why do I want this?
 Recorder captures all the locations send to the Hubitat app to allow a breadcrumb trail to be viewed on a map at a later time.  If you have a need to see where a member has been, this is a handy tool, but is not needed for the Hubitat presence detection.	
+
+## OwnTracks Frontend
+### What is Frontend, and why do I want this?
+Frontend requires the Recorder to be installed an configured.  It offers a different user experience for browsing past breadcrumb trails to be viewed on a map.	
