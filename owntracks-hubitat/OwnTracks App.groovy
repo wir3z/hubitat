@@ -60,6 +60,7 @@
  *  1.7.6      2023-02-04      - Allow device name prefix to be changed.
  *  1.7.7      2023-02-04      - Fixed error on some hubs with the new prefix change.
  *  1.7.8      2023-02-04      - Removed dynamic prefix display in the settings.
+ *  1.7.9      2023-02-04      - Updated OwnTracks Frontend instructions.
  */
 
 import groovy.transform.Field
@@ -68,7 +69,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.8"}
+def appVersion() { return "1.7.9"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -389,7 +390,7 @@ def recorderInstallationInstructions() {
                        "     1. Install OwnTracks Recorder:\r" +
                        "          a. docker pull owntracks/frontend\r\n\r\n" +
                        "     2. Configure OwnTracks Recorder:\r" +
-                       "          a. docker run -d --restart always --name=owntracks_ui -p 8082:80 -e SERVER_HOST=OwnTracks -e SERVER_PORT=8083 owntracks/frontend\r\n\r\n" +
+                       "          a. docker run -d --restart always --name=owntracks_ui -p 8082:80 -e SERVER_HOST=<b>[enter.your.recorder.ip]</b> -e SERVER_PORT=8083 owntracks/frontend\r\n\r\n" +
                        "     3. Access the Owntracks Frontend by opening a web broswer and navigating to 'http://<b>[enter.your.recorder.ip]</b>:8082'.\r"
                       )
         }
