@@ -61,6 +61,7 @@
  *  1.7.7      2023-02-04      - Fixed error on some hubs with the new prefix change.
  *  1.7.8      2023-02-04      - Removed dynamic prefix display in the settings.
  *  1.7.9      2023-02-04      - Updated OwnTracks Frontend instructions.
+ *  1.7.10     2023-02-05      - Updated the disabled member warning instructions in the logs.  Changed the starting zoom level of the region maps to show house level.
  */
 
 import groovy.transform.Field
@@ -69,7 +70,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.9"}
+def appVersion() { return "1.7.10"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -519,7 +520,7 @@ def configureRegions() {
         }
         section(getFormat("line", "")) {
             input "homePlace", "enum", multiple: false, title:(homePlace ? '<div>' : '<div style="color:#ff0000">') + "Select your 'Home' place. ${(homePlace ? "" : "Use 'Configure Regions'->'Add Regions' to create a home location.")}" + '</div>', options: getNonFollowRegions(true), submitOnChange: true
-            paragraph("<iframe src='https://maps.google.com/?q=${getHomeRegion()?.lat},${getHomeRegion()?.lon}&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
+            paragraph("<iframe src='https://maps.google.com/?q=${getHomeRegion()?.lat},${getHomeRegion()?.lon}&z=17&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
             checkForHome()
         }
         section(getFormat("line", "")) {
@@ -621,14 +622,14 @@ def addRegions() {
             }
         }
         section(getFormat("line", "")) {
+            // assign defaults so the map populates properly
+            if (settings["regionLat"] == null) settings["regionLat"] = location.getLatitude()
+            if (settings["regionLon"] == null) settings["regionLon"] = location.getLongitude()
+            paragraph("<iframe src='https://maps.google.com/?q=${settings["regionLat"]},${settings["regionLon"]}&z=17&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
             input "regionName", "text", title: "Name", submitOnChange: true
             input name: "regionRadius", type: "number", title: "Detection radius (${getSmallUnits()}) (${displayMFtVal(50)}..${displayMFtVal(1000)})", range: "${displayMFtVal(50)}..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_RADIUS)
             input name: "regionLat", type: "double", title: "Latitude (-90.0..90.0)", range: "-90.0..90.0", defaultValue: location.getLatitude(), submitOnChange: true
             input name: "regionLon", type: "double", title: "Longitude (-180.0..180.0)", range: "-180.0..180.0", defaultValue: location.getLongitude(), submitOnChange: true
-            // assign defaults so the map populates properly
-            if (settings["regionLat"] == null) settings["regionLat"] = location.getLatitude()
-            if (settings["regionLon"] == null) settings["regionLon"] = location.getLongitude()
-            paragraph("<iframe src='https://maps.google.com/?q=${settings["regionLat"]},${settings["regionLon"]}&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
             input name: "addRegionButton", type: "button", title: "Save", state: "submit"
         }
     }
@@ -657,13 +658,11 @@ def editRegions() {
                 }
                 // save the name in so we can retrieve the values should it get changed below
                 state.previousRegionName = regionName
-
+                paragraph("<iframe src='https://maps.google.com/?q=${settings["regionLat"]},${settings["regionLon"]}&z=17&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
                 input name: "regionName", type: "text", title: "Name", required: true
                 input name: "regionRadius", type: "number", title: "Detection radius (${getSmallUnits()})", required: true, range: "${displayMFtVal(50)}..${displayMFtVal(1000)}"
                 input name: "regionLat", type: "double", title: "Latitude (-90.0..90.0)", required: true, range: "-90.0..90.0", submitOnChange: true
                 input name: "regionLon", type: "double", title: "Longitude (-180.0..180.0)", required: true, range: "-180.0..180.0", submitOnChange: true
-
-                paragraph("<iframe src='https://maps.google.com/?q=${settings["regionLat"]},${settings["regionLon"]}&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
                 input name: "editRegionButton", type: "button", title: "Save", state: "submit"
             }
         }
@@ -681,7 +680,7 @@ def deleteRegions() {
             input "regionName", "enum", multiple: false, title:"Select region to delete", options: getNonFollowRegions(false), submitOnChange: true
             if (regionName) {
                 deleteRegion = state.places.find {it.desc==regionName}
-                paragraph("<iframe src='https://maps.google.com/?q=${deleteRegion?.lat},${deleteRegion?.lon}&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
+                paragraph("<iframe src='https://maps.google.com/?q=${deleteRegion?.lat},${deleteRegion?.lon}&z=17&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
                 paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.</b></div>")
                 paragraph("<h3><b>Delete Region from Hub Only - Manually Delete Region from Mobile</b></h3>" +
                           "1. Click the 'Delete Region from Hubitat ONLY' button.\r" +
@@ -1246,7 +1245,7 @@ def webhookEventHandler() {
             if (findMember == null) {
                 state.members << [ name:sourceName, deviceID:sourceDeviceID, id:null, timeStamp:(now()/1000).toInteger(), updateWaypoints:true, updateLocation:true, updateDisplay:true, dynamicLocaterAccuracy:false, restartApp:false, getRegions:false, requestLocation:false ]
             }
-            logWarn("User: '${sourceName}' not configured.  Run setup to add new member.")
+            logWarn("User: '${sourceName}' not configured.  To enable this member, open the Hubitat OwnTracks app, select '${sourceName}' in 'Select family member(s) to monitor' box and then click 'Done'.")
         } else {
             // only process events from enabled members
             if (settings?.enabledMembers.find {it==sourceName}) {
@@ -1295,9 +1294,9 @@ def webhookEventHandler() {
                 }
             } else {
                 if (warnOnDisabledMember) {
-                    logWarn("User: '${sourceName}' not enabled.  Run setup to enable member.")
+                    logWarn("User: '${sourceName}' not enabled.  To enable this member, open the Hubitat OwnTracks app, select '${sourceName}' in 'Select family member(s) to monitor' box and then click 'Done'.")
                 } else {
-                    logDebug("User: '${sourceName}' not enabled.  Run setup to enable member.")
+                    logDebug("User: '${sourceName}' not enabled.  To enable this member, open the Hubitat OwnTracks app, select '${sourceName}' in 'Select family member(s) to monitor' box and then click 'Done'.")
                 }
             }
         }

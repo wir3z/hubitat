@@ -101,12 +101,13 @@
  *  1.7.4      2024-02-03      - Fixed grammar on the transition notifications.  Arrived/Departed buttons update the tranistions.  Moved notification control to the app.
  *  1.7.5      2024-02-03      - Removed OwnTracks prefix from the member tile name when no image is available.
  *  1.7.6      2024-02-04      - Allow device name prefix to be changed.
+ *  1.7.7      2024-02-05      - Changed the starting zoom level of the region maps to show house level.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.6" }
+def driverVersion() { return "1.7.7" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -510,7 +511,7 @@ def generateMemberTile() {
         // mobile has bottom metrics hidden in 4x height tile in portrait, full screen in landscape
         tiledata += '<table align="center" style="width:100%;height:calc(100% - 185px)">'
         tiledata += '<tr>'
-        tiledata += "<td><iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&output=embed&' style='height:100%;width:100%'></iframe></td>"
+        tiledata += "<td><iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&z=17&output=embed&' style='height:100%;width:100%'></iframe></td>"
         tiledata += '</tr>'
         tiledata += '</table>'
 
