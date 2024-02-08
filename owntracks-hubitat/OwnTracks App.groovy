@@ -62,6 +62,7 @@
  *  1.7.8      2023-02-04      - Removed dynamic prefix display in the settings.
  *  1.7.9      2023-02-04      - Updated OwnTracks Frontend instructions.
  *  1.7.10     2023-02-05      - Updated the disabled member warning instructions in the logs.  Changed the starting zoom level of the region maps to show house level.
+ *  1.7.11     2023-02-06      - Recorder configuration URL no longer requires the /pub, and will automatically be corrected in the setting.
  */
 
 import groovy.transform.Field
@@ -70,7 +71,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.10"}
+def appVersion() { return "1.7.11"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -94,8 +95,11 @@ def appVersion() { return "1.7.10"}
 @Field static final Map GEOCODE_API_KEY_LINK = [ 1: "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>", 2: "<a href='https://apidocs.geoapify.com/docs/geocoding/reverse-geocoding/#about' target='_blank'>Sign up for a Geoapify API Key</a>", 3: "<a href='https://opencagedata.com/api#quickstart' target='_blank'>Sign up for a Opencage API Key</a>" ]
 
 // Main defaults
+@Field String  RECORDER_PUBLISH_FOLDER = "/pub"
 @Field String  MQTT_TOPIC_PREFIX = "owntracks"
 @Field Number  INVALID_COORDINATE = 999
+@Field String  COMMON_CHILDNAME = "OwnTracks"
+@Field String  COMMON_CHILD_DNI = "${app.id}.${COMMON_CHILDNAME}"
 @Field String  DEFAULT_CHILDPREFIX = "OwnTracks - "
 @Field Number  DEFAULT_RADIUS = 75
 @Field Number  DEFAULT_regionHighAccuracyRadius = 750
@@ -382,7 +386,7 @@ def recorderInstallationInstructions() {
                        "     3. The above 'recorder_store' (STORAGEDIR) and 'config' is found here in Docker:\r" +
                        "          a. /<b>[HOME_PATH]</b>/docker/volumes/recorder_store/_data\r" +
                        "          b. /<b>[HOME_PATH]</b>/docker/volumes/config/_data\r\n\r\n" + 
-                       "     4. Access the Owntracks Recorder by opening a web broswer and navigating to 'http://<b>[enter.your.recorder.ip]</b>:8083/'.\r"
+                       "     4. Access the Owntracks Recorder by opening a web broswer and navigating to 'http://<b>[enter.your.recorder.ip]</b>:8083'.\r"
                       )
         }
         section(getFormat("box", "Installing and configuring the OwnTracks Frontend (optional UI) using Docker")) {
@@ -423,7 +427,7 @@ def configureRecorder() {
     return dynamicPage(name: "configureRecorder", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Recorder Configuration")) {
             paragraph("The <a href='https://owntracks.org/booklet/clients/recorder/' target='_blank'>OwnTracks Recorder</a> (optional) can be installed for local tracking.")
-            input name: "recorderURL", type: "text", title: "HTTP URL of the OwnTracks Recorder.  It will be in the format <b>'http://enter.your.recorder.ip:8083/pub'</b>, assuming using the default port of 8083.", defaultValue: ""
+            input name: "recorderURL", type: "text", title: "HTTP URL of the OwnTracks Recorder.  It will be in the format <b>'http://enter.your.recorder.ip:8083'</b>, assuming using the default port of 8083.  The app will automatically add the <b>'$RECORDER_PUBLISH_FOLDER'</b> path.", defaultValue: ""
             input name: "enableRecorder", type: "bool", title: "Enable location updates to be sent to the Recorder URL", defaultValue: false, submitOnChange: true
             if (!recorderURL) {
                 app.updateSetting("enableRecorder",[value: false, type: "bool"])
@@ -1001,6 +1005,12 @@ def updated() {
     unschedule()
     unsubscribe()
     logDescriptionText("Updated")
+    
+    // cleanup up the recorder URL if necessary by removing the trailing /pub or /
+    formatRecorderURL()
+    
+    // create the common child if it doesn't exist
+    createCommonChild()
 
     // create a presence child device for each member - we will need to manually removed children unless the app is uninstalled
     state.members.each { member->
@@ -1089,6 +1099,19 @@ def getImageURL(memberName) {
     // return with path to the user card   
     return ("http://${location.hubs[0].getDataValue("localIP")}/local/${memberName}.jpg")
 }
+
+def getRecorderURL() {
+    // return with recorder URL
+    return (recorderURL)
+}
+
+def formatRecorderURL() {
+    // cleanup up the recorder URL if necessary by removing the trailing /pub or /
+    properURL = recorderURL?.trim()?.minus(RECORDER_PUBLISH_FOLDER)
+    if (recorderURL != properURL) {
+        app.updateSetting("recorderURL",[value: properURL, type: "string"])
+    }
+}    
 
 def generateTransitionNotification(memberName, transitionEvent, transitionRegion, transitionTime) {
     if (transitionEvent == "arrived") {
@@ -1215,7 +1238,7 @@ def splitTopic(topic) {
     //     [1] = "username"
     //     [2] = "deviceID"
     //     [3] = event type: "waypoint", "waypoints", "event".  Does not get populated for "location".
-   return(data.topic.split("/"))
+   return(topic.split("/"))
 }
 
 def webhookEventHandler() {
@@ -1276,7 +1299,7 @@ def webhookEventHandler() {
                         if (!data.cog) { data.cog = data.currentDistanceFromHome }
                         // if we have the OwnTracks recorder configured, and the timestamp is valid, and the user is not parked as private, pass the location data to it
                         if (recorderURL && enableRecorder && (data.tst != 0) && !data.private) {
-                            def postParams = [ uri: recorderURL?.trim(), requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
+                            def postParams = [ uri: recorderURL + RECORDER_PUBLISH_FOLDER, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
                             asynchttpPost("httpCallbackMethod", postParams)
                         }
                     break
@@ -1863,6 +1886,21 @@ private def sendCmdToMember(currentMember) {
 def validLocationType(locationType) {
     // allow update if ping or manual location
     return ((locationType == "p") || (locationType == "u"))
+}
+
+private def createCommonChild() {
+    // common device to allow the app to do across family member tasks
+    def deviceWrapper = getChildDevice(COMMON_CHILD_DNI)
+    if (!deviceWrapper) {
+        logDescriptionText("Creating OwnTracks Common Device: $COMMON_CHILDNAME:$COMMON_CHILD_DNI")
+        try{
+//            addChildDevice("lpakula", "OwnTracks Common Driver", COMMON_CHILD_DNI, ["name": COMMON_CHILDNAME, isComponent: false])
+            logDescriptionText("Common Child Device Successfully Created")
+        }
+        catch (e) {
+            logError("Common Child device creation failed with error ${e}")
+        }
+    }
 }
 
 private def createChild(name) {
