@@ -63,6 +63,7 @@
  *  1.7.9      2023-02-04      - Updated OwnTracks Frontend instructions.
  *  1.7.10     2023-02-05      - Updated the disabled member warning instructions in the logs.  Changed the starting zoom level of the region maps to show house level.
  *  1.7.11     2023-02-07      - Recorder configuration URL no longer requires the /pub, and will automatically be corrected in the setting.  Added common member driver for friends location tile.  Added setting to select WiFi SSID keep radius.
+ *  1.7.12     2023-02-08      - Fixed null exceptions on update to 1.7.11.
  */
 
 import groovy.transform.Field
@@ -71,7 +72,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.11"}
+def appVersion() { return "1.7.12"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -939,9 +940,11 @@ def initialize(forceDefaults) {
 def initializeHub(forceDefaults) {
     if (forceDefaults) {
         app.removeSetting("regionHighAccuracyRadius")
+        app.removeSetting("wifiPresenceKeepRadius")
         app.removeSetting("geocodeProvider")
     }
     if (forceDefaults || (regionHighAccuracyRadius == null)) app.updateSetting("regionHighAccuracyRadius", [value: DEFAULT_regionHighAccuracyRadius, type: "number"])
+    if (forceDefaults || (wifiPresenceKeepRadius == null)) app.updateSetting("wifiPresenceKeepRadius", [value: DEFAULT_wifiPresenceKeepRadius, type: "number"])
     if (forceDefaults || (regionHighAccuracyRadiusHomeOnly == null)) app.updateSetting("regionHighAccuracyRadiusHomeOnly", [value: DEFAULT_regionHighAccuracyRadiusHomeOnly, type: "bool"])
     if (forceDefaults || (warnOnNoUpdateHours == null)) app.updateSetting("warnOnNoUpdateHours", [value: DEFAULT_warnOnNoUpdateHours, type: "number"])
     if (forceDefaults || (warnOnDisabledMember == null)) app.updateSetting("warnOnDisabledMember", [value: DEFAULT_warnOnDisabledMember, type: "bool"])
@@ -1107,7 +1110,11 @@ def getImageURL(memberName) {
 
 def getRecorderURL() {
     // return with recorder URL
-    return (recorderURL)
+    if (recorderURL) {
+        return (recorderURL)
+    } else {
+        return ("")
+    }
 }
 
 def formatRecorderURL() {
@@ -1422,7 +1429,7 @@ def updateDevicePresence(member, data) {
             // or the mobile is reporting the member is home
             memberMobileHome = (data?.inregions.find {it==getHomeRegion().desc} || ((data?.desc == getHomeRegion().desc) && (data?.event == 'enter')))
             // or connected to a listed SSID and within the next geofence
-            data.memberWiFiHome = (data.currentDistanceFromHome < (wifiPresenceKeepRadius.toDouble() / 1000)) && isSSIDMatch(homeSSID, deviceWrapper)
+            data.memberWiFiHome = (data.currentDistanceFromHome < (wifiPresenceKeepRadius?.toDouble() / 1000)) && isSSIDMatch(homeSSID, deviceWrapper)
             
             // if either the hub or the mobile reports it is home, then make the member present
             if (memberHubHome || memberMobileHome || data.memberWiFiHome) {
