@@ -62,7 +62,7 @@
  *  1.7.8      2023-02-04      - Removed dynamic prefix display in the settings.
  *  1.7.9      2023-02-04      - Updated OwnTracks Frontend instructions.
  *  1.7.10     2023-02-05      - Updated the disabled member warning instructions in the logs.  Changed the starting zoom level of the region maps to show house level.
- *  1.7.11     2023-02-06      - Recorder configuration URL no longer requires the /pub, and will automatically be corrected in the setting.
+ *  1.7.11     2023-02-07      - Recorder configuration URL no longer requires the /pub, and will automatically be corrected in the setting.  Added common member driver for friends location tile.  Added setting to select WiFi SSID keep radius.
  */
 
 import groovy.transform.Field
@@ -99,11 +99,10 @@ def appVersion() { return "1.7.11"}
 @Field String  MQTT_TOPIC_PREFIX = "owntracks"
 @Field Number  INVALID_COORDINATE = 999
 @Field String  COMMON_CHILDNAME = "OwnTracks"
-@Field String  COMMON_CHILD_DNI = "${app.id}.${COMMON_CHILDNAME}"
 @Field String  DEFAULT_CHILDPREFIX = "OwnTracks - "
 @Field Number  DEFAULT_RADIUS = 75
 @Field Number  DEFAULT_regionHighAccuracyRadius = 750
-@Field Number  DEFAULT_wifiPresenceKeepRadius = 0.750
+@Field Number  DEFAULT_wifiPresenceKeepRadius = 750
 @Field Boolean DEFAULT_imperialUnits = false
 @Field Boolean DEFAULT_regionHighAccuracyRadiusHomeOnly = true
 @Field Boolean DEFAULT_warnOnDisabledMember = true
@@ -279,6 +278,7 @@ def configureHubApp() {
 	            state.submit = ""
             }
             input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas.  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point(s).", defaultValue: ""
+            input name: "wifiPresenceKeepRadius", type: "enum", title: "SSID will only be used for presence detection when a member is within this radius from home, Recommended=${displayMFtVal(DEFAULT_wifiPresenceKeepRadius)}", defaultValue: "${DEFAULT_wifiPresenceKeepRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',1000:'3281 ft',1250:'4101 ft',1500:'4921 ft'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',1000:'1000 m',1250:'1250 m',1500:'1500 m'])
         }
         section(getFormat("line", "")) {
             input name: "resetHubDefaultsButton", type: "button", title: "Restore Defaults", state: "submit"
@@ -288,7 +288,7 @@ def configureHubApp() {
                 app.updateSetting("locatorDisplacement", [value: displayMFtVal(state.locatorDisplacement), type: "number"])
                 app.updateSetting("ignoreInaccurateLocations", [value: displayMFtVal(state.ignoreInaccurateLocations), type: "number"])
             }
-            input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',1000:'3281 ft'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',1000:'1000 m'])
+            input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',1000:'3281 ft',1250:'4101 ft',1500:'4921 ft'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',1000:'1000 m',1250:'1250 m',1500:'1500 m'])
             input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: DEFAULT_regionHighAccuracyRadiusHomeOnly
             input name: "warnOnNoUpdateHours", type: "number", title: "Highlight members on the 'Member Status' that have not reported a location for this many hours (1..168)", range: "1..168", defaultValue: DEFAULT_warnOnNoUpdateHours
             input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: DEFAULT_warnOnDisabledMember
@@ -1096,8 +1096,13 @@ def childGetWarnOnNonOptimalSettings() {
 }
 
 def getImageURL(memberName) {
-    // return with path to the user card   
-    return ("http://${location.hubs[0].getDataValue("localIP")}/local/${memberName}.jpg")
+    if (imageCards) {
+        // return with path to the user card   
+        return ("http://${location.hubs[0].getDataValue("localIP")}/local/${memberName}.jpg")
+    } else {
+        // return false
+        return (imageCards)
+    }
 }
 
 def getRecorderURL() {
@@ -1301,6 +1306,8 @@ def webhookEventHandler() {
                         if (recorderURL && enableRecorder && (data.tst != 0) && !data.private) {
                             def postParams = [ uri: recorderURL + RECORDER_PUBLISH_FOLDER, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
                             asynchttpPost("httpCallbackMethod", postParams)
+                            // update the friends tile
+                            createFriendsTile()
                         }
                     break
                     case "waypoint":
@@ -1405,11 +1412,7 @@ def updateDevicePresence(member, data) {
         def deviceWrapper = getChildDevice(member.id)
         logDebug("Updating '${(data.event ? "Event $data.event" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for member $deviceWrapper")
         // update the image URL if enabled
-        if (imageCards) {
-            deviceWrapper.sendEvent( name: "imageURL", value: getImageURL(member.name) )
-        } else {
-            deviceWrapper.sendEvent( name: "imageURL", value: imageCards )
-        }
+        deviceWrapper.sendEvent( name: "imageURL", value: getImageURL(member.name) )
         // check if the user defined a home place
         if (homePlace) {
             // append the distance from home to the data packet
@@ -1419,7 +1422,7 @@ def updateDevicePresence(member, data) {
             // or the mobile is reporting the member is home
             memberMobileHome = (data?.inregions.find {it==getHomeRegion().desc} || ((data?.desc == getHomeRegion().desc) && (data?.event == 'enter')))
             // or connected to a listed SSID and within the next geofence
-            data.memberWiFiHome = (data.currentDistanceFromHome < DEFAULT_wifiPresenceKeepRadius) && isSSIDMatch(homeSSID, deviceWrapper)
+            data.memberWiFiHome = (data.currentDistanceFromHome < (wifiPresenceKeepRadius.toDouble() / 1000)) && isSSIDMatch(homeSSID, deviceWrapper)
             
             // if either the hub or the mobile reports it is home, then make the member present
             if (memberHubHome || memberMobileHome || data.memberWiFiHome) {
@@ -1436,7 +1439,7 @@ def updateDevicePresence(member, data) {
         // add the street address and regions, if they exist
         addStreetAddressAndRegions(data)   
         // update the child information
-        deviceWrapper.generatePresenceEvent(member.name, data)
+        deviceWrapper.generatePresenceEvent(member.name, getHomeRegion().desc, data)
     } catch(e) {
         logError("updateDevicePresence: Exception for member: ${member.name}  $e")
     }
@@ -1888,13 +1891,24 @@ def validLocationType(locationType) {
     return ((locationType == "p") || (locationType == "u"))
 }
 
+private def createFriendsTile() {
+    def deviceWrapper = getChildDevice(getCommonChildDNI())
+    if (deviceWrapper) {
+        deviceWrapper.generateFriendsTile()
+    }
+}
+
+private def getCommonChildDNI() {
+    return("${app.id}.${COMMON_CHILDNAME}")
+}
+
 private def createCommonChild() {
     // common device to allow the app to do across family member tasks
-    def deviceWrapper = getChildDevice(COMMON_CHILD_DNI)
+    def deviceWrapper = getChildDevice(getCommonChildDNI())
     if (!deviceWrapper) {
-        logDescriptionText("Creating OwnTracks Common Device: $COMMON_CHILDNAME:$COMMON_CHILD_DNI")
+        logDescriptionText("Creating OwnTracks Common Device: $COMMON_CHILDNAME:${getCommonChildDNI()}")
         try{
-//            addChildDevice("lpakula", "OwnTracks Common Driver", COMMON_CHILD_DNI, ["name": COMMON_CHILDNAME, isComponent: false])
+            addChildDevice("lpakula", "OwnTracks Common Driver", getCommonChildDNI(), ["name": COMMON_CHILDNAME, isComponent: false])
             logDescriptionText("Common Child Device Successfully Created")
         }
         catch (e) {

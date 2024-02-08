@@ -102,12 +102,13 @@
  *  1.7.5      2024-02-03      - Removed OwnTracks prefix from the member tile name when no image is available.
  *  1.7.6      2024-02-04      - Allow device name prefix to be changed.
  *  1.7.7      2024-02-05      - Changed the starting zoom level of the region maps to show house level.
+ *  1.7.8      2024-02-07      - Added last locations tile if Recorder is enabled.  Deleted the SSID attribute if the phone switches to mobile data.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.7" }
+def driverVersion() { return "1.7.8" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -120,6 +121,7 @@ def driverVersion() { return "1.7.7" }
 @Field Boolean DEFAULT_presenceTileBatteryField = 0
 @Field Boolean DEFAULT_displayExtendedAttributes = true
 @Field Boolean DEFAULT_displayMemberTile = false
+@Field Boolean DEFAULT_displayLastLocationTile = false
 @Field Boolean DEFAULT_colorMemberTile = true
 @Field Boolean DEFAULT_descriptionTextOutput = true
 @Field Boolean DEFAULT_debugOutput = false
@@ -159,6 +161,7 @@ metadata {
 
         attribute  "imageURL", "string"
         attribute  "MemberLocation", "string"
+        attribute  "PastLocations", "string"
       
         // extended attributes
         attribute  "batteryPercent", "number"
@@ -182,8 +185,9 @@ metadata {
 preferences {
     input name: "presenceTileBatteryField", type: "enum", title: "What is displayed on the presence tile battery field", required: true, options: PRESENCE_TILE_BATTERY_FIELD, defaultValue: DEFAULT_presenceTileBatteryField
     input name: "displayExtendedAttributes", type: "bool", title: "Display extended location attributes", defaultValue: DEFAULT_displayExtendedAttributes
-    input name: "displayMemberTile", type: "bool", title: "Create a HTML MemberTile", defaultValue: DEFAULT_displayMemberTile
+    input name: "displayMemberTile", type: "bool", title: "Create a HTML MemberLocation tile", defaultValue: DEFAULT_displayMemberTile
     input name: "colorMemberTile", type: "bool", title: "Change MemberTile background color based on presence", defaultValue: DEFAULT_colorMemberTile
+    input name: "displayLastLocationTile", type: "bool", title: "Create a HTML PastLocations tile", defaultValue: DEFAULT_displayLastLocationTile
 
     input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: DEFAULT_descriptionTextOutput
     input name: "debugOutput", type: "bool", title: "Enable Debug Logging", defaultValue: DEFAULT_debugOutput
@@ -238,6 +242,7 @@ def deleteExtendedAttributes(makePrivate) {
 def arrived() {
     descriptionText = device.displayName +  " has arrived"
     sendEvent (name: "presence", value: "present", descriptionText: descriptionText)
+    sendEvent( name: "transitionRegion", value: state.homeName )
     sendEvent( name: "transitionTime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )	
     sendEvent( name: "transitionDirection", value: "enter" )	
     logDescriptionText("$descriptionText")
@@ -248,6 +253,7 @@ def arrived() {
 def departed() {
     descriptionText = device.displayName +  " has departed"
     sendEvent (name: "presence", value: "not present", descriptionText: descriptionText)
+    sendEvent( name: "transitionRegion", value: state.homeName )	
     sendEvent( name: "transitionTime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )	
     sendEvent( name: "transitionDirection", value: "leave" )	
     logDescriptionText("$descriptionText")
@@ -326,11 +332,11 @@ def updateAttributes(data, locationType) {
         }
     }
     
-    // needed for the presence detection check
-    if (data?.SSID)  sendEvent (name: "SSID", value: data.SSID) else if (locationType) device.deleteCurrentState('SSID')
+    // needed for the presence detection check -- if the phone holds onto the SSID, check if we switched to wifi
+    if ((data?.SSID) && ((data?.conn) == "w"))  sendEvent (name: "SSID", value: data.SSID) else if (locationType) device.deleteCurrentState('SSID')
 }
 
-Boolean generatePresenceEvent(memberName, data) {
+Boolean generatePresenceEvent(memberName, homeName, data) {
     // update the driver version if necessary
     if (state.driverVersion != driverVersion()) {
         state.driverVersion = driverVersion()
@@ -338,6 +344,10 @@ Boolean generatePresenceEvent(memberName, data) {
     // update the member name if necessary
     if (state.memberName != memberName) {
         state.memberName = memberName
+    }
+    // update the home name if necessary
+    if (state.homeName != homeName) {
+        state.homeName = homeName
     }
     // defaults for the private member case
     descriptionText = ""
@@ -466,6 +476,14 @@ Boolean generatePresenceEvent(memberName, data) {
         // allowed all the time
         if (device.currentValue("presence") != memberPresence) {
             logDescriptionText "$device.displayName is $memberPresence"
+            // in case we missed the transition event, update the attributes to align to the presence
+            sendEvent( name: "transitionRegion", value: state.homeName )
+            sendEvent( name: "transitionTime", value: locationTime )
+            if (data.memberAtHome) {
+                sendEvent( name: "transitionDirection", value: "enter" )
+            } else {
+                sendEvent( name: "transitionDirection", value: "leave" )
+            }
         }
         sendEvent( name: "presence", value: memberPresence, descriptionText: descriptionText)
         sendEvent( name: "location", value: currentLocation )
@@ -542,6 +560,61 @@ def generateMemberTile() {
         sendEvent(name: "MemberLocation", value: tiledata, displayed: true)
     } else {
         device.deleteCurrentState('MemberLocation')
+    }
+    // generate the past locations tile if allowed
+    generatePastLocationsTile()
+}
+
+def generatePastLocationsTile() {
+    if (displayLastLocationTile && parent.getRecorderURL() && (device.currentValue('location') != DEFAULT_privateLocation)) {
+        // split the topic into it's elements.  user is [1], device is [2].
+        topicElements = parent.splitTopic(device.currentValue('sourceTopic').toLowerCase())
+    
+        // pick the range as the last 12-hours, in GMT
+        currentTime = now() - location.timeZone.rawOffset
+        startDate = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm").format(new Date(currentTime-(12*3600*1000)))        
+        endDate = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm").format(new Date(currentTime))
+        urlPath = parent.getRecorderURL() + '/map/index.html?from=' + startDate + '&to=' + endDate + '&format=geojson&user=' + topicElements[1] + '&device=' + topicElements[2]
+        // redo the time for the tile in local time
+        currentTime = now()
+        startDate = new SimpleDateFormat("yyyy-MM-dd  h:mm a").format(new Date(currentTime-(12*3600*1000)))        
+        endDate = new SimpleDateFormat("yyyy-MM-dd  h:mm a").format(new Date(currentTime))
+
+        String tiledata = "";
+        tiledata += '<div style="width:100%;height:100%;font-size:0.7em">'
+        tiledata += '<div>'
+        tiledata += '<table align="center" style="width:100%">'          
+        tiledata += '<tr>'
+        
+        if (device.currentValue('imageURL') != "false") {
+            tiledata += '<td width=20%><img src="' + device.currentValue('imageURL') + '" alt="' + state.memberName + '" width="35" height="35"></td>'
+        } else {
+            tiledata += '<td width=20%>' + device.displayName + '</td>'
+        }
+        tiledata += '<td width=60% style="padding-top:15px;">'
+        tiledata += "Start: ${startDate}</br>"
+        tiledata += "End: ${endDate}</br>"
+        tiledata += '</td>'
+        tiledata += '<td width=20%>'
+        tiledata += '</td>'
+        tiledata += '</tr>'
+        tiledata += '</table>'
+        tiledata += '</div>'
+
+        tiledata += '<table align="center" style="width:100%;height:calc(100% - 90px)">'
+        tiledata += '<tr>'
+        tiledata += "<td><iframe src=${urlPath} style='height:100%;width:100%'></iframe></td>"
+        tiledata += '</tr>'
+        tiledata += '</table>'
+        
+        // deal with the 1024 byte attribute limit
+        if ((tiledata.length() + 11) > 1024) {
+            tiledata = "Too much data to display.</br></br>Exceeds maximum tile length by " + ((tiledata.length() + 11) - 1024) + " characters."
+        }
+
+        sendEvent(name: "PastLocations", value: tiledata, displayed: true)
+    } else {
+        device.deleteCurrentState('PastLocations')
     }
 }
 

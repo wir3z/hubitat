@@ -143,6 +143,8 @@ NOTE: The OwnTracks mobile app stores and displays all units in metric.
 ## Additional Hubitat App Settings
 - Enter your 'Home' WiFi SSID(s), separated by commas (optional):
 	- This will prevent devices from being 'non-present' if currently connected to these WiFi access points.
+- SSID will only be used for presence detection when a member is within this radius from home
+	- Once the member exceeds this distance, SSID will no longer be used for 'present' and 'not present' detection.
 
 The defaults for the rest of these settings should be sufficient for verifying operation.
 - Restore Defaults
@@ -186,14 +188,14 @@ The defaults for the rest of these settings should be sufficient for verifying o
 	- Sends back each user's thumbnail picture when the send their location report.		
 ## Enable OwnTracks Recorder
 - The optional Owntracks recorder:  https://owntracks.org/booklet/clients/recorder/ can be installed for local tracking.
-- HTTP URL of the OwnTracks Recorder will be in the format 'http://enter.your.recorder.ip:8083/pub', assuming using the default port of 8083.
+- HTTP URL of the OwnTracks Recorder will be in the format 'http://enter.your.recorder.ip:8083', assuming using the default port of 8083.
 - Follow the directions on the page 'Installing OwnTracks Recorder and Configuring User Card Instructions' to install OwnTrack Recorder and configure user cards.
 - When 'Enable location updates to be sent to the Recorder URL' is selected, incoming mobile locations are mirrored to the above URL. 
-- To view the OwnTracks recorder, open a web browser and navigate to 'http://enter.your.recorder.ip:8083/'
+- To view the OwnTracks recorder, open a web browser and navigate to 'http://enter.your.recorder.ip:8083'
 ## Enable Optional OwnTracks Frontend
 - The optional Owntracks Fronend:  https://github.com/owntracks/frontend/ can be installed to provide a different user experience than the OwnTracks Recorder.
 - NOTE:  OwnTracks Recorder MUST be already installed and operational.
-- To view the OwnTracks frontend, open a web browser and navigate to 'http://enter.your.recorder.ip:8082/'
+- To view the OwnTracks frontend, open a web browser and navigate to 'http://enter.your.recorder.ip:8082'
 ## Link Secondary Hub
 - Allows location updates to be sent to a secondary hub running the OwnTracks app.
 - Enter the host URL of the Seconday Hub from the OwnTracks app 'Mobile App Installation Instructions' page.
@@ -277,10 +279,12 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 	- Select what is displayed in the 'battery' field which is displayed at the top of the presence tile from the pull-down menu. This can be battery voltage, location, distance from home, etc.
 - Display extended location attributes:
 	- Displays additional location attributes (battery status, altitude, accuracy, etc.)
-- Create a HTML MemberTile
-	- Creates a 'Member_Location' HTML attribute that can be added to the dashboards.  Displays the map location, information as well as presence.
-- Change MemberTile background color based on presence
-	- Background for the map in the MemberTile will be green for present, red for not present if enabled.  Otherwise the default background color is used.
+- Create a HTML MemberLocation
+	- Creates a 'MemberLocation' HTML attribute that can be added to the dashboards.  Displays the map location, information as well as presence.
+- Change MemberLocation background color based on presence
+	- Background for the map in the MemberLocation will be green for present, red for not present if enabled.  Otherwise the default background color is used.
+- Create a HTML PastLocations tile	
+	- Creates a 'PastLocations' HTML attribute that can be added to the dashboards.  Displays the the member's locations in the past 12-hours.  Requires Recorder to be configured.
 - Create a notification if member enters a region
 	- Sends Hubitat app notifications when the member arrives
 	NOTE:  Requires a notification device to be selected in the 'Additional Hub App Settings' -> 'Select notification devices to get region enter/leave notifications."
@@ -328,6 +332,9 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 	- batteryOptimizations : 0/1, 1 indicates that the OwnTracks app has battery optimizations on which will impact performance
 	- locationPermissions : 0/1, 1 indicates the location permission settings are configured in a way that will impact performance
 
+# Hubitat Common Driver Configuration
+- Create a HTML FriendsLocation tile	
+	- Creates a 'FriendsLocation' HTML attribute that can be added to the dashboards.  Displays the the all member's current locations in a single map.  Requires Recorder to be configured.
 	
 	
 # FAQ (Frequently Asked Questions)
