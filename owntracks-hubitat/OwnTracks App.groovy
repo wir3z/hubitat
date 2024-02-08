@@ -63,7 +63,7 @@
  *  1.7.9      2023-02-04      - Updated OwnTracks Frontend instructions.
  *  1.7.10     2023-02-05      - Updated the disabled member warning instructions in the logs.  Changed the starting zoom level of the region maps to show house level.
  *  1.7.11     2023-02-07      - Recorder configuration URL no longer requires the /pub, and will automatically be corrected in the setting.  Added common member driver for friends location tile.  Added setting to select WiFi SSID keep radius.
- *  1.7.12     2023-02-08      - Fixed null exceptions on update to 1.7.11.
+ *  1.7.13     2023-02-08      - Fixed null exceptions on update to 1.7.11.
  */
 
 import groovy.transform.Field
@@ -72,7 +72,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.12"}
+def appVersion() { return "1.7.13"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -1110,11 +1110,7 @@ def getImageURL(memberName) {
 
 def getRecorderURL() {
     // return with recorder URL
-    if (recorderURL) {
-        return (recorderURL)
-    } else {
-        return ("")
-    }
+    return (settings?.recorderURL)
 }
 
 def formatRecorderURL() {
