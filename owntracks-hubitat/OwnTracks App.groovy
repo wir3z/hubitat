@@ -66,6 +66,7 @@
  *  1.7.13     2023-02-08      - Fixed null exceptions on update to 1.7.11.
  *  1.7.14     2023-02-08      - Addressed migration issues.  Change the "high accuracy location message" to debug.
  *  1.7.15     2023-02-08      - Only update the device prefix if one is defined.
+ *  1.7.16     2023-02-08      - Add error protection on device prefix change.
  */
 
 import groovy.transform.Field
@@ -74,7 +75,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.15"}
+def appVersion() { return "1.7.16"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -1029,9 +1030,7 @@ def updated() {
             syncSettings = true
         } else {
             // update the child name if the prefix changed
-            if (deviceNamePrefix) {
-                updateChildName(member)
-            }
+            updateChildName(member)
         }
 
         // if we selected member(s) to update settings
@@ -1944,12 +1943,16 @@ private def createChild(name) {
 }
 
 private def updateChildName(member) {
-    def deviceWrapper = getChildDevice(member.id)
-    def deviceName = "${deviceNamePrefix?.stripLeading()}${member.name}"
-    if (deviceWrapper.getName() != deviceName) {
-        deviceWrapper.setName(deviceName)
-        logWarn("Changing ${member.name} device name to '${deviceName}'")
-    } else {
+    try {
+        def deviceWrapper = getChildDevice(member.id)
+        def deviceName = "${deviceNamePrefix?.stripLeading()}${member.name}"
+        if (deviceWrapper.getName() != deviceName) {
+            deviceWrapper.setName(deviceName)
+            logWarn("Changing ${member.name} device name to '${deviceName}'")
+        } else {
+            logDebug("Leaving ${member.name} device name as '${deviceName}'")
+        }
+    } catch(e) {
         logDebug("Leaving ${member.name} device name as '${deviceName}'")
     }
 }
