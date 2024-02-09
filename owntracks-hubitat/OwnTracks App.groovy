@@ -65,6 +65,7 @@
  *  1.7.11     2023-02-07      - Recorder configuration URL no longer requires the /pub, and will automatically be corrected in the setting.  Added common member driver for friends location tile.  Added setting to select WiFi SSID keep radius.
  *  1.7.13     2023-02-08      - Fixed null exceptions on update to 1.7.11.
  *  1.7.14     2023-02-08      - Addressed migration issues.  Change the "high accuracy location message" to debug.
+ *  1.7.15     2023-02-08      - Only update the device prefix if one is defined.
  */
 
 import groovy.transform.Field
@@ -73,7 +74,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.14"}
+def appVersion() { return "1.7.15"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -1028,7 +1029,9 @@ def updated() {
             syncSettings = true
         } else {
             // update the child name if the prefix changed
-            updateChildName(member)
+            if (deviceNamePrefix) {
+                updateChildName(member)
+            }
         }
 
         // if we selected member(s) to update settings
