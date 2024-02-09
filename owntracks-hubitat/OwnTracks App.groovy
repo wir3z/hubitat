@@ -67,6 +67,7 @@
  *  1.7.14     2023-02-08      - Addressed migration issues.  Change the "high accuracy location message" to debug.
  *  1.7.15     2023-02-08      - Only update the device prefix if one is defined.
  *  1.7.16     2023-02-08      - Add error protection on device prefix change.
+ *  1.7.17     2023-02-09      - Changed the device name creation to work on all hub versions.  Only create member devices once the user has been enabled.
  */
 
 import groovy.transform.Field
@@ -75,7 +76,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.16"}
+def appVersion() { return "1.7.17"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -217,10 +218,10 @@ def mainPage() {
             section(getFormat("box", "Installation")) {
                 href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
                 href(title: "Configure Regions", description: "", style: "page", page: "configureRegions")
-                input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + 'Select family member(s) to monitor</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
+                input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + "Select family member(s) to monitor.  Member device will be created and configured once 'Done' is pressed, below.</div>", options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                 input "privateMembers", "enum", multiple: true, title:(privateMembers ? '<div style="color:#ff0000">' : '<div>') + 'Select family member(s) to remain private.  Locations and regions will <B>NOT</b> be shared with other members or the Recorder.  Their Hubitat device will only display presence information.</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                 input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: DEFAULT_imperialUnits, submitOnChange: true
-                input name: "deviceNamePrefix", type: "string", title: "Prefix to be added to each member's device name.  For example, member '<b>Bob</b>' with a prefix of '<b>${DEFAULT_CHILDPREFIX}</b>' will have a device name of '<b>${DEFAULT_CHILDPREFIX}Bob</b>'.  Enter a space to have no prefix in front of the member name.", defaultValue: DEFAULT_CHILDPREFIX, submitOnChange: true, required: true
+                input name: "deviceNamePrefix", type: "string", title: "Prefix to be added to each member's device name.  For example, member '<b>Bob</b>' with a prefix of '<b>${DEFAULT_CHILDPREFIX}</b>' will have a device name of '<b>${DEFAULT_CHILDPREFIX}Bob</b>'. Member device name will be updated once 'Done' is pressed, below. Enter a space to have no prefix in front of the member name.", defaultValue: DEFAULT_CHILDPREFIX, submitOnChange: true, required: true
                 href(title: "Configure Region Arrived/Left Notifications", description: "", style: "page", page: "configureNotifications")
                 href(title: "Additional Hubitat App Settings", description: "", style: "page", page: "configureHubApp")
             }
@@ -1018,9 +1019,10 @@ def updated() {
     
     // create the common child if it doesn't exist
     createCommonChild()
-
-    // create a presence child device for each member - we will need to manually removed children unless the app is uninstalled
-    state.members.each { member->
+    
+    // create a presence child device for each enabled member - we will need to manually removed children unless the app is uninstalled
+    settings?.enabledMembers.each { enabledMember->
+        member = state.members.find {it.name==enabledMember}    
         // default to false
         syncSettings = false
         // create the child if it doesn't exist
@@ -1933,7 +1935,8 @@ private def createChild(name) {
 
     logDescriptionText("Creating OwnTracks Device: $name:$DNI")
     try{
-        addChildDevice("lpakula", "OwnTracks Driver", DNI, ["name": "${deviceNamePrefix?.stripLeading()}${name}", isComponent: false])
+        def deviceName = createDeviceName(name)
+        addChildDevice("lpakula", "OwnTracks Driver", DNI, ["name": "${deviceName}", isComponent: false])
         state.members.find {it.name==name}.id = DNI
         logDescriptionText("Child Device Successfully Created")
     }
@@ -1945,7 +1948,7 @@ private def createChild(name) {
 private def updateChildName(member) {
     try {
         def deviceWrapper = getChildDevice(member.id)
-        def deviceName = "${deviceNamePrefix?.stripLeading()}${member.name}"
+        def deviceName = createDeviceName(member.name)
         if (deviceWrapper.getName() != deviceName) {
             deviceWrapper.setName(deviceName)
             logWarn("Changing ${member.name} device name to '${deviceName}'")
@@ -1953,8 +1956,17 @@ private def updateChildName(member) {
             logDebug("Leaving ${member.name} device name as '${deviceName}'")
         }
     } catch(e) {
-        logDebug("Leaving ${member.name} device name as '${deviceName}'")
+        logWarn("Leaving ${member.name} device name as '${deviceName}'")
     }
+}
+
+private def createDeviceName(name) {
+    if (deviceNamePrefix) {
+        deviceName = "${deviceNamePrefix}${name}"
+    } else {
+        deviceName = name
+    }
+    return (deviceName?.trim())
 }
 
 private removeChildDevices(delete) {
