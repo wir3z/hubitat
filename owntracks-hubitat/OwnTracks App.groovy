@@ -37,38 +37,39 @@
  *  1.6.15     2024-01-16      - Added support for driver to retrieve local file URL.  Fixed issue when home place was deleted.  Provided quick selection to switch locator priority on main screen.
  *  1.6.16     2024-01-17      - Fixed issue where assigning home would get cleared.
  *  1.6.18     2024-01-17      - Changed home to use timestamp to allow name change.  NOTE: breaking change -- home must be re-selected from the list.  Added an automatic +follow region for iOS transition tracking.
- *  1.6.19     2023-01-18      - Ignore incoming +follow regions from users.  Changed the +follow region to match the locatorInterval setting.
- *  1.6.20     2023-01-19      - Fixed a fail to install crash from the +follow maintenance.
- *  1.6.21     2023-01-20      - Fixed issue where it was impossible to edit a different region after selecting one.  Added the ability to have private members to not receive member updates or regions.  Added note to edit regions for iOS devices. Added the ability to reset location and display to default.  Home location cleanup.
- *  1.6.22     2023-01-21      - Updated the add/edit/delete flow.  Add a banner to the member status table and delete screen for regions pending deletion.
- *  1.6.23     2023-01-22      - Add a red information banner to delete old +follow regions if the locater interval changed.  Fixed issue where a home region mismatch would be displayed when a user left home.
- *  1.6.24     2023-01-23      - Expose the member delete button to eliminate confusion.
- *  1.6.25     2023-01-24      - Removed nag warning about home region mismatch.
- *  1.6.26     2023-01-26      - Added direct links to the file manager and logs in the setup screens.  Added reverse geocode address support.
- *  1.6.27     2023-01-28      - Fixed error when configuring the geocode provider for the first time.
- *  1.6.28     2023-01-28      - Added 6-decimal place rounding to geocode lat/lon.
- *  1.6.29     2023-01-29      - Store the users past address, and re-use that instead of a geocode lookup if their current coordinates are within 10m of that location.
- *  1.6.30     2023-01-29      - Fixed typo.
- *  1.6.31     2023-01-29      - Prevent exceptions when converting units if a null was passed.
- *  1.6.32     2023-01-30      - Updated member attributes before address lookup to prevent errors.  Added a warning to Member Status if no home place is defined.
- *  1.7.0      2023-01-30      - Moved street address logic to app.
- *  1.7.1      2023-01-31      - Fixed issue where geocode location would get stuck and never request a new address.  Added enter/leave transition notification.
- *  1.7.2      2023-02-01      - Moved the notification selection box to the main screen.  Fix issue where Geoapify geocodes added leading spaces to fields.
- *  1.7.3      2023-02-02      - Pass distance from home directly to driver for better logging.
- *  1.7.4      2023-02-03      - Changed the notification message.  Moved notification control to app.
- *  1.7.5      2023-02-03      - Remove the place from the full address.
- *  1.7.6      2023-02-04      - Allow device name prefix to be changed.
- *  1.7.7      2023-02-04      - Fixed error on some hubs with the new prefix change.
- *  1.7.8      2023-02-04      - Removed dynamic prefix display in the settings.
- *  1.7.9      2023-02-04      - Updated OwnTracks Frontend instructions.
- *  1.7.10     2023-02-05      - Updated the disabled member warning instructions in the logs.  Changed the starting zoom level of the region maps to show house level.
- *  1.7.11     2023-02-07      - Recorder configuration URL no longer requires the /pub, and will automatically be corrected in the setting.  Added common member driver for friends location tile.  Added setting to select WiFi SSID keep radius.
- *  1.7.13     2023-02-08      - Fixed null exceptions on update to 1.7.11.
- *  1.7.14     2023-02-08      - Addressed migration issues.  Change the "high accuracy location message" to debug.
- *  1.7.15     2023-02-08      - Only update the device prefix if one is defined.
- *  1.7.16     2023-02-08      - Add error protection on device prefix change.
- *  1.7.17     2023-02-09      - Changed the device name creation to work on all hub versions.  Only create member devices once the user has been enabled.
- *  1.7.18     2023-02-09      - Allow changing of the arrived/left notifications.
+ *  1.6.19     2024-01-18      - Ignore incoming +follow regions from users.  Changed the +follow region to match the locatorInterval setting.
+ *  1.6.20     2024-01-19      - Fixed a fail to install crash from the +follow maintenance.
+ *  1.6.21     2024-01-20      - Fixed issue where it was impossible to edit a different region after selecting one.  Added the ability to have private members to not receive member updates or regions.  Added note to edit regions for iOS devices. Added the ability to reset location and display to default.  Home location cleanup.
+ *  1.6.22     2024-01-21      - Updated the add/edit/delete flow.  Add a banner to the member status table and delete screen for regions pending deletion.
+ *  1.6.23     2024-01-22      - Add a red information banner to delete old +follow regions if the locater interval changed.  Fixed issue where a home region mismatch would be displayed when a user left home.
+ *  1.6.24     2024-01-23      - Expose the member delete button to eliminate confusion.
+ *  1.6.25     2024-01-24      - Removed nag warning about home region mismatch.
+ *  1.6.26     2024-01-26      - Added direct links to the file manager and logs in the setup screens.  Added reverse geocode address support.
+ *  1.6.27     2024-01-28      - Fixed error when configuring the geocode provider for the first time.
+ *  1.6.28     2024-01-28      - Added 6-decimal place rounding to geocode lat/lon.
+ *  1.6.29     2024-01-29      - Store the users past address, and re-use that instead of a geocode lookup if their current coordinates are within 10m of that location.
+ *  1.6.30     2024-01-29      - Fixed typo.
+ *  1.6.31     2024-01-29      - Prevent exceptions when converting units if a null was passed.
+ *  1.6.32     2024-01-30      - Updated member attributes before address lookup to prevent errors.  Added a warning to Member Status if no home place is defined.
+ *  1.7.0      2024-01-30      - Moved street address logic to app.
+ *  1.7.1      2024-01-31      - Fixed issue where geocode location would get stuck and never request a new address.  Added enter/leave transition notification.
+ *  1.7.2      2024-02-01      - Moved the notification selection box to the main screen.  Fix issue where Geoapify geocodes added leading spaces to fields.
+ *  1.7.3      2024-02-02      - Pass distance from home directly to driver for better logging.
+ *  1.7.4      2024-02-03      - Changed the notification message.  Moved notification control to app.
+ *  1.7.5      2024-02-03      - Remove the place from the full address.
+ *  1.7.6      2024-02-04      - Allow device name prefix to be changed.
+ *  1.7.7      2024-02-04      - Fixed error on some hubs with the new prefix change.
+ *  1.7.8      2024-02-04      - Removed dynamic prefix display in the settings.
+ *  1.7.9      2024-02-04      - Updated OwnTracks Frontend instructions.
+ *  1.7.10     2024-02-05      - Updated the disabled member warning instructions in the logs.  Changed the starting zoom level of the region maps to show house level.
+ *  1.7.11     2024-02-07      - Recorder configuration URL no longer requires the /pub, and will automatically be corrected in the setting.  Added common member driver for friends location tile.  Added setting to select WiFi SSID keep radius.
+ *  1.7.13     2024-02-08      - Fixed null exceptions on update to 1.7.11.
+ *  1.7.14     2024-02-08      - Addressed migration issues.  Change the "high accuracy location message" to debug.
+ *  1.7.15     2024-02-08      - Only update the device prefix if one is defined.
+ *  1.7.16     2024-02-08      - Add error protection on device prefix change.
+ *  1.7.17     2024-02-09      - Changed the device name creation to work on all hub versions.  Only create member devices once the user has been enabled.
+ *  1.7.18     2024-02-09      - Allow changing of the arrived/left notifications.
+ *  1.7.19     2024-02-10      - Updated logging.  Removed the request high accuracy location selection box due to it being redundant.  
  */
 
 import groovy.transform.Field
@@ -77,7 +78,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.18"}
+def appVersion() { return "1.7.19"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -247,7 +248,6 @@ def mainPage() {
             }
             section(getFormat("box", "Maintenance")) {
                 input "syncMobileSettings", "enum", multiple: true, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
-                input "requestLocation", "enum", multiple: true, title:"Select family member(s) to send a high accuracy GPS location on next location update (<b>Android ONLY</b>). The user will be registered to receive this request once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
                 href(title: "Recommended Default Settings", description: "", style: "page", page: "resetDefaults")
                 href(title: "Delete Family Members", description: "", style: "page", page: "deleteMembers")
             }
@@ -1052,11 +1052,6 @@ def updated() {
         if (settings?.restartMobileApp.find {it==member.name}) {
             member.restartApp = true
         }
-        // if we selected member(s) to restart their mobile app
-        if (settings?.requestLocation.find {it==member.name}) {
-            member.requestLocation = true
-        }
-        
         // if the configuration has changed, trigger the member update
         if (syncSettings) {
             member.updateLocation = true
@@ -1065,7 +1060,6 @@ def updated() {
         }
     }
     // clear the settings flags to prevent the configurations from being forced to the display on each entry
-    app.updateSetting("requestLocation",[value:"",type:"enum"])
     app.updateSetting("restartMobileApp",[value:"",type:"enum"])
     app.updateSetting("syncMobileSettings",[value:"",type:"enum"])
     
@@ -1471,7 +1465,7 @@ def updateDevicePresence(member, data) {
         // add the street address and regions, if they exist
         addStreetAddressAndRegions(data)   
         // update the child information
-        deviceWrapper.generatePresenceEvent(member.name, getHomeRegion().desc, data)
+        deviceWrapper.generatePresenceEvent(member, getHomeRegion().desc, data)
     } catch(e) {
         logError("updateDevicePresence: Exception for member: ${member.name}  $e")
     }

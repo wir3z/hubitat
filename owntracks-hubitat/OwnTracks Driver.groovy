@@ -104,12 +104,13 @@
  *  1.7.7      2024-02-05      - Changed the starting zoom level of the region maps to show house level.
  *  1.7.8      2024-02-07      - Added last locations tile if Recorder is enabled.  Deleted the SSID attribute if the phone switches to mobile data.
  *  1.7.9      2024-02-09      - Added battery capability.
+ *  1.7.10     2024-02-10      - Updated logging.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.9" }
+def driverVersion() { return "1.7.10" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -126,6 +127,7 @@ def driverVersion() { return "1.7.9" }
 @Field Boolean DEFAULT_colorMemberTile = true
 @Field Boolean DEFAULT_descriptionTextOutput = true
 @Field Boolean DEFAULT_debugOutput = false
+@Field Boolean DEFAULT_debugLogAddresses = false
 @Field Boolean DEFAULT_logLocationChanges = false
 @Field String  DEFAULT_privateLocation = "private"
 
@@ -193,6 +195,7 @@ preferences {
 
     input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: DEFAULT_descriptionTextOutput
     input name: "debugOutput", type: "bool", title: "Enable Debug Logging", defaultValue: DEFAULT_debugOutput
+    input name: "debugLogAddresses", type: "bool", title: "Debug Logging Includes Addesses", defaultValue: DEFAULT_debugLogAddresses
     input name: "logLocationChanges", type: "bool", title: "Enable Logging of location changes", defaultValue: DEFAULT_logLocationChanges
 }
 
@@ -338,14 +341,14 @@ def updateAttributes(data, locationType) {
     if ((data?.SSID) && ((data?.conn) == "w"))  sendEvent (name: "SSID", value: data.SSID) else if (locationType) device.deleteCurrentState('SSID')
 }
 
-Boolean generatePresenceEvent(memberName, homeName, data) {
+Boolean generatePresenceEvent(member, homeName, data) {
     // update the driver version if necessary
     if (state.driverVersion != driverVersion()) {
         state.driverVersion = driverVersion()
     }
     // update the member name if necessary
-    if (state.memberName != memberName) {
-        state.memberName = memberName
+    if (state.memberName != member.name) {
+        state.memberName = member.name
     }
     // update the home name if necessary
     if (state.homeName != homeName) {
@@ -354,12 +357,16 @@ Boolean generatePresenceEvent(memberName, homeName, data) {
     // defaults for the private member case
     descriptionText = ""
     currentLocation = DEFAULT_privateLocation
-    
+
     //logDebug("Member Data: $data")
     if (data.private) {
         logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${(data.memberAtHome ? "'present'" : "'not present'")}, accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits()} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")}")
     } else {
-        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${(data.memberAtHome ? "'present'" : "'not present'")}, ${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: [${data.lat},${data.lon}] ${(data?.address ? ", Address: [${data.address}]" : "")} ${(data?.streetAddress ? ", Street Address: [${data.streetAddress}]" : "")} ${(data?.inregions ? ", Regions: ${data.inregions}" : "")} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")}")
+        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${(data.memberAtHome ? "'present'" : "'not present'")} (Home Wifi: ${data.memberWiFiHome}, High Accuracy: ${member.dynamicLocaterAccuracy}), " + 
+                 "${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}" + 
+                 "accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: [${data.lat},${data.lon}]" +
+                 (debugLogAddresses ? "${(data?.address ? ", Address: [${data.address}]" : "")} ${(data?.streetAddress ? ", Street Address: [${data.streetAddress}]" : "")} " : "") +
+                 "${(data?.inregions ? ", Regions: ${data.inregions}" : "")} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")} ${(data.tst == 0 ? ", Ignoring Bad Location" : "")}" )
     }    
 
     // update the last location time
@@ -390,7 +397,7 @@ Boolean generatePresenceEvent(memberName, homeName, data) {
                 currentLocation = data.desc
                 // only allow the transition event if not connected to home wifi
                 if (!data.memberWiFiHome) {
-                    parent.generateTransitionNotification(memberName, TRANSITION_PHRASES[data.event], data.desc, locationTime)
+                    parent.generateTransitionNotification(state.memberName, TRANSITION_PHRASES[data.event], data.desc, locationTime)
                     descriptionText = device.displayName +  " has ${TRANSITION_PHRASES[data.event]} " + data.desc
                     logDescriptionText("$descriptionText")
                 

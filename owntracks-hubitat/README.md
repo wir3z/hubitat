@@ -257,8 +257,6 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 # Maintenance
 - Select family member(s) to update location, display and region settings on the next location update:
 	- The user will be registered to receive this update once 'Done' is pressed.
-- Select family member(s) to send a high accuracy GPS location on next location update (Android ONLY): 
-	- The user will be registered to receive this request once 'Done' is pressed.
 - Recommended Default Settings
 	NOTE:  Members, Regions, Recorder and Secondary Hub settings will not be deleted.
 	- Restore Defaults for All Settings - resets the 'Additional Hub Settings', 'Mobile App Location Settings', and 'Mobile App Display Settings' to the recommended defaults.
