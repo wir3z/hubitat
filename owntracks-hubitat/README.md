@@ -139,7 +139,14 @@ NOTE: The OwnTracks mobile app stores and displays all units in metric.
 	- Select device(s) to get notifications when this member leaves a region. (Only selected devices in the global settings, above are displayed.)
 	- Click 'Save' to store the notification settings for the user.
 	NOTE: The notifications can be checked by clicking the 'Arrviced' and 'Departed' buttons in that member's Hubitat device.
-	
+- Use a custom notification message
+	- By default, the push notification is in the format 'NAME EVENT REGION at TIME'.  Enabled the slider to change the push notification.
+	- The upper case variables are case sensitive:
+		- NAME: member name
+		- EVENT: enter or leave
+		- REGION: place member name entered or left
+		- TIME: time that member name entered or left region	
+		
 ## Additional Hubitat App Settings
 - Enter your 'Home' WiFi SSID(s), separated by commas (optional):
 	- This will prevent devices from being 'non-present' if currently connected to these WiFi access points.

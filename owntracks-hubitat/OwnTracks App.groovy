@@ -68,6 +68,7 @@
  *  1.7.15     2023-02-08      - Only update the device prefix if one is defined.
  *  1.7.16     2023-02-08      - Add error protection on device prefix change.
  *  1.7.17     2023-02-09      - Changed the device name creation to work on all hub versions.  Only create member devices once the user has been enabled.
+ *  1.7.18     2023-02-09      - Allow changing of the arrived/left notifications.
  */
 
 import groovy.transform.Field
@@ -76,7 +77,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.17"}
+def appVersion() { return "1.7.18"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -124,6 +125,8 @@ def appVersion() { return "1.7.17"}
 @Field Number  DEFAULT_geocodeProvider = 0
 @Field Boolean DEFAULT_geocodeFreeOnly = true
 @Field Number  DEFAULT_geocodeLookupHysteresis = 0.010
+@Field Boolean DEFAULT_useCustomNotificationMessage = false
+@Field String  DEFAULT_notificationMessage = "NAME EVENT REGION at TIME"
 
 // Mobile app location defaults
 @Field Number  DEFAULT_monitoring = 1
@@ -553,7 +556,11 @@ def configureNotifications() {
                 input "notificationEnter", "enum", title: "Select device(s) to get notifications when this member <b>enters</b> a region.", multiple: true, required: false, options: notificationList.collect{entry -> entry.displayName}, defaultValue: state.members.find {it.name==selectFamilyMembers}?.enterDevices
                 input "notificationLeave", "enum", title: "Select device(s) to get notifications when this member <b>leaves</b> a region.", multiple: true, required: false, options: notificationList.collect{entry -> entry.displayName}, defaultValue: state.members.find {it.name==selectFamilyMembers}?.leaveDevices
             }
-            input name: "saveNotificationsButton", type: "button", title: "Save", state: "submit"         
+            input name: "saveNotificationsButton", type: "button", title: "Save", state: "submit"
+            input name: "useCustomNotificationMessage", type: "bool", title: "Use a custom notification message.  The default message format is '<b>$DEFAULT_notificationMessage</b>'", defaultValue: DEFAULT_useCustomNotificationMessage, submitOnChange: true
+            if (useCustomNotificationMessage) {
+                input name: "notificationMessage", type: "textarea", title: "Enter notification message.  Variables are case sensitive.", defaultValue: DEFAULT_notificationMessage, submitOnChange: true
+            }
         }
     }
 }
@@ -958,6 +965,8 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (autoRequestLocation == null)) app.updateSetting("autoRequestLocation", [value: DEFAULT_autoRequestLocation, type: "bool"])
     if (forceDefaults || (geocodeProvider == null)) app.updateSetting("geocodeProvider", [value: DEFAULT_geocodeProvider, type: "number"])
     if (forceDefaults || (geocodeFreeOnly == null)) app.updateSetting("geocodeFreeOnly", [value: DEFAULT_geocodeFreeOnly, type: "bool"])
+    if (forceDefaults || (useCustomNotificationMessage == null)) app.updateSetting("useCustomNotificationMessage", [value: DEFAULT_useCustomNotificationMessage, type: "bool"])
+    if (forceDefaults || (notificationMessage == null)) app.updateSetting("notificationMessage", [value: DEFAULT_notificationMessage, type: "string"])
 }
 
 def initializeMobileLocation(forceDefaults) {
@@ -1133,16 +1142,28 @@ def generateTransitionNotification(memberName, transitionEvent, transitionRegion
     } else {
         notificationDevices = state.members.find {it.name==memberName}?.leaveDevices
     }
-    
+
+    if (useCustomNotificationMessage) {
+        // parse the notification message
+        messageToSend = notificationMessage
+    } else {
+        messageToSend = DEFAULT_notificationMessage
+    }
+    // parse the notification message
+    messageToSend = messageToSend.replace("NAME",   "${memberName}")
+    messageToSend = messageToSend.replace("EVENT",  "${transitionEvent}")
+    messageToSend = messageToSend.replace("REGION", "${transitionRegion}")
+    messageToSend = messageToSend.replace("TIME",   "${transitionTime}")
+  
     // send notification to mobile if selected
     if (notificationDevices) {
         notificationList.each { val ->
             if (notificationDevices.find {it==val.displayName}) {
-                val.deviceNotification("${memberName} ${transitionEvent} ${transitionRegion} at ${transitionTime}")
+                val.deviceNotification(messageToSend)
             }
         }
     }    
-}
+} 
 
 def checkForHome() {
     if (!homePlace) {

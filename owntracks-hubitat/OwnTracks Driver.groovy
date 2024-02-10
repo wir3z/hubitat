@@ -103,12 +103,13 @@
  *  1.7.6      2024-02-04      - Allow device name prefix to be changed.
  *  1.7.7      2024-02-05      - Changed the starting zoom level of the region maps to show house level.
  *  1.7.8      2024-02-07      - Added last locations tile if Recorder is enabled.  Deleted the SSID attribute if the phone switches to mobile data.
+ *  1.7.9      2024-02-09      - Added battery capability.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.8" }
+def driverVersion() { return "1.7.9" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -137,6 +138,7 @@ metadata {
   ) {
         capability "Actuator"
         capability "Presence Sensor"
+        capability "Battery"
 
         command    "arrived"
         command    "departed"
