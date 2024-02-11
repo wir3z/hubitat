@@ -105,12 +105,13 @@
  *  1.7.8      2024-02-07      - Added last locations tile if Recorder is enabled.  Deleted the SSID attribute if the phone switches to mobile data.
  *  1.7.9      2024-02-09      - Added battery capability.
  *  1.7.10     2024-02-10      - Updated logging.
+ *  1.7.11     2024-02-11      - Placed location debug under disable/enable slider.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.10" }
+def driverVersion() { return "1.7.11" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -195,7 +196,7 @@ preferences {
 
     input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: DEFAULT_descriptionTextOutput
     input name: "debugOutput", type: "bool", title: "Enable Debug Logging", defaultValue: DEFAULT_debugOutput
-    input name: "debugLogAddresses", type: "bool", title: "Debug Logging Includes Addesses", defaultValue: DEFAULT_debugLogAddresses
+    input name: "debugLogAddresses", type: "bool", title: "Debug Logging Includes Addesses and Location", defaultValue: DEFAULT_debugLogAddresses
     input name: "logLocationChanges", type: "bool", title: "Enable Logging of location changes", defaultValue: DEFAULT_logLocationChanges
 }
 
@@ -364,8 +365,8 @@ Boolean generatePresenceEvent(member, homeName, data) {
     } else {
         logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${(data.memberAtHome ? "'present'" : "'not present'")} (Home Wifi: ${data.memberWiFiHome}, High Accuracy: ${member.dynamicLocaterAccuracy}), " + 
                  "${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}" + 
-                 "accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }, Location: [${data.lat},${data.lon}]" +
-                 (debugLogAddresses ? "${(data?.address ? ", Address: [${data.address}]" : "")} ${(data?.streetAddress ? ", Street Address: [${data.streetAddress}]" : "")} " : "") +
+                 "accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }" +
+                 (debugLogAddresses ? ", Location: [${data.lat},${data.lon}] ${(data?.address ? ", Address: [${data.address}]" : "")} ${(data?.streetAddress ? ", Street Address: [${data.streetAddress}]" : "")} " : "") +
                  "${(data?.inregions ? ", Regions: ${data.inregions}" : "")} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")} ${(data.tst == 0 ? ", Ignoring Bad Location" : "")}" )
     }    
 

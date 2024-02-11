@@ -72,6 +72,7 @@
  *  1.7.19     2024-02-10      - Updated logging.  Removed the request high accuracy location selection box due to it being redundant.  
  *  1.7.20     2024-02-10      - Mobile app location settings failed to switch units to imperial if required.
  *  1.7.21     2024-02-10      - Mobile app location settings failed to switch units to imperial when reset to defaults.
+ *  1.7.22     2024-02-11      - Mobile app location settings in imperial mode would pull from the wrong units.
  */
 
 import groovy.transform.Field
@@ -80,7 +81,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.21"}
+def appVersion() { return "1.7.22"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -907,7 +908,6 @@ def initialize(forceDefaults) {
     if (state.accessToken == null) state.accessToken = ""
     if (state.members == null) state.members = []
     if (state.places == null) state.places = []
-    if (state.imperialUnits == null) state.imperialUnits = DEFAULT_imperialUnits
     if (state.highPowerMode == null) state.highPowerMode = DEFAULT_highPowerMode
     GEOCODE_USAGE_COUNTER.eachWithIndex { entry, index ->
         String provider = GEOCODE_USAGE_COUNTER[index+1]
@@ -978,6 +978,7 @@ def initializeMobileLocation(forceDefaults) {
     
     if (forceDefaults || (state.locatorDisplacement == null)) state.locatorDisplacement = DEFAULT_locatorDisplacement
     if (forceDefaults || (state.ignoreInaccurateLocations == null)) state.ignoreInaccurateLocations = DEFAULT_ignoreInaccurateLocations
+    if (forceDefaults || (state.imperialUnits == null)) state.imperialUnits = DEFAULT_imperialUnits
     // if we are in imperial, convert the distances for displaying
     if (forceDefaults || (state.imperialUnits != imperialUnits)) {
         state.imperialUnits = imperialUnits
@@ -985,6 +986,9 @@ def initializeMobileLocation(forceDefaults) {
         app.updateSetting("locatorDisplacement", [value: displayMFtVal(state.locatorDisplacement), type: "number"])
         app.updateSetting("ignoreInaccurateLocations", [value: displayMFtVal(state.ignoreInaccurateLocations), type: "number"])
     }
+    // convert back to metric if in imperial to send out to the phone
+    state.locatorDisplacement             = convertToMeters(locatorDisplacement)
+    state.ignoreInaccurateLocations       = convertToMeters(ignoreInaccurateLocations)
 }
 
 def initializeMobileDisplay(forceDefaults) {
@@ -1067,10 +1071,6 @@ def updated() {
     app.updateSetting("restartMobileApp",[value:"",type:"enum"])
     app.updateSetting("syncMobileSettings",[value:"",type:"enum"])
     
-    // save the values to allow for imperial/metric selection
-    state.locatorDisplacement             = convertToMeters(locatorDisplacement)
-    state.ignoreInaccurateLocations       = convertToMeters(ignoreInaccurateLocations)
-
     // check to see if home was assigned
     checkForHome()
     
@@ -1816,10 +1816,10 @@ private def sendConfiguration(currentMember) {
                                 "pegLocatorFastestIntervalToInterval" : pegLocatorFastestIntervalToInterval, // Request that the location provider deliver updates no faster than the requested locator interval
                                 "monitoring" :                          monitoring.toInteger(),              // Monitoring mode (quiet, manual, significant, move)
                                 "locatorPriority" :                     locatorPriority.toInteger(),         // source/power setting for location updates (no power, low power, balanced power, high power)
-                                "locatorDisplacement" :                 locatorDisplacement,                 // How far should the device travel (in metres) before receiving another location
+                                "locatorDisplacement" :                 state.locatorDisplacement,           // How far should the device travel (in metres) before receiving another location
                                 "locatorInterval" :                     locatorInterval,                     // How often should locations be requested from the device (seconds)
                                 "moveModeLocatorInterval" :             moveModeLocatorInterval,             // How often should locations be requested from the device whilst in Move mode (seconds)
-                                "ignoreInaccurateLocations" :           ignoreInaccurateLocations,           // Ignore location, if the accuracy is greater than the given meters.  NOTE: Build 420412000 occasionally reports events with acc=1799.999
+                                "ignoreInaccurateLocations" :           state.ignoreInaccurateLocations,     // Ignore location, if the accuracy is greater than the given meters.  NOTE: Build 420412000 occasionally reports events with acc=1799.999
                                 "ignoreStaleLocations" :                ignoreStaleLocations,                // Number of days after which location updates are assumed stale
                                 "ping" :                                ping,                                // Device will send a location interval at this heart beat interval (minutes).  Minimum 15, seems to be fixed at 30 minutes.
                             ]
