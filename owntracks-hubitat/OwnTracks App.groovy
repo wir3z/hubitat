@@ -71,6 +71,7 @@
  *  1.7.18     2024-02-09      - Allow changing of the arrived/left notifications.
  *  1.7.19     2024-02-10      - Updated logging.  Removed the request high accuracy location selection box due to it being redundant.  
  *  1.7.20     2024-02-10      - Mobile app location settings failed to switch units to imperial if required.
+ *  1.7.21     2024-02-10      - Mobile app location settings failed to switch units to imperial when reset to defaults.
  */
 
 import groovy.transform.Field
@@ -79,7 +80,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.20"}
+def appVersion() { return "1.7.21"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -465,12 +466,6 @@ def configureLocation() {
             if (state.submit) {
                 appButtonHandler(state.submit)
 	            state.submit = ""
-            }
-            if (state.imperialUnits != imperialUnits) {
-                state.imperialUnits = imperialUnits
-                // preload the settings field with the proper units
-                app.updateSetting("locatorDisplacement", [value: displayMFtVal(state.locatorDisplacement), type: "number"])
-                app.updateSetting("ignoreInaccurateLocations", [value: displayMFtVal(state.ignoreInaccurateLocations), type: "number"])
             }
             input name: "resetLocationDefaultsButton", type: "button", title: "Restore Defaults", state: "submit"
             input name: "monitoring", type: "enum", title: "Location reporting mode, Recommended=${MONITORING_MODES[DEFAULT_monitoring]}", required: true, options: MONITORING_MODES, defaultValue: DEFAULT_monitoring, submitOnChange: true
@@ -912,8 +907,6 @@ def initialize(forceDefaults) {
     if (state.accessToken == null) state.accessToken = ""
     if (state.members == null) state.members = []
     if (state.places == null) state.places = []
-    if (state.locatorDisplacement == null) state.locatorDisplacement = DEFAULT_locatorDisplacement
-    if (state.ignoreInaccurateLocations == null) state.ignoreInaccurateLocations = DEFAULT_ignoreInaccurateLocations
     if (state.imperialUnits == null) state.imperialUnits = DEFAULT_imperialUnits
     if (state.highPowerMode == null) state.highPowerMode = DEFAULT_highPowerMode
     GEOCODE_USAGE_COUNTER.eachWithIndex { entry, index ->
@@ -982,6 +975,16 @@ def initializeMobileLocation(forceDefaults) {
     if (forceDefaults || (locatorDisplacement == null)) app.updateSetting("locatorDisplacement", [value: DEFAULT_locatorDisplacement, type: "number"])
     if (forceDefaults || (locatorInterval == null)) app.updateSetting("locatorInterval", [value: DEFAULT_locatorInterval, type: "number"])
     if (forceDefaults || (moveModeLocatorInterval == null)) app.updateSetting("moveModeLocatorInterval", [value: DEFAULT_moveModeLocatorInterval, type: "number"])
+    
+    if (forceDefaults || (state.locatorDisplacement == null)) state.locatorDisplacement = DEFAULT_locatorDisplacement
+    if (forceDefaults || (state.ignoreInaccurateLocations == null)) state.ignoreInaccurateLocations = DEFAULT_ignoreInaccurateLocations
+    // if we are in imperial, convert the distances for displaying
+    if (forceDefaults || (state.imperialUnits != imperialUnits)) {
+        state.imperialUnits = imperialUnits
+        // preload the settings field with the proper units
+        app.updateSetting("locatorDisplacement", [value: displayMFtVal(state.locatorDisplacement), type: "number"])
+        app.updateSetting("ignoreInaccurateLocations", [value: displayMFtVal(state.ignoreInaccurateLocations), type: "number"])
+    }
 }
 
 def initializeMobileDisplay(forceDefaults) {
