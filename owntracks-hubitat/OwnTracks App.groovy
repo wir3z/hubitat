@@ -70,6 +70,7 @@
  *  1.7.17     2024-02-09      - Changed the device name creation to work on all hub versions.  Only create member devices once the user has been enabled.
  *  1.7.18     2024-02-09      - Allow changing of the arrived/left notifications.
  *  1.7.19     2024-02-10      - Updated logging.  Removed the request high accuracy location selection box due to it being redundant.  
+ *  1.7.20     2024-02-10      - Mobile app location settings failed to switch units to imperial if required.
  */
 
 import groovy.transform.Field
@@ -78,7 +79,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.19"}
+def appVersion() { return "1.7.20"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -290,12 +291,6 @@ def configureHubApp() {
         }
         section(getFormat("line", "")) {
             input name: "resetHubDefaultsButton", type: "button", title: "Restore Defaults", state: "submit"
-            if (state.imperialUnits != imperialUnits) {
-                state.imperialUnits = imperialUnits
-                // preload the settings field with the proper units
-                app.updateSetting("locatorDisplacement", [value: displayMFtVal(state.locatorDisplacement), type: "number"])
-                app.updateSetting("ignoreInaccurateLocations", [value: displayMFtVal(state.ignoreInaccurateLocations), type: "number"])
-            }
             input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',1000:'3281 ft',1250:'4101 ft',1500:'4921 ft'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',1000:'1000 m',1250:'1250 m',1500:'1500 m'])
             input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: DEFAULT_regionHighAccuracyRadiusHomeOnly
             input name: "warnOnNoUpdateHours", type: "number", title: "Highlight members on the 'Member Status' that have not reported a location for this many hours (1..168)", range: "1..168", defaultValue: DEFAULT_warnOnNoUpdateHours
@@ -470,6 +465,12 @@ def configureLocation() {
             if (state.submit) {
                 appButtonHandler(state.submit)
 	            state.submit = ""
+            }
+            if (state.imperialUnits != imperialUnits) {
+                state.imperialUnits = imperialUnits
+                // preload the settings field with the proper units
+                app.updateSetting("locatorDisplacement", [value: displayMFtVal(state.locatorDisplacement), type: "number"])
+                app.updateSetting("ignoreInaccurateLocations", [value: displayMFtVal(state.ignoreInaccurateLocations), type: "number"])
             }
             input name: "resetLocationDefaultsButton", type: "button", title: "Restore Defaults", state: "submit"
             input name: "monitoring", type: "enum", title: "Location reporting mode, Recommended=${MONITORING_MODES[DEFAULT_monitoring]}", required: true, options: MONITORING_MODES, defaultValue: DEFAULT_monitoring, submitOnChange: true
