@@ -106,12 +106,13 @@
  *  1.7.9      2024-02-09      - Added battery capability.
  *  1.7.10     2024-02-10      - Updated logging.
  *  1.7.11     2024-02-11      - Placed location debug under disable/enable slider.
+ *  1.7.12     2024-02-15      - Create a Presence Tile.  Removed custom text from battery field.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.11" }
+def driverVersion() { return "1.7.12" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -152,7 +153,7 @@ metadata {
         attribute  "transitionTime", "string"
         attribute  "transitionDirection", "string"
         attribute  "since", "string"
-        attribute  "battery", "string"
+        attribute  "battery", "number"
         attribute  "lastSpeed", "number"
         attribute  "distanceFromHome", "number"
         attribute  "wifi", "string"
@@ -167,9 +168,9 @@ metadata {
         attribute  "imageURL", "string"
         attribute  "MemberLocation", "string"
         attribute  "PastLocations", "string"
+        attribute  "PresenceTile", "string"
       
         // extended attributes
-        attribute  "batteryPercent", "number"
         attribute  "lat", "number"
         attribute  "lon", "number"
         attribute  "accuracy", "number"
@@ -188,7 +189,6 @@ metadata {
 }
 
 preferences {
-    input name: "presenceTileBatteryField", type: "enum", title: "What is displayed on the presence tile battery field", required: true, options: PRESENCE_TILE_BATTERY_FIELD, defaultValue: DEFAULT_presenceTileBatteryField
     input name: "displayExtendedAttributes", type: "bool", title: "Display extended location attributes", defaultValue: DEFAULT_displayExtendedAttributes
     input name: "displayMemberTile", type: "bool", title: "Create a HTML MemberLocation tile", defaultValue: DEFAULT_displayMemberTile
     input name: "colorMemberTile", type: "bool", title: "Change MemberTile background color based on presence", defaultValue: DEFAULT_colorMemberTile
@@ -218,7 +218,6 @@ def updated() {
 }
 
 def deleteExtendedAttributes(makePrivate) {
-    device.deleteCurrentState('batteryPercent')
     device.deleteCurrentState('accuracy')
     device.deleteCurrentState('verticalAccuracy')
     device.deleteCurrentState('altitude')
@@ -292,7 +291,7 @@ def updateAttributes(data, locationType) {
             }
         }
         // can be updated all the time
-        if (data?.batt)    sendEvent (name: "batteryPercent", value: data.batt)                            else if (locationType) device.deleteCurrentState('batteryPercent')
+        if (data?.batt)    sendEvent (name: "battery", value: data.batt)                                   else if (locationType) device.deleteCurrentState('battery')
         if (data?.topic)   sendEvent (name: "sourceTopic", value: data.topic)                              else if (locationType) device.deleteCurrentState('sourceTopic')
         if (data?.bs)      sendEvent (name: "batteryStatus", value: BATTERY_STATUS[data.bs])               else if (locationType) device.deleteCurrentState('batteryStatus')
         if (data?.conn)    sendEvent (name: "dataConnection", value: DATA_CONNECTION[data.conn])           else if (locationType) device.deleteCurrentState('dataConnection')
@@ -448,37 +447,6 @@ Boolean generatePresenceEvent(member, homeName, data) {
                 sendEvent( name: "lastSpeed", value:  0 )
             } 
 
-            // we are using the battery field on the presence tile for selectable display
-            switch (presenceTileBatteryField) {
-                case "0":
-                    batteryField = (data?.batt ? data.batt : "")
-                break
-                case "1":
-                    batteryField = currentLocation + " - " + tileDate
-                break
-                case "2":
-                    batteryField = parent.displayKmMiVal(data.currentDistanceFromHome) + " ${parent.getLargeUnits()} from Home"
-                break
-                case "3":
-                    batteryField = (data?.vel ? parent.displayKmMiVal(data.vel) + " ${parent.getVelocityUnits()}" : "")
-                break
-                case "4":
-                    batteryField = (data?.bs ? BATTERY_STATUS[data.bs] : "")
-                break
-                case "5":
-                    batteryField = (data?.conn ? DATA_CONNECTION[data.conn] : "")
-                break
-                case "6":
-                    batteryField = (data?.t ? TRIGGER_TYPE[data.t] : "")
-                break
-                case "7":
-                    batteryField = "${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home - " + tileDate
-                break
-            }
-
-            // deal with the cases where the above data might not come in a particular event, so leave the previous event
-            if (batteryField) sendEvent( name: "battery", value: batteryField  )
-        
             // create the HTML member tile if it's enabled and allowed -- schedule for 1-second so that the attributes are saved
             runIn(1, generateMemberTile)
         }
@@ -508,7 +476,7 @@ def generateMemberTile() {
         tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))        
         
         String tiledata = "";
-        tiledata += '<div style="width:100%;height:100%;font-size:0.7em">'
+        tiledata += '<div style="width:100%;height:100%;margin:5px;padding-top:7px;font-size:0.7em">'
         
         if (colorMemberTile) {
             tiledata += '<div style="background:' + ((device.currentValue('presence') == "present") ? 'green">' : '#b40000">')
@@ -523,7 +491,7 @@ def generateMemberTile() {
         } else {
             tiledata += '<td width=20%>' + device.displayName + '</td>'
         }
-        tiledata += '<td width=60% style="padding-top:15px;">'
+        tiledata += '<td width=60%>'
         tiledata += "${device.currentValue('location')}</br>"
         tiledata += "${tileDate}</br>"
         tiledata += '</td>'
@@ -535,9 +503,9 @@ def generateMemberTile() {
         tiledata += '</div>'
 
         // mobile shows full 4x height tile in portrait, grey banner at bottom in landscape
-//        tiledata += '<table align="center" style="width:100%;height:calc(100% - 250px)">'
+//        tiledata += '<table align="center" style="width:100%;height:calc(100% - 200px)">'
         // mobile has bottom metrics hidden in 4x height tile in portrait, full screen in landscape
-        tiledata += '<table align="center" style="width:100%;height:calc(100% - 185px)">'
+        tiledata += '<table align="center" style="width:100%;height:calc(100% - 160px)">'
         tiledata += '<tr>'
         tiledata += "<td><iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&z=17&output=embed&' style='height:100%;width:100%'></iframe></td>"
         tiledata += '</tr>'
@@ -548,14 +516,14 @@ def generateMemberTile() {
         tiledata += '<tr>'
         tiledata += '<th width=25%>Distance</th>'
         if (device.currentValue('lastSpeed') != null) tiledata += '<th width=25%>Speed</th>'
-        if (device.currentValue('batteryPercent') != null) tiledata += '<th width=25%>Battery</th>'
+        if (device.currentValue('battery') != null) tiledata += '<th width=25%>Battery</th>'
         if (device.currentValue('dataConnection') != null) tiledata += '<th width=25%>Data</th>'
         tiledata += '</tr>'
  
         tiledata += '<tr>'
         tiledata += "<td width=25%>${parent.displayKmMiVal(device.currentValue('distanceFromHome'))} ${parent.getLargeUnits()}</td>"
         if (device.currentValue('lastSpeed') != null)  tiledata += "<td width=25%>${parent.displayKmMiVal(device.currentValue('lastSpeed'))} ${parent.getVelocityUnits()}</td>"
-        if (device.currentValue('batteryPercent') != null) tiledata += "<td width=25%>${device.currentValue('batteryPercent')} %" + (device.currentValue('batteryStatus') ? "</br>${device.currentValue('batteryStatus')}" : "") + "</td>"
+        if (device.currentValue('battery') != null) tiledata += "<td width=25%>${device.currentValue('battery')} %" + (device.currentValue('batteryStatus') ? "</br>${device.currentValue('batteryStatus')}" : "") + "</td>"
         if (device.currentValue('dataConnection') != null) tiledata += "<td width=25%>${device.currentValue('dataConnection')}</td>"
         tiledata += '</tr>'
         tiledata += '</table>'
@@ -566,13 +534,14 @@ def generateMemberTile() {
         if ((tiledata.length() + 11) > 1024) {
             tiledata = "Too much data to display.</br></br>Exceeds maximum tile length by " + ((tiledata.length() + 11) - 1024) + " characters."
         }
-
         sendEvent(name: "MemberLocation", value: tiledata, displayed: true)
     } else {
         device.deleteCurrentState('MemberLocation')
     }
     // generate the past locations tile if allowed
     generatePastLocationsTile()
+    // generate the presence tile
+    generatePresenceTile()
 }
 
 def generatePastLocationsTile() {
@@ -591,7 +560,7 @@ def generatePastLocationsTile() {
         endDate = new SimpleDateFormat("yyyy-MM-dd  h:mm a").format(new Date(currentTime))
 
         String tiledata = "";
-        tiledata += '<div style="width:100%;height:100%;font-size:0.7em">'
+        tiledata += '<div style="width:100%;height:100%;margin:5px;font-size:0.7em">'
         tiledata += '<div>'
         tiledata += '<table align="center" style="width:100%">'          
         tiledata += '<tr>'
@@ -627,6 +596,43 @@ def generatePastLocationsTile() {
         device.deleteCurrentState('PastLocations')
     }
 }
+
+def generatePresenceTile() {
+    long sinceTimeMilliSeconds = state.sinceTime
+    sinceDate = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date(sinceTimeMilliSeconds * 1000))
+    tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))    
+    
+    String tiledata = "";
+    tiledata += '<div style="width:100%;height:93%;font-size:0.7em;margin:7px;background:' + ((device.currentValue('presence') == "present") ? 'green">' : '#b40000">')
+    tiledata += '<table align="center" style="height:100%;width:100%">'
+    tiledata += '<tr height=33%>'
+    tiledata += "<td valign='center'>${device.currentValue('location')}</br>${tileDate}</td>"
+    tiledata += '</tr>'
+
+    tiledata += '<tr height=33%>'
+    if (device.currentValue('imageURL') != "false") {
+        tiledata += '<td valign="center"><img src="' + device.currentValue('imageURL') + '" alt="' + state.memberName + '" width="35" height="35"></td>'
+    } else {
+        tiledata += '<td valign="center">' + device.displayName + '</td>'
+    }
+    tiledata += '</tr>'
+
+    tiledata += '<tr height=33%>'
+    tiledata += '<td valign="center">'
+    tiledata += ((device.currentValue('presence') == "present") ? '&#10004</br>Present' : '&#10008</br>Not Present')
+    tiledata += '</td>'
+    tiledata += '</tr>'
+    tiledata += '</table>'
+    tiledata += '</div>'
+
+    // deal with the 1024 byte attribute limit
+    if ((tiledata.length() + 11) > 1024) {
+        tiledata = "Too much data to display.</br></br>Exceeds maximum tile length by " + ((tiledata.length() + 11) - 1024) + " characters."
+    }
+
+    sendEvent(name: "PresenceTile", value: tiledata, displayed: true)
+}
+
 
 private logDebug(msg) {
     if (settings?.debugOutput) {

@@ -19,12 +19,13 @@
  *  Changelog:
  *  Version    Date            Changes
  *  1.7.0      2024-02-07      - Created common driver for devices that cover all members.  Added a friends location tile.
+ *  1.7.1      2024-02-15      - Fixed friends tile margin.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.0" }
+def driverVersion() { return "1.7.1" }
 
 @Field Boolean DEFAULT_displayFriendsTile = false
 
@@ -77,7 +78,7 @@ def generateFriendsTile() {
         urlPath = parent.getRecorderURL() + '/last/index.html'
         
         String tiledata = "";
-        tiledata += '<div style="width:100%;height:100%;font-size:0.7em">'
+        tiledata += '<div style="width:100%;height:100%;margin:5px;font-size:0.7em">'
         tiledata += '<table align="center" style="width:100%;padding-top:15px;">'          
         tiledata += '<tr>'
         // loop through all the members

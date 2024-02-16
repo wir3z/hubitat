@@ -280,8 +280,6 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 		
 # Hubitat Driver Configuration
 - Once a user has been enabled in the app, a device with the name 'Owntracks - USERNAME' will be created.
-- What is displayed on the presence tile battery field:
-	- Select what is displayed in the 'battery' field which is displayed at the top of the presence tile from the pull-down menu. This can be battery voltage, location, distance from home, etc.
 - Display extended location attributes:
 	- Displays additional location attributes (battery status, altitude, accuracy, etc.)
 - Create a HTML MemberLocation
@@ -308,8 +306,7 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 	- SSID : SSID of the WiFi connected WiFi access point
 	- accuracy : accuracy of the location
 	- altitude : altitude of the location
-	- battery : by default, battery % but can be configured to display different information to be viewed on the presence tiles
-	- batteryPercent : battery %
+	- battery : battery %
 	- batteryStatus : Unknown/Unplugged/Charging/Full
 	- dataConnection : WiFi/Mobile
 	- distanceFromHome : distance location is from the home coordinates
@@ -320,6 +317,7 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 	- lon : longitude of the location
 	- monitoringMode : Significant/Move
 	- presence : present/not present
+	- PresenceTile : HTML presence tile
 	- since : timestamp on the last location change - only updates if the location has moved
 	- sourceTopic : user/device information
 	- transitionRegion : region the user arrived/left
@@ -329,7 +327,7 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 	- verticalAccuracy : vertical accuracy
 	- address : Full address of the location (if available) or lat,lon
 	- streetAddress : Street address of the location (if available) or lat,lon
-	- Member_Location : HTML status tile
+	- MemberLocation : HTML status tile
 - Additional Attribute Description for APK 2.4.16.  
 	- wifi : on/off
 	- batterySaver : 0/1, 1 indicates the phone is in battery saver mode
@@ -341,6 +339,23 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 - Create a HTML FriendsLocation tile	
 	- Creates a 'FriendsLocation' HTML attribute that can be added to the dashboards.  Displays the the all member's current locations in a single map.  Requires Recorder to be configured.
 	
+# Hubitat Custom Dashboard Tiles
+- Each user device creates the following custom attribute tiles that can be displayed on a dashboard:
+## Each user device
+	- PresenceTile : Designed to be a 1x1 simple tile with location at the top, with the member thumbnail (if available), and their presence status.)
+	- MemberLocation  : If enabled in user device, shows the user on an interactive Google map with other metrics.
+	- PastLocations : If enabled in user device, and requires the OwnTracks Recorder to be configured, shows the user's locations over the past 12-hours on an interactive map.
+	
+## OwnTracks user device
+	- FriendsLocation : If enabled in user device, and requires the OwnTracks Recorder to be configured, shows all user's current locations on an interactive map.
+
+## Using Dashboard Tiles
+	- Create a dashboard.
+	- 'Pick a Device': Select the user device.
+	- 'Pick a Template': 'Attribute'
+	- 'Options -> Pick and Attribute'.  Select one of the tile names, above.
+	- Select the height/width from the arrow boxes at the top of the screen.  'PresenceTile' is made for a 1x1.  The other can be 2x4 to fit full screen on a mobile app.
+
 	
 # FAQ (Frequently Asked Questions)
 ## What is OwnTracks?
