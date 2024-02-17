@@ -20,12 +20,13 @@
  *  Version    Date            Changes
  *  1.7.0      2024-02-07      - Created common driver for devices that cover all members.  Added a friends location tile.
  *  1.7.1      2024-02-15      - Fixed friends tile margin.
+ *  1.7.2      2024-02-17      - Fixed friends tile text when thumbnails are missing.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.1" }
+def driverVersion() { return "1.7.2" }
 
 @Field Boolean DEFAULT_displayFriendsTile = false
 
@@ -87,7 +88,7 @@ def generateFriendsTile() {
             if (memberURL != "false") {
                 tiledata += '<td align="center"><img src="' + memberURL + '" alt="' + name + '" width="35" height="35"></td>'
             } else {
-                tiledata += '<td align="center">' + device.displayName + '</td>'
+                tiledata += '<td align="center">' + name + '</td>'
             }
         }
         tiledata += '</tr>'

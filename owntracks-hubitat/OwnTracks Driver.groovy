@@ -107,12 +107,13 @@
  *  1.7.10     2024-02-10      - Updated logging.
  *  1.7.11     2024-02-11      - Placed location debug under disable/enable slider.
  *  1.7.12     2024-02-15      - Create a Presence Tile.  Removed custom text from battery field.
+ *  1.7.13     2024-02-17      - Fixed tile format.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.12" }
+def driverVersion() { return "1.7.13" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -561,7 +562,6 @@ def generatePastLocationsTile() {
 
         String tiledata = "";
         tiledata += '<div style="width:100%;height:100%;margin:5px;font-size:0.7em">'
-        tiledata += '<div>'
         tiledata += '<table align="center" style="width:100%">'          
         tiledata += '<tr>'
         
@@ -578,13 +578,13 @@ def generatePastLocationsTile() {
         tiledata += '</td>'
         tiledata += '</tr>'
         tiledata += '</table>'
-        tiledata += '</div>'
 
         tiledata += '<table align="center" style="width:100%;height:calc(100% - 90px)">'
         tiledata += '<tr>'
         tiledata += "<td><iframe src=${urlPath} style='height:100%;width:100%'></iframe></td>"
         tiledata += '</tr>'
         tiledata += '</table>'
+        tiledata += '</div>'
         
         // deal with the 1024 byte attribute limit
         if ((tiledata.length() + 11) > 1024) {
