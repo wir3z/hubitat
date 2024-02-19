@@ -73,6 +73,7 @@
  *  1.7.20     2024-02-10      - Mobile app location settings failed to switch units to imperial if required.
  *  1.7.21     2024-02-10      - Mobile app location settings failed to switch units to imperial when reset to defaults.
  *  1.7.22     2024-02-11      - Mobile app location settings in imperial mode would pull from the wrong units.
+ *  1.7.23     2024-02-19      - Increased the wifi SSID distance check selector to allow larger distances..
  */
 
 import groovy.transform.Field
@@ -81,7 +82,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.22"}
+def appVersion() { return "1.7.23"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -289,7 +290,7 @@ def configureHubApp() {
 	            state.submit = ""
             }
             input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas.  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point(s).", defaultValue: ""
-            input name: "wifiPresenceKeepRadius", type: "enum", title: "SSID will only be used for presence detection when a member is within this radius from home, Recommended=${displayMFtVal(DEFAULT_wifiPresenceKeepRadius)}", defaultValue: "${DEFAULT_wifiPresenceKeepRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',1000:'3281 ft',1250:'4101 ft',1500:'4921 ft'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',1000:'1000 m',1250:'1250 m',1500:'1500 m'])
+            input name: "wifiPresenceKeepRadius", type: "enum", title: "SSID will only be used for presence detection when a member is within this radius from home, Recommended=${displayMFtVal(DEFAULT_wifiPresenceKeepRadius)}", defaultValue: "${DEFAULT_wifiPresenceKeepRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',2000:'1.2 mi',5000:'3.1 mi',10000:'6.2 mi'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',2000:'2 km',5000:'5 km',10000:'10 km'])
         }
         section(getFormat("line", "")) {
             input name: "resetHubDefaultsButton", type: "button", title: "Restore Defaults", state: "submit"
@@ -576,6 +577,19 @@ def getEnabledAndNotHiddenMembers() {
         return (allowedMembers)
     }
 }
+
+def getEnabledAndNotHiddenMemberData() {
+    memberData = []
+    allowedMembers = getEnabledAndNotHiddenMembers()
+    
+    state.members.each { member->
+        if (allowedMembers.find {it==member.name}) {
+            memberData << member
+        }
+    }
+    
+    return(memberData)
+}    
 
 def getNonFollowRegions(collectRegions) {
     allowedRegions = []
