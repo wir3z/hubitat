@@ -33,9 +33,8 @@ Open the Hubitat OwnTracks app, and configure the the sections in 'Installation'
 # Owntracks App
 # Member Status
 - Summary table for all users
-	- If the member has reported recently, it is displayed in green.
-	- If the member has not reported a location in the set hours, it is displayed in red.
-	- If the member is disabled, it will be displayed in grey with a strike through.
+	- Click the member name to directly access their device page.
+	- If the member is disabled, it will be displayed with a strike through.
 - Last Location Report
 	- Date/time for the last update from a member.  If the member hasn't reporting after the set number of hours, it is displayed in red, with the number of hours since the last report.
 - Last Location Fix

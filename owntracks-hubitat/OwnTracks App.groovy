@@ -73,7 +73,8 @@
  *  1.7.20     2024-02-10      - Mobile app location settings failed to switch units to imperial if required.
  *  1.7.21     2024-02-10      - Mobile app location settings failed to switch units to imperial when reset to defaults.
  *  1.7.22     2024-02-11      - Mobile app location settings in imperial mode would pull from the wrong units.
- *  1.7.23     2024-02-19      - Increased the wifi SSID distance check selector to allow larger distances..
+ *  1.7.23     2024-02-19      - Increased the wifi SSID distance check selector to allow larger distances.
+ *  1.7.24     2024-02-21      - Added direct device links to the member table.
  */
 
 import groovy.transform.Field
@@ -82,7 +83,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.23"}
+def appVersion() { return "1.7.24"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -1257,9 +1258,11 @@ def displayMemberStatus() {
         state.members.each { member->
             // check if member is enabled
             memberEnabled = settings?.enabledMembers.find {it==member.name}
-                    
+            deviceWrapper = getChildDevice(member.id)
+            memberName = "<a href='" + "http://${location.hubs[0].getDataValue('localIP')}/device/edit/" + deviceWrapper?.getId() + "' target='_blank'>" + member.name + "</a>"
+
             tableData += '<tr>'
-            tableData += (memberEnabled ? ((member.staleFix || member.staleReport) ? '<td style="color:#ff0000">' + member.name + '</td>' : '<td style="color:#017000">' + member.name + '</td>') : '<td style="color:#b3b3b3"><s>' + member.name + '</s></td>')
+            tableData += '<td>' + (memberEnabled ? memberName : '<s>' + memberName + '</s>') + '</td>'
             tableData += (memberEnabled ? ((member.staleReport ? '<td style="color:#ff0000">' + member.lastReportDate + ' (' + member.numberHoursReport + ' hrs ago)' : '<td>' + member.lastReportDate) + '</td>') : '<td style="color:#b3b3b3"><s>' + member.lastReportDate + '</s></td>')
             tableData += (memberEnabled ? ((member.staleFix ? '<td style="color:#ff0000">' + member.lastFixDate + ' (' + member.numberHoursFix + ' hrs ago)' : '<td>' + member.lastFixDate) + '</td>') : '<td style="color:#b3b3b3"><s>' + member.lastFixDate + '</s></td>')
             tableData += (memberEnabled ? (member.updateWaypoints ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
