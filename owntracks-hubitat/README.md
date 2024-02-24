@@ -24,6 +24,9 @@ To get presence detection working, three things need to be configured:
 1. Install and configure the OwnTracks Mobile app to point to Hubitat
 2. Configure a 'Home' region that will be used to determine if the phone is present or not present from the 'Configure Regions'/
 3. Select the family member(s) to monitor their presence.
+4. Open the Hubitat device for each mobile phone.  
+	- The the 'Device Information' section, increase the 'Too many events alert threshold, per hour (100-2000)' to '1000'.
+	- Click 'Save Device'
 
 The defaults in the app should give acceptable results without changes.  It is recommended to configure the sections in the 'Installation' portion of the app and test presence detection before changing additional settings.
 
