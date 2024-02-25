@@ -75,6 +75,7 @@
  *  1.7.22     2024-02-11      - Mobile app location settings in imperial mode would pull from the wrong units.
  *  1.7.23     2024-02-19      - Increased the wifi SSID distance check selector to allow larger distances.
  *  1.7.24     2024-02-21      - Added direct device links to the member table.
+ *  1.7.25     2024-02-25      - Only add geocode locations to region list if there is no current region list.
  */
 
 import groovy.transform.Field
@@ -83,7 +84,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.24"}
+def appVersion() { return "1.7.25"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -1515,8 +1516,8 @@ def addStreetAddressAndRegions(data) {
         // lat, lon
         // if the first digit of the first entry is not a number, but the second is, then we were returned a place, street adress
         if ( !((addressList[0])[0])?.isNumber() && (((addressList[1])[0])?.isNumber() || (addressList.size() > 4)) ) {
-            // save the place to the region list
-            addRegionToInregions(addressList[0], data)
+            // save the place to the region list if we don't already have a region defined
+            if (!data.inregions) addRegionToInregions(addressList[0], data)
             data.streetAddress = addressList[1]
             // remove the place from the address
             data.address = data.address.substring(data.address.indexOf(",") + 1)?.trim()
