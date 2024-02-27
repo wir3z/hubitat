@@ -76,6 +76,7 @@
  *  1.7.23     2024-02-19      - Increased the wifi SSID distance check selector to allow larger distances.
  *  1.7.24     2024-02-21      - Added direct device links to the member table.
  *  1.7.25     2024-02-25      - Only add geocode locations to region list if there is no current region list.
+ *  1.7.26     2024-02-25      - Changed layout to collapse menu items for cleaner look.  Added Family map using Google Maps API.  Added Google Maps API to region creation to allow for radius' to be viewed.
  */
 
 import groovy.transform.Field
@@ -84,7 +85,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.25"}
+def appVersion() { return "1.7.26"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -106,8 +107,13 @@ def appVersion() { return "1.7.25"}
 @Field static final Map GEOCODE_QUOTA = [ 1: 40000, 2: 3000, 3: 2500 ]
 @Field static final Map GEOCODE_QUOTA_INTERVAL_DAILY = [ 1: false, 2: true, 3: true ]
 @Field static final Map GEOCODE_API_KEY_LINK = [ 1: "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>", 2: "<a href='https://apidocs.geoapify.com/docs/geocoding/reverse-geocoding/#about' target='_blank'>Sign up for a Geoapify API Key</a>", 3: "<a href='https://opencagedata.com/api#quickstart' target='_blank'>Sign up for a Opencage API Key</a>" ]
+@Field static final Map GOOGLE_MAP_REFRESH_INTERVALS = [ 0: 'Disabled', 5: '5-seconds', 15: '15-seconds', 30: '30-seconds', 60: '60-seconds', 300: '5-minutes', 900: '15-minutes', 1800: '30-minutes', 3600: '60-minutes' ]
 
 // Main defaults
+@Field String  DEFAULT_APP_THEME_COLOR = "#2a0085"
+@Field Number  GOOGLE_MAP_API_QUOTA = 40000
+@Field String  GOOGLE_MAP_API_KEY_LINK = "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>"
+@Field Number  DEFAULT_googleMapRefreshInterval = 0
 @Field String  RECORDER_PUBLISH_FOLDER = "/pub"
 @Field String  MQTT_TOPIC_PREFIX = "owntracks"
 @Field Number  INVALID_COORDINATE = 999
@@ -132,6 +138,7 @@ def appVersion() { return "1.7.25"}
 @Field Number  DEFAULT_geocodeProvider = 0
 @Field Boolean DEFAULT_geocodeFreeOnly = true
 @Field Number  DEFAULT_geocodeLookupHysteresis = 0.010
+@Field Boolean DEFAULT_mapFreeOnly = true
 @Field Boolean DEFAULT_useCustomNotificationMessage = false
 @Field String  DEFAULT_notificationMessage = "NAME EVENT REGION at TIME"
 
@@ -225,7 +232,7 @@ def mainPage() {
                 displayMissingHomePlace()
                 displayRegionsPendingDelete()
             }            
-            section(getFormat("box", "Installation")) {
+            section(hideable: true, hidden: true, getFormat("box", "Installation and Configuration")) {
                 href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
                 href(title: "Configure Regions", description: "", style: "page", page: "configureRegions")
                 input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + "Select family member(s) to monitor.  Member device will be created and configured once 'Done' is pressed, below.</div>", options: (state.members ? state.members.name.sort() : []), submitOnChange: true
@@ -235,12 +242,12 @@ def mainPage() {
                 href(title: "Configure Region Arrived/Left Notifications", description: "", style: "page", page: "configureNotifications")
                 href(title: "Additional Hubitat App Settings", description: "", style: "page", page: "configureHubApp")
             }
-            section(getFormat("box", "Optional Features")) {
+            section(hideable: true, hidden: true, getFormat("box", "Optional Features")) {
                 href(title: "Enabling User Thumbnails", description: "", style: "page", page: "thumbnailCreation")
                 href(title: "Enable OwnTracks Recorder", description: "", style: "page", page: "configureRecorder")
                 href(title: "Link Secondary Hub", description: "", style: "page", page: "configureSecondaryHub")
             }
-            section(getFormat("box", "Advanced Mobile App Settings")) {
+            section(hideable: true, hidden: true, getFormat("box", "Advanced Mobile App Settings")) {
                 paragraph("The default mobile settings provide the best balance of accuracy/power.  To view or modify advanced settings, enable 'Modify Default Settings'.")
                 input name: "highPowerMode", type: "bool", title: "Use GPS for higher accuracy/performance.  <b>NOTE:</b> This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (<b>Android ONLY</b>)", defaultValue: DEFAULT_highPowerMode, submitOnChange: true
                 checkLocatorPriority()
@@ -252,12 +259,12 @@ def mainPage() {
                     href(title: "Mobile App Display Settings", description: "", style: "page", page: "configureDisplay")
                 }
             }
-            section(getFormat("box", "Maintenance")) {
+            section(hideable: true, hidden: true, getFormat("box", "Maintenance")) {
                 input "syncMobileSettings", "enum", multiple: true, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
                 href(title: "Recommended Default Settings", description: "", style: "page", page: "resetDefaults")
                 href(title: "Delete Family Members", description: "", style: "page", page: "deleteMembers")
             }
-            section(getFormat("box", "Logging")) {
+            section(hideable: true, hidden: true, getFormat("box", "Logging")) {
                 input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: DEFAULT_descriptionTextOutput
                 input name: "debugOutput", type: "bool", title: "Enable Debug Logging", defaultValue: DEFAULT_debugOutput
                 input name: "debugResetHours", type: "number", title: "Turn off debug logging after this many hours (1..24)", range: "1..24", defaultValue: DEFAULT_debugResetHours
@@ -294,7 +301,7 @@ def configureHubApp() {
             input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas.  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point(s).", defaultValue: ""
             input name: "wifiPresenceKeepRadius", type: "enum", title: "SSID will only be used for presence detection when a member is within this radius from home, Recommended=${displayMFtVal(DEFAULT_wifiPresenceKeepRadius)}", defaultValue: "${DEFAULT_wifiPresenceKeepRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',2000:'1.2 mi',5000:'3.1 mi',10000:'6.2 mi'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',2000:'2 km',5000:'5 km',10000:'10 km'])
         }
-        section(getFormat("line", "")) {
+        section(hideable: true, hidden: true, "Advanced Settings") {
             input name: "resetHubDefaultsButton", type: "button", title: "Restore Defaults", state: "submit"
             input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',1000:'3281 ft',1250:'4101 ft',1500:'4921 ft'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',1000:'1000 m',1250:'1250 m',1500:'1500 m'])
             input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: DEFAULT_regionHighAccuracyRadiusHomeOnly
@@ -304,7 +311,7 @@ def configureHubApp() {
             input name: "highAccuracyOnPing", type: "bool", title: "Request a high accuracy location from members on their next location report after a ping/manual update to keep location fresh (<b>Android ONLY</b>)", defaultValue: DEFAULT_highAccuracyOnPing
             input name: "autoRequestLocation", type: "bool", title: "Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (<b>Android ONLY</b>)", defaultValue: DEFAULT_autoRequestLocation
         }
-        section(getFormat("line", "")) {
+        section(hideable: true, hidden: true, "Geocode Settings - Converts latitude/longitude to address") {
             input name: "geocodeProvider", type: "enum", title: "Select the optional geocode provider for address lookups.  Allows location latitude/longitude to be displayed as physical address.", description: "Enter", defaultValue: DEFAULT_geocodeProvider, options: GEOCODE_PROVIDERS, submitOnChange: true
             if (geocodeProvider != "0") {
                 paragraph ("<b><i>Google provides the best accuracy, but offers the least amount of free locations - Google usage quota is reset MONTHLY vs DAILY for the other providers.</i></b>")
@@ -314,6 +321,15 @@ def configureHubApp() {
                 paragraph (GEOCODE_API_KEY_LINK[geocodeProvider?.toInteger()])
                 input name: "geocodeAPIKey_$geocodeProvider", type: "string", title: "Geocode API key for address lookups:"
             }
+        }
+        section(hideable: true, hidden: true, "Google Map Settings") {
+            paragraph ("If user thumbnails have not been added to Hubitat, follow the instructions for 'Enabling User Thumbnail Instructions' first:") 
+            href(title: "Enabling User Thumbnails", description: "", style: "page", page: "thumbnailCreation")
+            input name: "googleMapRefreshInterval", type: "enum", title: "Enable to refresh map as soon as a member's location change, disable for manual refresh. <b>Note: each refresh contributes to the map API usage quota.</b>, Recommended='60-seconds'", defaultValue: "${DEFAULT_googleMapRefreshInterval}", options: GOOGLE_MAP_REFRESH_INTERVALS
+            input name: "mapFreeOnly", type: "bool", title: "Prevent generating maps once free quota has been exhausted.  Current usage: <b>${state.mapApiUsage}/${GOOGLE_MAP_API_QUOTA} per month</b>.", defaultValue: DEFAULT_mapFreeOnly
+            paragraph (GOOGLE_MAP_API_KEY_LINK)
+            input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map:"
+            paragraph ("<b>Google Family Map Link (if using a link for a dashboard is desired):</b> <a href='${getGoogleMapURL()}'>${getGoogleMapURL()}</a></br>")
         }
     }
 }
@@ -526,13 +542,16 @@ def configureRegions() {
         // clear the setting fields
         clearSettingFields()        
         section(getFormat("box", "Configure Regions")) {
+            if (!settings["googleMapsAPIKey"]) {
+                paragraph ("<b>Configure a Google Maps API key in 'Additional Hubitat App Settings' -> 'Google Maps Settings' to allow radius bubbles to be displayed around the regions.</b>")
+            }        
             href(title: "Add Regions", description: "", style: "page", page: "addRegions")
             href(title: "Edit Regions", description: "", style: "page", page: "editRegions")
             href(title: "Delete Regions", description: "", style: "page", page: "deleteRegions")
         }
         section(getFormat("line", "")) {
             input "homePlace", "enum", multiple: false, title:(homePlace ? '<div>' : '<div style="color:#ff0000">') + "Select your 'Home' place. ${(homePlace ? "" : "Use 'Configure Regions'->'Add Regions' to create a home location.")}" + '</div>', options: getNonFollowRegions(true), submitOnChange: true
-            paragraph("<iframe src='https://maps.google.com/?q=${getHomeRegion()?.lat},${getHomeRegion()?.lon}&z=17&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
+            paragraph("<iframe src='${getRegionMapLink(getHomeRegion())}' style='height: 500px; width:100%; border: none;'></iframe>")
             checkForHome()
         }
         section(getFormat("line", "")) {
@@ -613,6 +632,10 @@ def getHomeRegion() {
     return ((homePlace ? state.places.find {it.tst==homePlace} : []))
 }
 
+def getGoogleMapURL() {
+    return(getFullLocalApiServerUrl() + "/familymap?access_token=${state.accessToken}")
+}
+
 def displayRegionsPendingDelete() {
     // get the names of any regions that are pending deletion
     pendingDelete = state?.places.findAll{it.lat == INVALID_COORDINATE}.collect{place -> place.desc}
@@ -624,7 +647,7 @@ def displayRegionsPendingDelete() {
 def displayMissingHomePlace() {
     // display an error if the home place is missing
     if (!homePlace) {
-        paragraph "<div style='color:#ff0000'><b>'Home' place not set. Use 'Configure Regions' to select or add a home location.</b></div>"
+        paragraph "<div style='color:#ff0000'><b>'Home' place not set. Click 'Installation and Configuration' -> 'Configure Regions' to select or add a home location.</b></div>"
     }
 }    
 
@@ -640,7 +663,7 @@ def addRegions() {
             )
             
             if (geocodeProvider == "0") {
-                paragraph ("<b>Configure a geocode provider in 'Additional Hub App Settings' to enable address to latitude/longitude lookup.</b>")
+                paragraph ("<b>Configure a geocode provider in 'Additional Hubitat App Settings' -> 'Geocode Settings' to enable address to latitude/longitude lookup.</b>")
             } else {
                 input "regionAddress", "text", title: "Enter address to populate the latitude/longitude.  Confirm the location is correct using the map below.", submitOnChange: true
                 if (regionAddress) {
@@ -654,9 +677,11 @@ def addRegions() {
             // assign defaults so the map populates properly
             if (settings["regionLat"] == null) settings["regionLat"] = location.getLatitude()
             if (settings["regionLon"] == null) settings["regionLon"] = location.getLongitude()
-            paragraph("<iframe src='https://maps.google.com/?q=${settings["regionLat"]},${settings["regionLon"]}&z=17&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
+            
+            //createRegionMap(lat,lon,rad)
+            paragraph("<iframe src='${getRegionMapLink(createRegionMap(settings["regionLat"],settings["regionLon"],settings["regionRadius"]))}' style='height: 500px; width:100%; border: none;'></iframe>")
             input "regionName", "text", title: "Name", submitOnChange: true
-            input name: "regionRadius", type: "number", title: "Detection radius (${getSmallUnits()}) (${displayMFtVal(50)}..${displayMFtVal(1000)})", range: "${displayMFtVal(50)}..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_RADIUS)
+            input name: "regionRadius", type: "number", title: "Detection radius (${getSmallUnits()}) (${displayMFtVal(50)}..${displayMFtVal(1000)})", range: "${displayMFtVal(50)}..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_RADIUS), submitOnChange: true
             input name: "regionLat", type: "double", title: "Latitude (-90.0..90.0)", range: "-90.0..90.0", defaultValue: location.getLatitude(), submitOnChange: true
             input name: "regionLon", type: "double", title: "Longitude (-180.0..180.0)", range: "-180.0..180.0", defaultValue: location.getLongitude(), submitOnChange: true
             input name: "addRegionButton", type: "button", title: "Save", state: "submit"
@@ -687,9 +712,9 @@ def editRegions() {
                 }
                 // save the name in so we can retrieve the values should it get changed below
                 state.previousRegionName = regionName
-                paragraph("<iframe src='https://maps.google.com/?q=${settings["regionLat"]},${settings["regionLon"]}&z=17&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
+                paragraph("<iframe src='${getRegionMapLink(createRegionMap(settings["regionLat"],settings["regionLon"],settings["regionRadius"]))}' style='height: 500px; width:100%; border: none;'></iframe>")
                 input name: "regionName", type: "text", title: "Name", required: true
-                input name: "regionRadius", type: "number", title: "Detection radius (${getSmallUnits()})", required: true, range: "${displayMFtVal(50)}..${displayMFtVal(1000)}"
+                input name: "regionRadius", type: "number", title: "Detection radius (${getSmallUnits()})", required: true, range: "${displayMFtVal(50)}..${displayMFtVal(1000)}", submitOnChange: true
                 input name: "regionLat", type: "double", title: "Latitude (-90.0..90.0)", required: true, range: "-90.0..90.0", submitOnChange: true
                 input name: "regionLon", type: "double", title: "Longitude (-180.0..180.0)", required: true, range: "-180.0..180.0", submitOnChange: true
                 input name: "editRegionButton", type: "button", title: "Save", state: "submit"
@@ -709,7 +734,8 @@ def deleteRegions() {
             input "regionName", "enum", multiple: false, title:"Select region to delete", options: getNonFollowRegions(false), submitOnChange: true
             if (regionName) {
                 deleteRegion = state.places.find {it.desc==regionName}
-                paragraph("<iframe src='https://maps.google.com/?q=${deleteRegion?.lat},${deleteRegion?.lon}&z=17&output=embed&' style='height: 100%; width:100%; border: none;'></iframe>")
+                paragraph("<iframe src='${getRegionMapLink(createRegionMap(deleteRegion?.lat,deleteRegion?.lon,deleteRegion?.rad))}' style='height: 500px; width:100%; border: none;'></iframe>")
+                
                 paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.</b></div>")
                 paragraph("<h3><b>Delete Region from Hub Only - Manually Delete Region from Mobile</b></h3>" +
                           "1. Click the 'Delete Region from Hubitat ONLY' button.\r" +
@@ -925,6 +951,8 @@ def initialize(forceDefaults) {
     if (state.members == null) state.members = []
     if (state.places == null) state.places = []
     if (state.highPowerMode == null) state.highPowerMode = DEFAULT_highPowerMode
+    if (state.mapApiUsage == null) state.mapApiUsage = 0
+    if (state.lastGoogleFriendsLocationTime == null) state.lastGoogleFriendsLocationTime = 0
     GEOCODE_USAGE_COUNTER.eachWithIndex { entry, index ->
         String provider = GEOCODE_USAGE_COUNTER[index+1]
         if (state."$provider" == null) {
@@ -964,6 +992,7 @@ def initializeHub(forceDefaults) {
         app.removeSetting("regionHighAccuracyRadius")
         app.removeSetting("wifiPresenceKeepRadius")
         app.removeSetting("geocodeProvider")
+        app.removeSetting("googleMapRefreshInterval")
     }
     if (forceDefaults || (regionHighAccuracyRadius == null)) app.updateSetting("regionHighAccuracyRadius", [value: DEFAULT_regionHighAccuracyRadius, type: "number"])
     if (forceDefaults || (wifiPresenceKeepRadius == null)) app.updateSetting("wifiPresenceKeepRadius", [value: DEFAULT_wifiPresenceKeepRadius, type: "number"])
@@ -977,6 +1006,8 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (geocodeFreeOnly == null)) app.updateSetting("geocodeFreeOnly", [value: DEFAULT_geocodeFreeOnly, type: "bool"])
     if (forceDefaults || (useCustomNotificationMessage == null)) app.updateSetting("useCustomNotificationMessage", [value: DEFAULT_useCustomNotificationMessage, type: "bool"])
     if (forceDefaults || (notificationMessage == null)) app.updateSetting("notificationMessage", [value: DEFAULT_notificationMessage, type: "string"])
+    if (forceDefaults || (mapFreeOnly == null)) app.updateSetting("mapFreeOnly", [value: DEFAULT_mapFreeOnly, type: "bool"])
+    if (forceDefaults || (googleMapRefreshInterval == null)) app.updateSetting("googleMapRefreshInterval", [value: DEFAULT_googleMapRefreshInterval, type: "number"])
 }
 
 def initializeMobileLocation(forceDefaults) {
@@ -1352,8 +1383,13 @@ def webhookEventHandler() {
                         if (recorderURL && enableRecorder && (data.tst != 0) && !data.private) {
                             def postParams = [ uri: recorderURL + RECORDER_PUBLISH_FOLDER, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
                             asynchttpPost("httpCallbackMethod", postParams)
-                            // update the friends tile
-                            createFriendsTile()
+                            // update the recorder friends tile
+                            createRecorderFriendsLocationTile()
+                        }
+                        // only update if we have auto-refresh enabled
+                        if (googleMapRefreshInterval?.toInteger()) {
+                            // update the google friends tile
+                            createGoogleFriendsLocationTile()
                         }
                     break
                     case "waypoint":
@@ -1939,10 +1975,42 @@ def validLocationType(locationType) {
     return ((locationType == "p") || (locationType == "u"))
 }
 
-private def createFriendsTile() {
+private def createRecorderFriendsLocationTile() {
     def deviceWrapper = getChildDevice(getCommonChildDNI())
     if (deviceWrapper) {
-        deviceWrapper.generateFriendsTile()
+        deviceWrapper.generateRecorderFriendsLocationTile()
+    }
+}
+
+def createGoogleFriendsLocationTile() {
+    // add a deadband to prevent repetitive refreshes
+    // get the times in milliseconds
+    currentTime = now()    
+    elapsedTime = currentTime - state.lastGoogleFriendsLocationTime
+    timeRemaining = (googleMapRefreshInterval?.toInteger() * 1000) - elapsedTime
+    // convert times to seconds
+    elapsedSeconds = (elapsedTime / 1000).toInteger()
+    secondsRemaining = (timeRemaining / 1000).toInteger()
+    
+    // check if we are still inside the deadband window
+    if (secondsRemaining > 0) {
+        if (currentTime > state.nextRefreshTime) {
+            // schedule the next refresh, and store the next refresh time
+            runIn(secondsRemaining, createGoogleFriendsLocationTile)
+            state.nextRefreshTime = currentTime + timeRemaining
+            logDebug("Delaying Google map generation, last refresh was ${elapsedSeconds} seconds ago.  Running in ${secondsRemaining} seconds.")
+        } else {
+            logDebug("Skipping Google map generation, last refresh was ${elapsedSeconds} seconds ago.")
+        }            
+    } else {
+        // consume the scheduled refresh since we are firing now
+        unschedule(createGoogleFriendsLocationTile)
+        def deviceWrapper = getChildDevice(getCommonChildDNI())
+        if (deviceWrapper) {
+            deviceWrapper.generateGoogleFriendsLocationTile()
+        }
+        // save the last refresh time in milliseconds
+        state.lastGoogleFriendsLocationTime = currentTime
     }
 }
 
@@ -2168,8 +2236,25 @@ private def isGeocodeAllowed() {
     }
 }
 
+private def isMapAllowed() {
+    String provider = GEOCODE_USAGE_COUNTER[geocodeProvider.toInteger()]
+    // check if we are allowing paid lookups or we are under our quota and we have a key defined
+    if (settings["googleMapsAPIKey"]?.trim() && (!mapFreeOnly || (state.mapApiUsage < GOOGLE_MAP_API_QUOTA))) {
+        // increment the usage counter
+        state.mapApiUsage++     
+        return(true)
+    } else {
+        return(false)        
+    }
+}
+
 def dailyScheduler() {
     logDescriptionText("Running daily geocode quota maintenance.")
+    dayOfMonth = new SimpleDateFormat("d").format(new Date())
+    // check if it's the first of the month
+    if (dayOfMonth.toInteger() == 1) {
+        state.mapApiUsage = 0
+    }
     // runs midnight GMT - reset the quota's based on if the provider resets daily or monthly
     GEOCODE_USAGE_COUNTER.eachWithIndex { entry, index ->
         String provider = GEOCODE_USAGE_COUNTER[index+1]
@@ -2177,7 +2262,6 @@ def dailyScheduler() {
             state."$provider" = 0
         } else {
             // check if it's the first of the month
-            dayOfMonth = new SimpleDateFormat("d").format(new Date())
             if (dayOfMonth.toInteger() == 1) {
                 state."$provider" = 0
             }
@@ -2185,11 +2269,145 @@ def dailyScheduler() {
     }    
 }
 
+def createRegionMap(lat,lon,rad) {
+    return(["lat":lat,"lon":lon,"rad":rad])
+}
+
+def getRegionMapLink(region) {
+    // if we have an API key that is still has quota left
+    APIKey = googleMapsAPIKey?.trim()
+    if (APIKey && isMapAllowed()) {
+        return(getFullLocalApiServerUrl() + "/regionmap/${createRegionMap(region?.lat,region?.lon,region?.rad)}?access_token=${state.accessToken}")
+    } else {
+        return("https://maps.google.com/?q=${region?.lat},${region?.lon}&z=17&output=embed&")
+    }
+}
+
+def generateRegionMap() {
+    // convert the string back to a map
+    def region = evaluate((params.region).replaceAll("%20",""))
+
+    String htmlData = ""
+    APIKey = googleMapsAPIKey?.trim()
+    if (APIKey && isMapAllowed()) {
+        htmlData += '<div style="width:100%;height:100%;margin:5px">'
+        htmlData += '<div id="map" style="width:100%;height:100%;"></div>'
+        htmlData += '<script>'
+        htmlData += 'function m() {const map = new google.maps.Map(document.getElementById("map"),  {zoom:17,center:{lat:' + region.lat + ',lng:' + region.lon + '},mapId:"owntracks",});'
+        
+        // place the region pin
+        htmlData += 'const i=new google.maps.marker.PinElement({scale:1.0,background:"' + DEFAULT_APP_THEME_COLOR +'",borderColor:"' + DEFAULT_APP_THEME_COLOR +'",glyphColor:"white"});new google.maps.marker.AdvancedMarkerElement({map,position:{lat:' + region.lat + ',lng:' + region.lon + '},content:i.element});'
+        // place the region radius
+        htmlData += 'const radius = new google.maps.Circle({map,center:{lat:' + region.lat + ',lng:' + region.lon + '},radius:' + region.rad + ',strokeColor:"' + DEFAULT_APP_THEME_COLOR +'",strokeOpacity:0.17,strokeWeight:1,fillColor:"' + DEFAULT_APP_THEME_COLOR +'",fillOpacity:0.17});}'
+
+        htmlData += '</script>'
+        htmlData += '<script src="https://maps.googleapis.com/maps/api/js?key=' + APIKey +'&loading=async&libraries=marker,maps&callback=m"></script>'
+    } 
+    
+    return render(contentType: "text/html", data: htmlData);   
+}
+
+def generateGoogleFriendsMap() {
+    String htmlData = ""
+    APIKey = googleMapsAPIKey?.trim()
+    if (APIKey && isMapAllowed()) {
+        // get the member structure for all enabled and public members
+        publicMembers = getEnabledAndNotHiddenMemberData()
+        // determine the map center based on the members
+        mapCenterAndZoom = calculateCenterAndZoom(publicMembers)
+        htmlData += '<div style="width:100%;height:100%;margin:5px">'
+        htmlData += '<div id="map" style="width:100%;height:100%;"></div>'
+        htmlData += '<script>'
+        htmlData += 'function m() {const map = new google.maps.Map(document.getElementById("map"),  {zoom:' + mapCenterAndZoom.zoom + ',center:{lat:' + mapCenterAndZoom.lat + ',lng:' + mapCenterAndZoom.lon + '},mapId:"owntracks",});'
+
+        htmlData += 'const locations = ['
+        publicMembers.each { member->
+            htmlData += '{lat:' + member.latitude + ',lng:' + member.longitude + ',img:"' + getImageURL(member.name) +'",title:"' + member.name + '"},'
+        }
+        htmlData += '];'
+        htmlData += 'const places = ['
+        state.places.each { place->
+            htmlData += '{lat:' + place.lat + ',lng:' + place.lon + ',rad:' + place.rad + ',title:"' + place.desc + '"},'
+        }
+        htmlData += '];'
+        
+        // place the members on the map
+        htmlData += 'locations.forEach(location => {const i=new Image(35,35);i.src=location.img;const pin=new google.maps.marker.PinElement({glyph:i,scale:2,background:"' + DEFAULT_APP_THEME_COLOR +'",borderColor:"' + DEFAULT_APP_THEME_COLOR +'"});new google.maps.marker.AdvancedMarkerElement({map,position:{lat:location.lat,lng:location.lng},title:location.title,content:pin.element})});'
+        // place the region pins
+        htmlData += 'places.forEach(location => {const i=new google.maps.marker.PinElement({scale:0.5,background:"' + DEFAULT_APP_THEME_COLOR +'",borderColor:"' + DEFAULT_APP_THEME_COLOR +'",glyphColor:"white"});new google.maps.marker.AdvancedMarkerElement({map,position:{lat:location.lat,lng:location.lng},title:location.title,content:i.element})});'
+        // place the region radius'
+        htmlData += 'places.forEach(location => {new google.maps.Circle({map,center:{lat:location.lat,lng:location.lng},radius:location.rad,strokeColor:"' + DEFAULT_APP_THEME_COLOR +'",strokeOpacity:0.17,strokeWeight:1,fillColor:"' + DEFAULT_APP_THEME_COLOR +'",fillOpacity:0.17})});}'
+
+        htmlData += '</script>'
+        htmlData += '<script src="https://maps.googleapis.com/maps/api/js?key=' + APIKey +'&loading=async&libraries=marker,maps&callback=m"></script>'
+    } 
+    
+    return render(contentType: "text/html", data: htmlData);   
+}
+
+
+private def calculateCenterAndZoom(members) {
+    def minLng = null
+    def maxLng = null
+    def minLat = null
+    def maxLat = null
+    def maxZoom = 18
+
+    members.each { mem ->
+        // assign to the first location
+        if (minLng == null) {
+            minLng = mem.longitude
+            maxLng = mem.longitude
+            minLat = mem.latitude
+            maxLat = mem.latitude
+        }
+        // assign the bounds
+        if (mem.latitude > maxLat) maxLat = mem.latitude
+        if (mem.latitude < minLat) minLat = mem.latitude
+        if (mem.longitude > maxLng) maxLng = mem.longitude
+        if (mem.longitude < minLng) minLng = mem.longitude
+    }
+    // get the center point
+    avgLat = (maxLat + minLat) / 2
+    avgLon = (maxLng + minLng) / 2
+    
+    // a constant in Google's map projection
+    GLOBE_WIDTH = 256
+    angle = maxLng - minLng
+    if (angle < 0) {
+        angle += 360
+    }
+    angle2 = maxLat - minLat
+    if (angle2 > angle) {
+        angle = angle2
+    }
+    if (angle == 0) {
+        zoomfactor = maxZoom
+    } else {
+        zoomfactor = Math.floor(Math.log(960 * 360 / angle / GLOBE_WIDTH) / 0.693147) - 2
+        if (zoomfactor > maxZoom) {
+            zoomfactor = maxZoom
+        }
+    }
+
+    return [ lat: avgLat, lon: avgLon, zoom: zoomfactor ]
+}
+
 mappings {
 	path("/webhook") {
     	action: [
             POST: "webhookEventHandler",
             GET:  "webhookGetHandler",        // used for tesing through a web browser
+        ]
+    }
+	path("/familymap") {
+    	action: [
+            GET:  "generateGoogleFriendsMap",        
+        ]
+    }
+	path("/regionmap/:region") {
+    	action: [
+            GET:  "generateRegionMap",        
         ]
     }
 }
@@ -2219,10 +2437,10 @@ private def syncHttpGet(url) {
 }
 
 private def getFormat(type, myText="", myError="") {
-    if (type == "box") return "<div style='color:#ffffff;font-weight: normal;background-color:#3C00BC;padding:5px;padding-left:10px;border: 1px solid #000000;box-shadow: 3px 4px #575757;border-radius: 1px'>${myText}<span style='color:red;padding-left:5px;font-weight:bold'>${myError}</span></div>"
-    if (type == "line") return "<hr style='background-color:#3C00BC; height: 1px; border: 0;'/>"
-    if (type == "title") return "<h2 style='color:#3C00BC;font-weight: bold'>${myText}</h2>"
-    if (type == "button") return "<a style='color:white;text-align:center;font-size:20px;font-weight:bold;background-color:#3C00BC;border:1px solid #000000;box-shadow:3px 4px #575757;border-radius:10px' href='${page}'>${myText}</a>"
+    if (type == "box") return "<div style='color:#ffffff;font-weight: normal;background-color:${DEFAULT_APP_THEME_COLOR};padding:5px;padding-left:10px;margin-right:20px;border:1px solid #000000;box-shadow: 3px 4px #575757;border-radius: 1px'>${myText}<span style='color:red;padding-left:5px;font-weight:bold'>${myError}</span></div>"
+    if (type == "line") return "<hr style='background-color:${DEFAULT_APP_THEME_COLOR}; height: 1px; border: 0;'/>"
+    if (type == "title") return "<h2 style='color:${DEFAULT_APP_THEME_COLOR};font-weight: bold'>${myText}</h2>"
+    if (type == "button") return "<a style='color:white;text-align:center;font-size:20px;font-weight:bold;background-color:${DEFAULT_APP_THEME_COLOR};border:1px solid #000000;box-shadow:3px 4px #575757;border-radius:10px' href='${page}'>${myText}</a>"
     if (type == "redText") return "<div style='color:#ff0000'>${myText}</div>"
 }
 

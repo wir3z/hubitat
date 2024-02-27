@@ -44,7 +44,7 @@ Open the Hubitat OwnTracks app, and configure the the sections in 'Installation'
 	- Date/time for the last location fix from a member.  If the member hasn't updated it's location after the set number of hours, it is displayed in red, with the number of hours since the last fix.
 - The columns indicate the current pending requests for each member.  If 'Pending' is displayed, that user will get updated on the next location report.
 - If region(s) are pending deletion, a banner will be displayed at the bottom of the table in red.
-# Installation
+# Installation and Configuration
 ## Mobile App Configuration
 This integration requires the Owntracks app to be installed on your mobile device:  https://owntracks.org/
 NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will change, and the mobile devices will need to be updated.
@@ -72,6 +72,7 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 - Click the up arrow button in the top right of the map to trigger a 'Send Location Now' to register the device with the Hubitat App.  
 
 ## Configure Regions
+NOTE:  If a Google Map API key is entered in the 'Additional Hubitat App Settings -> Google map Settings', the regions will be able to display radius bubbles.
 - Add Regions:
     - If a geocode provider has been configured in 'Additional Hub Settings', a text box will be displayed to allow entering street addresses to be converted to latitude/longitude.
 		- NOTE: Google provides the best lookup accuracy.  If using other providers, confirm the map pin looks correct.
@@ -155,6 +156,7 @@ NOTE: The OwnTracks mobile app stores and displays all units in metric.
 - SSID will only be used for presence detection when a member is within this radius from home
 	- Once the member exceeds this distance, SSID will no longer be used for 'present' and 'not present' detection.
 
+### Advanced Settings	
 The defaults for the rest of these settings should be sufficient for verifying operation.
 - Restore Defaults
 	- Resets the settings to the recommended defaults
@@ -173,6 +175,7 @@ The defaults for the rest of these settings should be sufficient for verifying o
 - Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (Android ONLY)
 	- If selected, members reporting a ping or manual location will be requested to send a high accuracy location on their next location report
 
+### Geocode Settings - Converts latitude/longitude to address
 - Select the optional geocode provider for address lookups. Allows location latitude/longitude to be displayed as physical address.	
 	- A geocode provider can be used to convert latitude/longitude into addresses and street addresses, as well as allow entering street address in the 'Add Region' section.
 	- Three providers are supported: Google, Geoapify, and Opencage.  When a provider is selected, the link to sign up for an API key will changes.
@@ -181,12 +184,28 @@ The defaults for the rest of these settings should be sufficient for verifying o
 	- Each provider has a free quota level.  This slider should be selected unless you are on a paid geocoder plan.
 	- The usage total indicates the current usage in the quota period.  Google resets the total at the first of every month, the other providers daily, at 00:00 GMT.
 	- Click the 'Sign up for a xxx API Key' link, and follow the directions to get the API key (this will be a string of random letters and numbers).
-	- Once the quota has been exhuasted for the period, the application will stop converting locations until the next quote period.
+	- Once the quota has been exhausted for the period, the application will stop converting locations until the next quote period.
 - Geocode API key for address lookups:
 	- Paste the API key provided into the box.
 - All three providers can be configured, but only the select on will be used for geocode look ups.
 - Select 'Disabled' to disable geocode lookups.
-	
+
+### Google Map Settings
+Creates a Google map with all members' thumbnails shown as well as region radius' when adding/editing regions.  
+NOTE:  Requires member thumbnails to be enabled, and will only display users using a local dashboard.
+- Enable to refresh map as soon as a member's location change, disable for manual refresh. 
+	- Each refresh contributes to the map API usage quota.
+	- A 'Momentary' attribute for the 'OwnTracks' device can be added to a dashboard for a manual refresh.
+	- If an auto-refresh interval is selected, 60-seconds or larger is recommended.
+- Prevent generating maps once free quota has been exhausted.  Current usage: x/y per month.	
+	- Google maps as a free quota level.  This slider should be selected unless you are on a paid plan.
+	- The usage total indicates the current usage in the quota period.  Google resets the total at the first of every month.
+	- Click the 'Sign up for a Google API Key' link, and follow the directions to get the API key (this will be a string of random letters and numbers).
+	- Once the quota has been exhausted for the period, the application will stop generating the map until the next quote period.
+- Google Maps API key for combined family location map:
+	- Paste the API key provided into the box.
+
+
 
 # Optional Features
 ## Enabling User Thumbnails:  
@@ -349,7 +368,9 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 	- PastLocations : If enabled in user device, and requires the OwnTracks Recorder to be configured, shows the user's locations over the past 12-hours on an interactive map.
 	
 ## OwnTracks user device
-	- FriendsLocation : If enabled in user device, and requires the OwnTracks Recorder to be configured, shows all user's current locations on an interactive map.
+	- RecorderFriendsLocation : If enabled in user device, and requires the OwnTracks Recorder to be configured, shows all user's current locations on an interactive map.
+	- GoogleFriendsLocation : If configured in the OwnTracks app, shows all user's current locations on an interactive map.
+	- The 'push' momentary device will refresh the above two maps when pressed or when triggered from a dashboard.
 
 ## Using Dashboard Tiles
 	- Create a dashboard.

@@ -108,12 +108,13 @@
  *  1.7.11     2024-02-11      - Placed location debug under disable/enable slider.
  *  1.7.12     2024-02-15      - Create a Presence Tile.  Removed custom text from battery field.
  *  1.7.13     2024-02-17      - Fixed tile format.
+ *  1.7.14     2024-02-26      - Changed presence tile text when colored tiles are enabled.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.13" }
+def driverVersion() { return "1.7.14" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -488,16 +489,18 @@ def generateMemberTile() {
         tiledata += '<tr>'
         
         if (device.currentValue('imageURL') != "false") {
-            tiledata += '<td width=20%><img src="' + device.currentValue('imageURL') + '" alt="' + state.memberName + '" width="35" height="35"></td>'
+            tiledata += '<td width=11%><img src="' + device.currentValue('imageURL') + '" alt="' + state.memberName + '" width="35" height="35"></td>'
         } else {
-            tiledata += '<td width=20%>' + device.displayName + '</td>'
+            tiledata += '<td width=11%>' + device.displayName + '</td>'
         }
-        tiledata += '<td width=60%>'
+        tiledata += '<td width=79%>'
         tiledata += "${device.currentValue('location')}</br>"
         tiledata += "${tileDate}</br>"
         tiledata += '</td>'
         tiledata += '<td width=20%>'
-        tiledata += ((device.currentValue('presence') == "present") ? '&#10004</br>Present' : '&#10008</br>Not Present')
+        if (!colorMemberTile) {
+            tiledata += ((device.currentValue('presence') == "present") ? '&#10004</br>Present' : '&#10008</br>Not Present')
+        }
         tiledata += '</td>'
         tiledata += '</tr>'
         tiledata += '</table>'
@@ -606,7 +609,7 @@ def generatePresenceTile() {
     tiledata += '<div style="width:100%;height:93%;font-size:0.7em;margin:7px;background:' + ((device.currentValue('presence') == "present") ? 'green">' : '#b40000">')
     tiledata += '<table align="center" style="height:100%;width:100%">'
     tiledata += '<tr height=33%>'
-    tiledata += "<td valign='center'>${device.currentValue('location')}</br>${tileDate}</td>"
+    tiledata += "<td valign='center'>${device.currentValue('location')}</td>"
     tiledata += '</tr>'
 
     tiledata += '<tr height=33%>'
@@ -618,8 +621,7 @@ def generatePresenceTile() {
     tiledata += '</tr>'
 
     tiledata += '<tr height=33%>'
-    tiledata += '<td valign="center">'
-    tiledata += ((device.currentValue('presence') == "present") ? '&#10004</br>Present' : '&#10008</br>Not Present')
+    tiledata += "<td valign='center'>${tileDate}</td>"
     tiledata += '</td>'
     tiledata += '</tr>'
     tiledata += '</table>'
