@@ -109,12 +109,13 @@
  *  1.7.12     2024-02-15      - Create a Presence Tile.  Removed custom text from battery field.
  *  1.7.13     2024-02-17      - Fixed tile format.
  *  1.7.14     2024-02-26      - Changed presence tile text when colored tiles are enabled.
+ *  1.7.15     2024-03-03      - Fixed tile formatting and refactored tile layouts.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.14" }
+def driverVersion() { return "1.7.15" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -123,6 +124,7 @@ def driverVersion() { return "1.7.14" }
 @Field static final Map PRESENCE_TILE_BATTERY_FIELD = [ 0: "Battery %", 1: "Current Location and Since Time", 2: "Distance from Home", 3: "Last Speed", 4: "Battery Status (Unplugged/Charging/Full)", 5: "Data Connection (WiFi/Mobile)", 6: "Update Trigger (Ping/Region/Report Location/Manual)", 7: "Distance from Home and Since Time" ]
 @Field static final Map LOCATION_PERMISION = [ "0": "Background - Fine", "-1": "Background - Coarse", "-2": "Foreground - Fine", "-3": "Foreground - Coarse", "-4": "Disabled" ]
 @Field static final Map TRANSITION_PHRASES = [ "enter": "arrived", "leave": "left" ]
+@Field static final Map URL_SOURCE = [ "local": 0, "cloud": 1 ]
 
 @Field Boolean DEFAULT_presenceTileBatteryField = 0
 @Field Boolean DEFAULT_displayExtendedAttributes = true
@@ -167,7 +169,6 @@ metadata {
         attribute  "batteryOptimizations", "string"
         attribute  "locationPermissions", "string"
 
-        attribute  "imageURL", "string"
         attribute  "MemberLocation", "string"
         attribute  "PastLocations", "string"
         attribute  "PresenceTile", "string"
@@ -212,7 +213,7 @@ def installed() {
 def updated() {
     logDescriptionText("${device.name}: Location Tracker User Driver has been Updated")
     // generate / remove the member tile as required
-    generateMemberTile()
+    generateTiles()
     // remove the extended attributes if not enabled
     if (!displayExtendedAttributes) {
         deleteExtendedAttributes(false)
@@ -254,7 +255,7 @@ def arrived() {
     sendEvent( name: "transitionDirection", value: "enter" )	
     logDescriptionText("$descriptionText")
     parent.generateTransitionNotification(device.displayName, TRANSITION_PHRASES[device.currentValue('transitionDirection',true)], device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
-    runIn(1, generateMemberTile)
+    runIn(1, generateTiles)
 }
 
 def departed() {
@@ -265,11 +266,11 @@ def departed() {
     sendEvent( name: "transitionDirection", value: "leave" )	
     logDescriptionText("$descriptionText")
     parent.generateTransitionNotification(device.displayName, TRANSITION_PHRASES[device.currentValue('transitionDirection',true)], device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
-    runIn(1, generateMemberTile)
+    runIn(1, generateTiles)
 }
 
 def createMemberTile() {
-    generateMemberTile()
+    generateTiles()
 }
 
 def updateAttributes(data, locationType) { 
@@ -344,6 +345,9 @@ def updateAttributes(data, locationType) {
 }
 
 Boolean generatePresenceEvent(member, homeName, data) {
+    // cleanup
+    device.deleteCurrentState('imageURL')
+    
     // update the driver version if necessary
     if (state.driverVersion != driverVersion()) {
         state.driverVersion = driverVersion()
@@ -449,8 +453,8 @@ Boolean generatePresenceEvent(member, homeName, data) {
                 sendEvent( name: "lastSpeed", value:  0 )
             } 
 
-            // create the HTML member tile if it's enabled and allowed -- schedule for 1-second so that the attributes are saved
-            runIn(1, generateMemberTile)
+            // create the HTML tiles -- schedule for 1-second so that the attributes are saved
+            runIn(1, generateTiles)
         }
         
         // allowed all the time
@@ -472,84 +476,99 @@ Boolean generatePresenceEvent(member, homeName, data) {
     return true
 }
 
+def generateTiles() {
+    generateMemberTile()
+    generatePastLocationsTile()
+    generatePresenceTile()
+}
+    
 def generateMemberTile() {
-    if (displayMemberTile && (device.currentValue('location') != DEFAULT_privateLocation)) {
-        long sinceTimeMilliSeconds = state.sinceTime
-        tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))        
-        
-        String tiledata = "";
-        tiledata += '<div style="width:100%;height:100%;margin:5px;padding-top:7px;font-size:0.7em">'
-        
-        if (colorMemberTile) {
-            tiledata += '<div style="background:' + ((device.currentValue('presence') == "present") ? 'green">' : '#b40000">')
-        } else {
-            tiledata += '<div>'
-        }
-        tiledata += '<table align="center" style="width:100%">'          
-        tiledata += '<tr>'
-        
-        if (device.currentValue('imageURL') != "false") {
-            tiledata += '<td width=11%><img src="' + device.currentValue('imageURL') + '" alt="' + state.memberName + '" width="35" height="35"></td>'
-        } else {
-            tiledata += '<td width=11%>' + device.displayName + '</td>'
-        }
-        tiledata += '<td width=79%>'
-        tiledata += "${device.currentValue('location')}</br>"
-        tiledata += "${tileDate}</br>"
-        tiledata += '</td>'
-        tiledata += '<td width=20%>'
-        if (!colorMemberTile) {
-            tiledata += ((device.currentValue('presence') == "present") ? '&#10004</br>Present' : '&#10008</br>Not Present')
-        }
-        tiledata += '</td>'
-        tiledata += '</tr>'
-        tiledata += '</table>'
-        tiledata += '</div>'
-
-        // mobile shows full 4x height tile in portrait, grey banner at bottom in landscape
-//        tiledata += '<table align="center" style="width:100%;height:calc(100% - 200px)">'
-        // mobile has bottom metrics hidden in 4x height tile in portrait, full screen in landscape
-        tiledata += '<table align="center" style="width:100%;height:calc(100% - 160px)">'
-        tiledata += '<tr>'
-        tiledata += "<td><iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&z=17&output=embed&' style='height:100%;width:100%'></iframe></td>"
-        tiledata += '</tr>'
-        tiledata += '</table>'
-
-        tiledata += '<table align="center" style="width:100%">'     
-        tiledata += "<caption>Last Update: ${device.currentValue('lastLocationtime')}</caption>"
-        tiledata += '<tr>'
-        tiledata += '<th width=25%>Distance</th>'
-        if (device.currentValue('lastSpeed') != null) tiledata += '<th width=25%>Speed</th>'
-        if (device.currentValue('battery') != null) tiledata += '<th width=25%>Battery</th>'
-        if (device.currentValue('dataConnection') != null) tiledata += '<th width=25%>Data</th>'
-        tiledata += '</tr>'
- 
-        tiledata += '<tr>'
-        tiledata += "<td width=25%>${parent.displayKmMiVal(device.currentValue('distanceFromHome'))} ${parent.getLargeUnits()}</td>"
-        if (device.currentValue('lastSpeed') != null)  tiledata += "<td width=25%>${parent.displayKmMiVal(device.currentValue('lastSpeed'))} ${parent.getVelocityUnits()}</td>"
-        if (device.currentValue('battery') != null) tiledata += "<td width=25%>${device.currentValue('battery')} %" + (device.currentValue('batteryStatus') ? "</br>${device.currentValue('batteryStatus')}" : "") + "</td>"
-        if (device.currentValue('dataConnection') != null) tiledata += "<td width=25%>${device.currentValue('dataConnection')}</td>"
-        tiledata += '</tr>'
-        tiledata += '</table>'
-        
-        tiledata += '</div>'
-        
-        // deal with the 1024 byte attribute limit
-        if ((tiledata.length() + 11) > 1024) {
-            tiledata = "Too much data to display.</br></br>Exceeds maximum tile length by " + ((tiledata.length() + 11) - 1024) + " characters."
-        }
-        sendEvent(name: "MemberLocation", value: tiledata, displayed: true)
+    if (displayMemberTile) {
+        sendEvent(name: "MemberLocation", value: parent.displayTile("membermap/${state.memberName.toLowerCase()}"), displayed: true)
     } else {
         device.deleteCurrentState('MemberLocation')
     }
-    // generate the past locations tile if allowed
-    generatePastLocationsTile()
-    // generate the presence tile
-    generatePresenceTile()
 }
 
 def generatePastLocationsTile() {
-    if (displayLastLocationTile && parent.getRecorderURL() && (device.currentValue('location') != DEFAULT_privateLocation)) {
+    String tiledata = generatePastLocations()
+    if (displayLastLocationTile && tiledata) {
+        sendEvent(name: "PastLocations", value: parent.checkAttributeLimit(tiledata), displayed: true)
+    } else {
+        device.deleteCurrentState('PastLocations')
+    }    
+}
+
+def generatePresenceTile() {
+    sendEvent(name: "PresenceTile", value: parent.displayTile("memberpresence/${state.memberName.toLowerCase()}"), displayed: true)    
+}
+
+def generateMember() {
+    String htmlData = ""    
+    if (device.currentValue('location') != DEFAULT_privateLocation) {
+        long sinceTimeMilliSeconds = state.sinceTime
+        tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))        
+
+        htmlData += '<div style="width:100%;height:100%;margin:2px;font-family:arial">'
+        htmlData += '<div style="background:'
+        if (colorMemberTile) {
+            htmlData += ((device.currentValue('presence') == "present") ? 'green">' : '#b40000">')
+        } else {
+            htmlData += '#555555">'
+        }
+        htmlData += '<table style="width:100%;font-size:0.8em;color:white">'          
+        htmlData += '<tr>'
+        
+        memberURL = parent.getEmbeddedImage(state.memberName)
+        if (memberURL) {        
+            htmlData += '<td align="left" width=11%><object data="' + memberURL + '" type="image/jpeg" width="35" height="35">' + state.memberName + '</object></td>'  
+        } else {
+            htmlData += '<td align="left" width=11%>' + state.memberName + '</td>'
+        }
+        htmlData += '<td align="center" width=79%>'
+        htmlData += "${device.currentValue('location')}</br>"
+        htmlData += "${tileDate}</br>"
+        htmlData += '</td>'
+        htmlData += '<td align="right" width=20%>'
+        if (!colorMemberTile) {
+            htmlData += ((device.currentValue('presence') == "present") ? '&#10004</br>Present' : '&#10008</br>Not Present')
+        }
+        htmlData += '</td>'
+        htmlData += '</tr>'
+        htmlData += '</table>'
+        htmlData += '</div>'        
+
+        htmlData += '<table style="width:100%;height:calc(100% - 110px)">'
+        htmlData += '<tr align="center">'
+        htmlData += "<td><iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&z=17&output=embed&' style='height:100%;width:100%'></iframe></td>"
+        htmlData += '</tr>'
+        htmlData += '</table>'
+
+        htmlData += '<table style="width:100%;font-size:0.8em;color:white;background:#555555">'     
+        htmlData += "<caption>Last Update: ${device.currentValue('lastLocationtime')}</caption>"
+        htmlData += '<tr align="center">'
+        htmlData += '<th width=25%>Distance</th>'
+        if (device.currentValue('lastSpeed') != null) htmlData += '<th width=25%>Speed</th>'
+        if (device.currentValue('battery') != null) htmlData += '<th width=25%>Battery</th>'
+        if (device.currentValue('dataConnection') != null) htmlData += '<th width=25%>Data</th>'
+        htmlData += '</tr>'
+ 
+        htmlData += '<tr align="center">'
+        htmlData += "<td width=25%>${parent.displayKmMiVal(device.currentValue('distanceFromHome'))} ${parent.getLargeUnits()}</td>"
+        if (device.currentValue('lastSpeed') != null)  htmlData += "<td width=25%>${parent.displayKmMiVal(device.currentValue('lastSpeed'))} ${parent.getVelocityUnits()}</td>"
+        if (device.currentValue('battery') != null) htmlData += "<td width=25%>${device.currentValue('battery')} %" + (device.currentValue('batteryStatus') ? "</br>${device.currentValue('batteryStatus')}" : "") + "</td>"
+        if (device.currentValue('dataConnection') != null) htmlData += "<td width=25%>${device.currentValue('dataConnection')}</td>"
+        htmlData += '</tr>'
+        htmlData += '</table>'
+        htmlData += '</div>'
+    }
+
+    return (htmlData)
+}
+
+def generatePastLocations() {
+    String htmlData = ""
+    if (parent.getRecorderURL() && (device.currentValue('location') != DEFAULT_privateLocation)) {
         // split the topic into it's elements.  user is [1], device is [2].
         topicElements = parent.splitTopic(device.currentValue('sourceTopic').toLowerCase())
     
@@ -563,78 +582,65 @@ def generatePastLocationsTile() {
         startDate = new SimpleDateFormat("yyyy-MM-dd  h:mm a").format(new Date(currentTime-(12*3600*1000)))        
         endDate = new SimpleDateFormat("yyyy-MM-dd  h:mm a").format(new Date(currentTime))
 
-        String tiledata = "";
-        tiledata += '<div style="width:100%;height:100%;margin:5px;font-size:0.7em">'
-        tiledata += '<table align="center" style="width:100%">'          
-        tiledata += '<tr>'
+        htmlData += '<div style="width:100%;height:100%;margin:5px;font-size:0.7em;font-family:arial">'
+        htmlData += '<table style="width:100%">'          
+        htmlData += '<tr>'
         
-        if (device.currentValue('imageURL') != "false") {
-            tiledata += '<td width=20%><img src="' + device.currentValue('imageURL') + '" alt="' + state.memberName + '" width="35" height="35"></td>'
+        memberURL = parent.getImageURL(state.memberName)
+        if (memberURL) {        
+            htmlData += '<td align="left" width=20%><object data="' + memberURL + '" type="image/jpeg" width="35" height="35">' + state.memberName + '</object></td>'  
         } else {
-            tiledata += '<td width=20%>' + device.displayName + '</td>'
+            htmlData += '<td align="left" width=20%>' + state.memberName + '</td>'
         }
-        tiledata += '<td width=60% style="padding-top:15px;">'
-        tiledata += "Start: ${startDate}</br>"
-        tiledata += "End: ${endDate}</br>"
-        tiledata += '</td>'
-        tiledata += '<td width=20%>'
-        tiledata += '</td>'
-        tiledata += '</tr>'
-        tiledata += '</table>'
+        htmlData += '<td td align="center" width=60%">'
+        htmlData += "Start: ${startDate}</br>"
+        htmlData += "End: ${endDate}</br>"
+        htmlData += '</td>'
+        htmlData += '<td width=20%>'
+        htmlData += '</td>'
+        htmlData += '</tr>'
+        htmlData += '</table>'
 
-        tiledata += '<table align="center" style="width:100%;height:calc(100% - 90px)">'
-        tiledata += '<tr>'
-        tiledata += "<td><iframe src=${urlPath} style='height:100%;width:100%'></iframe></td>"
-        tiledata += '</tr>'
-        tiledata += '</table>'
-        tiledata += '</div>'
-        
-        // deal with the 1024 byte attribute limit
-        if ((tiledata.length() + 11) > 1024) {
-            tiledata = "Too much data to display.</br></br>Exceeds maximum tile length by " + ((tiledata.length() + 11) - 1024) + " characters."
-        }
-
-        sendEvent(name: "PastLocations", value: tiledata, displayed: true)
-    } else {
-        device.deleteCurrentState('PastLocations')
+        htmlData += '<table style="width:100%;height:calc(100% - 50px)">'
+        htmlData += '<tr align="center">'
+        htmlData += "<td><iframe src=${urlPath} style='height:100%;width:100%'></iframe></td>"
+        htmlData += '</tr>'
+        htmlData += '</table>'
+        htmlData += '</div>'
     }
+
+    return (htmlData)
 }
 
-def generatePresenceTile() {
+def generatePresence() {
     long sinceTimeMilliSeconds = state.sinceTime
     sinceDate = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date(sinceTimeMilliSeconds * 1000))
     tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))    
     
-    String tiledata = "";
-    tiledata += '<div style="width:100%;height:93%;font-size:0.7em;margin:7px;background:' + ((device.currentValue('presence') == "present") ? 'green">' : '#b40000">')
-    tiledata += '<table align="center" style="height:100%;width:100%">'
-    tiledata += '<tr height=33%>'
-    tiledata += "<td valign='center'>${device.currentValue('location')}</td>"
-    tiledata += '</tr>'
+    String htmlData = ""
+    htmlData += '<div style="width:100%;height:100%;margin:4px;background:' + ((device.currentValue('presence') == "present") ? 'green">' : '#b40000">')
+    htmlData += '<table style="height:100%;width:100%;color:white;font-size:0.8em;font-family:arial">'
+    htmlData += '<tr align="center" height=33%>'
+    htmlData += "<td valign='center'>${device.currentValue('location')}</td>"
+    htmlData += '</tr>'
 
-    tiledata += '<tr height=33%>'
-    if (device.currentValue('imageURL') != "false") {
-        tiledata += '<td valign="center"><img src="' + device.currentValue('imageURL') + '" alt="' + state.memberName + '" width="35" height="35"></td>'
+    htmlData += '<tr align="center" height=33%>'
+    memberURL = parent.getEmbeddedImage(state.memberName)
+    if (memberURL) {        
+        htmlData += '<td valign="center"><object data="' + memberURL + '" type="image/jpeg" width="70" height="70">' + state.memberName + '</object></td>'  
     } else {
-        tiledata += '<td valign="center">' + device.displayName + '</td>'
+        htmlData += '<td valign="center">' + state.memberName + '</td>'
     }
-    tiledata += '</tr>'
+    htmlData += '</tr>'
 
-    tiledata += '<tr height=33%>'
-    tiledata += "<td valign='center'>${tileDate}</td>"
-    tiledata += '</td>'
-    tiledata += '</tr>'
-    tiledata += '</table>'
-    tiledata += '</div>'
+    htmlData += '<tr align="center" height=33%>'
+    htmlData += "<td valign='center'>${tileDate}</td>"
+    htmlData += '</tr>'
+    htmlData += '</table>'
+    htmlData += '</div>'
 
-    // deal with the 1024 byte attribute limit
-    if ((tiledata.length() + 11) > 1024) {
-        tiledata = "Too much data to display.</br></br>Exceeds maximum tile length by " + ((tiledata.length() + 11) - 1024) + " characters."
-    }
-
-    sendEvent(name: "PresenceTile", value: tiledata, displayed: true)
+    return (htmlData)
 }
-
 
 private logDebug(msg) {
     if (settings?.debugOutput) {

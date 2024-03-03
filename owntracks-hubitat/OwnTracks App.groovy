@@ -76,7 +76,8 @@
  *  1.7.23     2024-02-19      - Increased the wifi SSID distance check selector to allow larger distances.
  *  1.7.24     2024-02-21      - Added direct device links to the member table.
  *  1.7.25     2024-02-25      - Only add geocode locations to region list if there is no current region list.
- *  1.7.26     2024-02-25      - Changed layout to collapse menu items for cleaner look.  Added Family map using Google Maps API.  Added Google Maps API to region creation to allow for radius' to be viewed.
+ *  1.7.26     2024-02-26      - Changed layout to collapse menu items for cleaner look.  Added Family map using Google Maps API.  Added Google Maps API to region creation to allow for radius' to be viewed.
+ *  1.7.27     2024-03-03      - Minor changes to screen layout. Created html links for direct member tile access.
  */
 
 import groovy.transform.Field
@@ -85,7 +86,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.26"}
+def appVersion() { return "1.7.27"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -108,10 +109,11 @@ def appVersion() { return "1.7.26"}
 @Field static final Map GEOCODE_QUOTA_INTERVAL_DAILY = [ 1: false, 2: true, 3: true ]
 @Field static final Map GEOCODE_API_KEY_LINK = [ 1: "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>", 2: "<a href='https://apidocs.geoapify.com/docs/geocoding/reverse-geocoding/#about' target='_blank'>Sign up for a Geoapify API Key</a>", 3: "<a href='https://opencagedata.com/api#quickstart' target='_blank'>Sign up for a Opencage API Key</a>" ]
 @Field static final Map GOOGLE_MAP_REFRESH_INTERVALS = [ 0: 'Disabled', 5: '5-seconds', 15: '15-seconds', 30: '30-seconds', 60: '60-seconds', 300: '5-minutes', 900: '15-minutes', 1800: '30-minutes', 3600: '60-minutes' ]
+@Field static final Map URL_SOURCE = [ "local": 0, "cloud": 1 ]
 
 // Main defaults
 @Field String  DEFAULT_APP_THEME_COLOR = "#2a0085"
-@Field Number  GOOGLE_MAP_API_QUOTA = 40000
+@Field Number  GOOGLE_MAP_API_QUOTA = 28500
 @Field String  GOOGLE_MAP_API_KEY_LINK = "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>"
 @Field Number  DEFAULT_googleMapRefreshInterval = 0
 @Field String  RECORDER_PUBLISH_FOLDER = "/pub"
@@ -131,7 +133,6 @@ def appVersion() { return "1.7.26"}
 @Field Boolean DEFAULT_highAccuracyOnPing = true
 @Field Boolean DEFAULT_autoRequestLocation = true
 @Field Boolean DEFAULT_highPowerMode = false
-@Field Boolean DEFAULT_advancedMode = false
 @Field Boolean DEFAULT_descriptionTextOutput = true
 @Field Boolean DEFAULT_debugOutput = false
 @Field Number  DEFAULT_debugResetHours = 1
@@ -232,7 +233,7 @@ def mainPage() {
                 displayMissingHomePlace()
                 displayRegionsPendingDelete()
             }            
-            section(hideable: true, hidden: true, getFormat("box", "Installation and Configuration")) {
+            section(hideable: true, hidden: false, getFormat("box", "Installation and Configuration")) {
                 href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
                 href(title: "Configure Regions", description: "", style: "page", page: "configureRegions")
                 input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + "Select family member(s) to monitor.  Member device will be created and configured once 'Done' is pressed, below.</div>", options: (state.members ? state.members.name.sort() : []), submitOnChange: true
@@ -248,16 +249,13 @@ def mainPage() {
                 href(title: "Link Secondary Hub", description: "", style: "page", page: "configureSecondaryHub")
             }
             section(hideable: true, hidden: true, getFormat("box", "Advanced Mobile App Settings")) {
-                paragraph("The default mobile settings provide the best balance of accuracy/power.  To view or modify advanced settings, enable 'Modify Default Settings'.")
-                input name: "highPowerMode", type: "bool", title: "Use GPS for higher accuracy/performance.  <b>NOTE:</b> This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (<b>Android ONLY</b>)", defaultValue: DEFAULT_highPowerMode, submitOnChange: true
+                paragraph("The default mobile settings provide the best balance of accuracy/power.  To view or modify advanced settings, select the items below.")
+                input name: "highPowerMode", type: "bool", title: "Use GPS for higher accuracy/performance.  <b>NOTE:</b> This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (<b>Android ONLY</b>)", defaultValue: DEFAULT_highPowerMode
                 checkLocatorPriority()
-                input name: "advancedMode", type: "bool", title: "Modify Default Settings", defaultValue: DEFAULT_advancedMode, submitOnChange: true
-                if (advancedMode) {
 // Restart is only applicable to Android.  Current Android 2.4.x will restart the app, but fails to restart the ping service
 //                input "restartMobileApp", "enum", multiple: true, title:"Select family member(s) to restart their mobile app on next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
-                    href(title: "Mobile App Location Settings", description: "", style: "page", page: "configureLocation")
-                    href(title: "Mobile App Display Settings", description: "", style: "page", page: "configureDisplay")
-                }
+                 href(title: "Mobile App Location Settings", description: "", style: "page", page: "configureLocation")
+                 href(title: "Mobile App Display Settings", description: "", style: "page", page: "configureDisplay")
             }
             section(hideable: true, hidden: true, getFormat("box", "Maintenance")) {
                 input "syncMobileSettings", "enum", multiple: true, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
@@ -311,25 +309,56 @@ def configureHubApp() {
             input name: "highAccuracyOnPing", type: "bool", title: "Request a high accuracy location from members on their next location report after a ping/manual update to keep location fresh (<b>Android ONLY</b>)", defaultValue: DEFAULT_highAccuracyOnPing
             input name: "autoRequestLocation", type: "bool", title: "Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (<b>Android ONLY</b>)", defaultValue: DEFAULT_autoRequestLocation
         }
-        section(hideable: true, hidden: true, "Geocode Settings - Converts latitude/longitude to address") {
+        section(hideable: true, hidden: false, "Geocode Settings - Converts latitude/longitude to address") {
             input name: "geocodeProvider", type: "enum", title: "Select the optional geocode provider for address lookups.  Allows location latitude/longitude to be displayed as physical address.", description: "Enter", defaultValue: DEFAULT_geocodeProvider, options: GEOCODE_PROVIDERS, submitOnChange: true
             if (geocodeProvider != "0") {
                 paragraph ("<b><i>Google provides the best accuracy, but offers the least amount of free locations - Google usage quota is reset MONTHLY vs DAILY for the other providers.</i></b>")
                 String provider = GEOCODE_USAGE_COUNTER[geocodeProvider?.toInteger()]
                 usageCounter = state."$provider"
                 input name: "geocodeFreeOnly", type: "bool", title: "Prevent geocode lookups once free quota has been exhausted.  Current usage: <b>${usageCounter}/${GEOCODE_QUOTA[geocodeProvider?.toInteger()]} per ${(GEOCODE_QUOTA_INTERVAL_DAILY[geocodeProvider?.toInteger()] ? "day" : "month")}</b>.", defaultValue: DEFAULT_geocodeFreeOnly
-                paragraph (GEOCODE_API_KEY_LINK[geocodeProvider?.toInteger()])
+                paragraph (GEOCODE_API_KEY_LINK[geocodeProvider?.toInteger()] + (geocodeProvider?.toInteger() == 1 ? " -- <i><b>'Geocoding API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Geocoding API</b>.</i>" : ""))
                 input name: "geocodeAPIKey_$geocodeProvider", type: "string", title: "Geocode API key for address lookups:"
             }
         }
-        section(hideable: true, hidden: true, "Google Map Settings") {
+        section(hideable: true, hidden: true, "Google Map Settings - Creates a combined family map and adds radius bubbles on the 'Region' 'Add/Edit/Delete' page maps") {
             paragraph ("If user thumbnails have not been added to Hubitat, follow the instructions for 'Enabling User Thumbnail Instructions' first:") 
             href(title: "Enabling User Thumbnails", description: "", style: "page", page: "thumbnailCreation")
             input name: "googleMapRefreshInterval", type: "enum", title: "Enable to refresh map as soon as a member's location change, disable for manual refresh. <b>Note: each refresh contributes to the map API usage quota.</b>, Recommended='60-seconds'", defaultValue: "${DEFAULT_googleMapRefreshInterval}", options: GOOGLE_MAP_REFRESH_INTERVALS
             input name: "mapFreeOnly", type: "bool", title: "Prevent generating maps once free quota has been exhausted.  Current usage: <b>${state.mapApiUsage}/${GOOGLE_MAP_API_QUOTA} per month</b>.", defaultValue: DEFAULT_mapFreeOnly
-            paragraph (GOOGLE_MAP_API_KEY_LINK)
-            input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map:"
-            paragraph ("<b>Google Family Map Link (if using a link for a dashboard is desired):</b> <a href='${getGoogleMapURL()}'>${getGoogleMapURL()}</a></br>")
+            paragraph (GOOGLE_MAP_API_KEY_LINK + " -- <i><b>'Maps JavaScript API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Maps JavaScript API</b>.</i>")
+            input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:"
+        }
+        section(hideable: true, hidden: true, "Map Web Links") {
+            URL_SOURCE.each{ source->        
+                paragraph (source.value==URL_SOURCE["local"] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>")
+                if (googleMapsAPIKey) {
+                    paragraph ("<b>Google family map:</b></br>&emsp;<a href='${getAttributeURL(source.value, "googlemap")}'>${getAttributeURL(source.value, "googlemap")}</a></br>")
+                }
+                if (state.members) {
+                urlList = "" 
+                    state.members.each { member->
+                        urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source.value, "membermap/${member.name.toLowerCase()}")}'>${getAttributeURL(source.value, "membermap/${member.name.toLowerCase()}")}</a></br>"
+                    }
+                    paragraph ("<b>Member location map:</b></br>${urlList}")
+                }
+                if (state.members) {
+                    urlList = "" 
+                    state.members.each { member->
+                        urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source.value, "memberpresence/${member.name.toLowerCase()}")}'>${getAttributeURL(source.value, "memberpresence/${member.name.toLowerCase()}")}</a></br>"
+                    }
+                    paragraph ("<b>Member Presence:</b></br>${urlList}")
+                }
+                if (recorderURL) {
+                    paragraph ("<b>OwnTracks Recorder family map:</b></br>&emsp;<a href='${getAttributeURL(source.value, "recordermap")}'>${getAttributeURL(source.value, "recordermap")}</a>")
+                }
+                if (state.members) {
+                    urlList = "" 
+                    state.members.each { member->
+                        urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source.value, "memberpastlocations/${member.name.toLowerCase()}")}'>${getAttributeURL(source.value, "memberpastlocations/${member.name.toLowerCase()}")}</a></br>"
+                    }
+                    paragraph ("<b>OwnTracks Recorder member past locations:</b></br>${urlList}")
+                }
+            }
         }
     }
 }
@@ -602,8 +631,9 @@ def getEnabledAndNotHiddenMembers() {
 def getEnabledAndNotHiddenMemberData() {
     memberData = []
     allowedMembers = getEnabledAndNotHiddenMembers()
-    
-    state.members.each { member->
+    // sort by last report time    
+    sortedMembers = state.members?.sort { it.lastReportTime } 
+    sortedMembers.each { member->
         if (allowedMembers.find {it==member.name}) {
             memberData << member
         }
@@ -632,8 +662,13 @@ def getHomeRegion() {
     return ((homePlace ? state.places.find {it.tst==homePlace} : []))
 }
 
-def getGoogleMapURL() {
-    return(getFullLocalApiServerUrl() + "/familymap?access_token=${state.accessToken}")
+def getAttributeURL(local, path) {
+    // get the local or cloud URL
+    if (local) {
+        return(getFullLocalApiServerUrl() + "/${path}" + "?access_token=${state.accessToken}")
+    } else {
+        return(fullApiServerUrl().replaceAll("null","${path}?access_token=${state.accessToken}"))
+    }
 }
 
 def displayRegionsPendingDelete() {
@@ -953,6 +988,7 @@ def initialize(forceDefaults) {
     if (state.highPowerMode == null) state.highPowerMode = DEFAULT_highPowerMode
     if (state.mapApiUsage == null) state.mapApiUsage = 0
     if (state.lastGoogleFriendsLocationTime == null) state.lastGoogleFriendsLocationTime = 0
+    if (state.lastReportTime == null) state.lastReportTime = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date())
     GEOCODE_USAGE_COUNTER.eachWithIndex { entry, index ->
         String provider = GEOCODE_USAGE_COUNTER[index+1]
         if (state."$provider" == null) {
@@ -966,7 +1002,6 @@ def initialize(forceDefaults) {
     if (deviceNamePrefix == null) app.updateSetting("deviceNamePrefix", [value: DEFAULT_CHILDPREFIX, type: "string"])
     if (forceDefaults || (imageCards == null)) app.updateSetting("imageCards", [value: DEFAULT_imageCards, type: "bool"])
     if (forceDefaults || (highPowerMode == null)) app.updateSetting("highPowerMode", [value: DEFAULT_highPowerMode, type: "bool"])
-    if (forceDefaults || (advancedMode == null)) app.updateSetting("advancedMode", [value: DEFAULT_advancedMode, type: "bool"])
     if (forceDefaults) app.updateSetting("descriptionTextOutput", [value: DEFAULT_descriptionTextOutput, type: "bool"])
     if (forceDefaults) app.updateSetting("debugOutput", [value: DEFAULT_debugOutput, type: "bool"])
     if (forceDefaults || (debugResetHours == null)) app.updateSetting("debugResetHours", [value: DEFAULT_debugResetHours, type: "number"])
@@ -1160,11 +1195,17 @@ def childGetWarnOnNonOptimalSettings() {
 
 def getImageURL(memberName) {
     if (imageCards) {
-        // return with path to the user card   
         return ("http://${location.hubs[0].getDataValue("localIP")}/local/${memberName}.jpg")
     } else {
-        // return false
-        return (imageCards)
+        return ("")
+    }
+}
+
+def getEmbeddedImage(memberName) {
+    if (imageCards) {
+        return ("data:image/png;base64," + downloadHubFile("${memberName}.jpg").encodeBase64().toString())
+    } else {
+        return ("")
     }
 }
 
@@ -1359,6 +1400,8 @@ def webhookEventHandler() {
                 switch (data._type) {
                     case "location":
                     case "transition":
+                        // store the last report time for the Google friends map
+                        state.lastReportTime = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date())
                         updateMemberAttributes(findMember, data)
                         // Pass the location to a secondary hub with OwnTracks running
                         if (secondaryHubURL && enableSecondaryHub) {
@@ -1493,8 +1536,6 @@ def updateDevicePresence(member, data) {
         // find the appropriate child device based on app id and the device network id
         def deviceWrapper = getChildDevice(member.id)
         logDebug("Updating '${(data.event ? "Event $data.event" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for member $deviceWrapper")
-        // update the image URL if enabled
-        deviceWrapper.sendEvent( name: "imageURL", value: getImageURL(member.name) )
         // check if the user defined a home place
         if (homePlace) {
             // append the distance from home to the data packet
@@ -2283,6 +2324,10 @@ def getRegionMapLink(region) {
     }
 }
 
+def getMemberMapLink(memberName) {
+    return(getFullLocalApiServerUrl() + "/membermap/${memberName.toLowerCase()}?access_token=${state.accessToken}")
+}
+
 def generateRegionMap() {
     // convert the string back to a map
     def region = evaluate((params.region).replaceAll("%20",""))
@@ -2301,10 +2346,86 @@ def generateRegionMap() {
         htmlData += 'const radius = new google.maps.Circle({map,center:{lat:' + region.lat + ',lng:' + region.lon + '},radius:' + region.rad + ',strokeColor:"' + DEFAULT_APP_THEME_COLOR +'",strokeOpacity:0.17,strokeWeight:1,fillColor:"' + DEFAULT_APP_THEME_COLOR +'",fillOpacity:0.17});}'
 
         htmlData += '</script>'
-        htmlData += '<script src="https://maps.googleapis.com/maps/api/js?key=' + APIKey +'&loading=async&libraries=marker,maps&callback=m"></script>'
+        htmlData += '<script src="https://maps.googleapis.com/maps/api/js?key=' + APIKey + '&loading=async&libraries=marker,maps&callback=m"></script>'
+        htmlData += '</div>'
     } 
+
+    return render(contentType: "text/html", data: htmlData)
+}
+
+def displayMemberMap() {
+    // find the member from the member name in the parameters - this is returned in lowercase
+    member = state.members.find {it.name.toLowerCase()==params.member}  
+    String htmlData = "Private Member"
     
-    return render(contentType: "text/html", data: htmlData);   
+    def deviceWrapper = getChildDevice(member.id)
+    if (deviceWrapper) {
+        displayData = deviceWrapper.generateMember()
+        // only display if we could retrieve the data
+        if (displayData) {
+            htmlData = displayData
+        }
+    }    
+
+    return render(contentType: "text/html", data: htmlData)
+}
+
+def displayMemberPresence() {
+    // find the member from the member name in the parameters - this is returned in lowercase
+    member = state.members.find {it.name.toLowerCase()==params.member}  
+    String htmlData = "Member Not Configured"
+    
+    def deviceWrapper = getChildDevice(member.id)
+    if (deviceWrapper) {
+        displayData = deviceWrapper.generatePresence()
+        // only display if we could retrieve the data
+        if (displayData) {
+            htmlData = displayData
+        }
+    }    
+
+    return render(contentType: "text/html", data: htmlData) 
+}
+
+def displayMemberPastLocations() {
+    // find the member from the member name in the parameters - this is returned in lowercase
+    member = state.members.find {it.name.toLowerCase()==params.member}  
+    String htmlData = "OwnTracks Recorder Not Configured or Private Member"
+    
+    def deviceWrapper = getChildDevice(member.id)
+    if (deviceWrapper) {
+        displayData = deviceWrapper.generatePastLocations()
+        // only display if we could retrieve the data
+        if (displayData) {
+            htmlData = displayData
+        }
+    }    
+
+    return render(contentType: "text/html", data: htmlData)   
+}
+
+def displayRecorderFriendsMap() {
+    String htmlData = "OwnTracks Recorder Not Configured"
+
+    displayData = generateRecorderFriendsLocation()
+    // only display if we could retrieve the data
+    if (displayData) {
+        htmlData = displayData
+    }
+
+    return render(contentType: "text/html", data: htmlData)
+}
+
+def displayGoogleFriendsMap() {
+    String htmlData = "Google Maps API Not Configured or Quota Exceeded"
+
+    displayData = generateGoogleFriendsLocation()
+    // only display if we could retrieve the data
+    if (displayData) {
+        htmlData = displayData
+    }
+
+    return render(contentType: "text/html", data: htmlData)
 }
 
 def generateGoogleFriendsMap() {
@@ -2315,14 +2436,15 @@ def generateGoogleFriendsMap() {
         publicMembers = getEnabledAndNotHiddenMemberData()
         // determine the map center based on the members
         mapCenterAndZoom = calculateCenterAndZoom(publicMembers)
+        
         htmlData += '<div style="width:100%;height:100%;margin:5px">'
         htmlData += '<div id="map" style="width:100%;height:100%;"></div>'
         htmlData += '<script>'
         htmlData += 'function m() {const map = new google.maps.Map(document.getElementById("map"),  {zoom:' + mapCenterAndZoom.zoom + ',center:{lat:' + mapCenterAndZoom.lat + ',lng:' + mapCenterAndZoom.lon + '},mapId:"owntracks",});'
 
         htmlData += 'const locations = ['
-        publicMembers.each { member->
-            htmlData += '{lat:' + member.latitude + ',lng:' + member.longitude + ',img:"' + getImageURL(member.name) +'",title:"' + member.name + '"},'
+        publicMembers.eachWithIndex { member, index ->
+            htmlData += '{lat:' + member.latitude + ',lng:' + member.longitude + ',img:"' + getEmbeddedImage(member.name) +'",name:"' + member.name + '",zIndex:' + index + '},'
         }
         htmlData += '];'
         htmlData += 'const places = ['
@@ -2332,19 +2454,95 @@ def generateGoogleFriendsMap() {
         htmlData += '];'
         
         // place the members on the map
-        htmlData += 'locations.forEach(location => {const i=new Image(35,35);i.src=location.img;const pin=new google.maps.marker.PinElement({glyph:i,scale:2,background:"' + DEFAULT_APP_THEME_COLOR +'",borderColor:"' + DEFAULT_APP_THEME_COLOR +'"});new google.maps.marker.AdvancedMarkerElement({map,position:{lat:location.lat,lng:location.lng},title:location.title,content:pin.element})});'
+        htmlData += 'locations.forEach(location => {' +
+            'const imagePin = document.createElement("object");imagePin.data=location.img;imagePin.type="image/jpeg";imagePin.width="45";' +
+            'const namePin = document.createElement("div");namePin.textContent=location.name;' +
+            'const pin=new google.maps.marker.PinElement({scale:2.8,background:"' + DEFAULT_APP_THEME_COLOR +'",borderColor:"' + DEFAULT_APP_THEME_COLOR +'",glyphColor:"white"});' +
+            'imagePin.appendChild(namePin);pin.glyph=imagePin;' +
+            'new google.maps.marker.AdvancedMarkerElement({map,position:{lat:location.lat,lng:location.lng},title:location.name,zIndex:location.zIndex,content:pin.element})' +
+        '});'
         // place the region pins
         htmlData += 'places.forEach(location => {const i=new google.maps.marker.PinElement({scale:0.5,background:"' + DEFAULT_APP_THEME_COLOR +'",borderColor:"' + DEFAULT_APP_THEME_COLOR +'",glyphColor:"white"});new google.maps.marker.AdvancedMarkerElement({map,position:{lat:location.lat,lng:location.lng},title:location.title,content:i.element})});'
         // place the region radius'
         htmlData += 'places.forEach(location => {new google.maps.Circle({map,center:{lat:location.lat,lng:location.lng},radius:location.rad,strokeColor:"' + DEFAULT_APP_THEME_COLOR +'",strokeOpacity:0.17,strokeWeight:1,fillColor:"' + DEFAULT_APP_THEME_COLOR +'",fillOpacity:0.17})});}'
 
         htmlData += '</script>'
-        htmlData += '<script src="https://maps.googleapis.com/maps/api/js?key=' + APIKey +'&loading=async&libraries=marker,maps&callback=m"></script>'
+        htmlData += '<script src="https://maps.googleapis.com/maps/api/js?key=' + APIKey + '&loading=async&libraries=marker,maps&callback=m"></script>'
+        htmlData += '</div>'
     } 
     
-    return render(contentType: "text/html", data: htmlData);   
+    return render(contentType: "text/html", data: htmlData)
 }
 
+def generateGoogleFriendsLocation() {
+    String htmlData = ""
+    urlPath = getAttributeURL(URL_SOURCE["local"], "apigooglemap")
+
+    htmlData += '<div style="width:100%;height:100%;font-family:arial;font-size:0.7em">'
+    htmlData += '<table align="center" style="width:100%;height:calc(100% - 25px)">'
+    htmlData += '<tr>'
+    htmlData += "<td><iframe src=${urlPath} style='height:100%;width:100%'></iframe></td>"
+    htmlData += '</tr>'
+    htmlData += '</table>'
+    htmlData += '<table align="center" style="width:100%">' 
+    htmlData += "<caption>Last Update: ${state?.lastReportTime}</caption>"
+    htmlData += '</table>'
+    htmlData += '</div>'
+
+    return (htmlData)    
+}
+
+def generateRecorderFriendsLocation() {
+    String htmlData = ""
+    if (getRecorderURL()) {
+        publicMembers = getEnabledAndNotHiddenMembers()
+        urlPath = getRecorderURL() + '/last/index.html'
+      
+        htmlData += '<div style="width:100%;height:100%;margin:5px;padding-top:2px">'
+        htmlData += '<table align="center" style="width:100%;font-family:arial">'          
+        htmlData += '<tr>'
+        // loop through all the members
+        publicMembers.each { name->
+            memberURL = getImageURL(name)
+            if (memberURL) {
+                htmlData += '<td align="center"><object data="' + memberURL + '" type="image/jpeg" width="35" height="35">' + name + '</object></td>'  
+            } else {
+                htmlData += '<td align="center">' + name + '</td>'
+            }
+        }
+        htmlData += '</tr>'
+        htmlData += '</table>'
+        htmlData += '<table align="center" style="width:100%;height:calc(100% - 48px);padding-top:2px">'
+        htmlData += '<tr>'
+        htmlData += "<td><iframe src=${urlPath} style='height:100%;width:100%'></iframe></td>"
+        htmlData += '</tr>'
+        htmlData += '</table>'
+        htmlData += '</div>'
+    }
+
+    return (htmlData)    
+}
+
+def displayTile(tileSource) {
+    String htmlData = ""
+    urlPath = getAttributeURL(URL_SOURCE["local"], tileSource)
+    
+    // create the embedded tile frame
+    htmlData += '<div style="width:100%;height:100%">'
+    htmlData += "<iframe src=${urlPath} style='width:100%;height:100%'></iframe>"
+    htmlData += '</div>'
+
+    return (checkAttributeLimit(htmlData))
+}
+
+def checkAttributeLimit(tiledata) {
+    // deal with the 1024 byte attribute limit
+    if ((tiledata.length() + 11) > 1024) {
+        return ("Too much data to display.</br></br>Exceeds maximum tile length by " + ((tiledata.length() + 11) - 1024) + " characters.")
+    } else {
+        return (tiledata)
+    }
+}
 
 private def calculateCenterAndZoom(members) {
     def minLng = null
@@ -2400,14 +2598,39 @@ mappings {
             GET:  "webhookGetHandler",        // used for tesing through a web browser
         ]
     }
-	path("/familymap") {
+	path("/apigooglemap") {
     	action: [
-            GET:  "generateGoogleFriendsMap",        
+            GET:  "generateGoogleFriendsMap",
+        ]
+    }
+	path("/googlemap") {
+    	action: [
+            GET:  "displayGoogleFriendsMap",
+        ]
+    }
+	path("/recordermap") {
+    	action: [
+            GET:  "displayRecorderFriendsMap",        
         ]
     }
 	path("/regionmap/:region") {
     	action: [
             GET:  "generateRegionMap",        
+        ]
+    }
+	path("/membermap/:member") {
+    	action: [
+            GET:  "displayMemberMap",        
+        ]
+    }
+	path("/memberpresence/:member") {
+    	action: [
+            GET:  "displayMemberPresence",        
+        ]
+    }
+	path("/memberpastlocations/:member") {
+    	action: [
+            GET:  "displayMemberPastLocations",        
         ]
     }
 }

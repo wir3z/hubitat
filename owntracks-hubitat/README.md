@@ -185,12 +185,13 @@ The defaults for the rest of these settings should be sufficient for verifying o
 	- The usage total indicates the current usage in the quota period.  Google resets the total at the first of every month, the other providers daily, at 00:00 GMT.
 	- Click the 'Sign up for a xxx API Key' link, and follow the directions to get the API key (this will be a string of random letters and numbers).
 	- Once the quota has been exhausted for the period, the application will stop converting locations until the next quote period.
+	- For Google, 'Geocoding API' must be enabled under 'API's & Services' (https://console.cloud.google.com/apis/dashboard)
 - Geocode API key for address lookups:
 	- Paste the API key provided into the box.
 - All three providers can be configured, but only the select on will be used for geocode look ups.
 - Select 'Disabled' to disable geocode lookups.
 
-### Google Map Settings
+### Google Map Settings - Creates a combined family map and adds radius bubbles on the 'Region' 'Add/Edit/Delete' page maps
 Creates a Google map with all members' thumbnails shown as well as region radius' when adding/editing regions.  
 NOTE:  Requires member thumbnails to be enabled, and will only display users using a local dashboard.
 - Enable to refresh map as soon as a member's location change, disable for manual refresh. 
@@ -201,10 +202,13 @@ NOTE:  Requires member thumbnails to be enabled, and will only display users usi
 	- Google maps as a free quota level.  This slider should be selected unless you are on a paid plan.
 	- The usage total indicates the current usage in the quota period.  Google resets the total at the first of every month.
 	- Click the 'Sign up for a Google API Key' link, and follow the directions to get the API key (this will be a string of random letters and numbers).
+	- 'Maps JavaScript API' must be enabled under 'API's & Services' (https://console.cloud.google.com/apis/dashboard)
 	- Once the quota has been exhausted for the period, the application will stop generating the map until the next quote period.
 - Google Maps API key for combined family location map:
 	- Paste the API key provided into the box.
 
+### Map Web Links
+Displays direct cloud and local web links for the family, member and recorder maps.
 
 
 # Optional Features

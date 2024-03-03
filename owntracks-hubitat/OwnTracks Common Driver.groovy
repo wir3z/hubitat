@@ -22,12 +22,13 @@
  *  1.7.1      2024-02-15      - Fixed friends tile margin.
  *  1.7.2      2024-02-17      - Fixed friends tile text when thumbnails are missing.
  *  1.7.3      2024-02-25      - Changed the friends tile name to 'RecorderFriendsLocation'.  Added a 'GoogleFriendsLocation' tile attribute.
+ *  1.7.4      2024-03-03      - Updated map link.  Refactored tile layouts.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.3" }
+def driverVersion() { return "1.7.4" }
 
 @Field Boolean DEFAULT_displayFriendsTile = false
 
@@ -68,90 +69,28 @@ def updated() {
 }
 
 def push() {
-    generateRecorderFriendsLocationTile()
-    generateGoogleFriendsLocationTile()
-    // legacy cleanup
-    device.deleteCurrentState('FriendsLocation')
-}
-
-def generateRecorderFriendsLocationTile() {
     // update the driver version if necessary
     if (state.driverVersion != driverVersion()) {
         state.driverVersion = driverVersion()
     }    
-    if (displayRecorderFriendsLocation && parent.getRecorderURL()) {
-        publicMembers = parent.getEnabledAndNotHiddenMembers()
-        urlPath = parent.getRecorderURL() + '/last/index.html'
-        
-        String tiledata = "";
-        tiledata += '<div style="width:100%;height:100%;margin:5px;font-size:0.7em">'
-        tiledata += '<table align="center" style="width:100%;padding-top:15px;">'          
-        tiledata += '<tr>'
-        // loop through all the members
-        publicMembers.each { name->
-            memberURL = parent.getImageURL(name)
-            if (memberURL != "false") {
-                tiledata += '<td align="center"><img src="' + memberURL + '" alt="' + name + '" width="35" height="35"></td>'
-            } else {
-                tiledata += '<td align="center">' + name + '</td>'
-            }
-        }
-        tiledata += '</tr>'
-        tiledata += '</table>'
-        tiledata += '<table align="center" style="width:100%;height:calc(100% - 90px)">'
-        tiledata += '<tr>'
-        tiledata += "<td><iframe src=${urlPath} style='height:100%;width:100%'></iframe></td>"
-        tiledata += '</tr>'
-        tiledata += '</table>'
-        tiledata += '</div>'
 
-        // deal with the 1024 byte attribute limit
-        if ((tiledata.length() + 11) > 1024) {
-            tiledata = "Too much data to display.</br></br>Exceeds maximum tile length by " + ((tiledata.length() + 11) - 1024) + " characters."
-        }
+    generateRecorderFriendsLocationTile()
+    generateGoogleFriendsLocationTile()
+}
 
-        sendEvent(name: "RecorderFriendsLocation", value: tiledata, displayed: true)
+def generateRecorderFriendsLocationTile() {
+    String tiledata = parent.generateRecorderFriendsLocation()   
+    if (displayRecorderFriendsLocation && tiledata) {
+        sendEvent(name: "RecorderFriendsLocation", value: parent.checkAttributeLimit(tiledata), displayed: true)
     } else {
         device.deleteCurrentState('RecorderFriendsLocation')
     }
 }
 
 def generateGoogleFriendsLocationTile() {
-    if (displayGoogleFriendsLocation) {
-        urlPath = parent.getGoogleMapURL()
-        publicMembers = parent.getEnabledAndNotHiddenMembers()
-        
-        String tiledata = "";
-        tiledata += '<div style="width:100%;height:100%;font-size:0.7em">'
-        tiledata += '<table align="center" style="width:100%;padding-top:05px;">'          
-        tiledata += '<tr>'
-        // loop through all the members
-        publicMembers.each { name->
-            memberURL = parent.getImageURL(name)
-            if (memberURL != "false") {
-                tiledata += '<td align="center"><img src="' + memberURL + '" alt="' + name + '" width="35" height="35"></td>'
-            } else {
-                tiledata += '<td align="center">' + name + '</td>'
-            }
-        }
-        tiledata += '</tr>'
-        tiledata += '</table>'
-        tiledata += '<table align="center" style="width:100%;height:calc(100% - 100px)">'
-        tiledata += '<tr>'
-        tiledata += "<td><iframe src=${urlPath} style='height:100%;width:100%'></iframe></td>"
-        tiledata += '</tr>'
-        tiledata += '</table>'
-        tiledata += '<table align="center" style="width:100%">' 
-        tiledata += "<caption>Last Update: ${new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date())}</caption>"
-        tiledata += '</table>'
-        tiledata += '</div>'
-
-        // deal with the 1024 byte attribute limit
-        if ((tiledata.length() + 11) > 1024) {
-            tiledata = "Too much data to display.</br></br>Exceeds maximum tile length by " + ((tiledata.length() + 11) - 1024) + " characters."
-        }
-
-        sendEvent(name: "GoogleFriendsLocation", value: tiledata, displayed: true)
+    String tiledata = parent.generateGoogleFriendsLocation()  
+    if (displayGoogleFriendsLocation && tiledata) {
+        sendEvent(name: "GoogleFriendsLocation", value: parent.checkAttributeLimit(tiledata), displayed: true)
     } else {
         device.deleteCurrentState('GoogleFriendsLocation')
     }
