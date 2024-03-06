@@ -110,12 +110,13 @@
  *  1.7.13     2024-02-17      - Fixed tile format.
  *  1.7.14     2024-02-26      - Changed presence tile text when colored tiles are enabled.
  *  1.7.15     2024-03-03      - Fixed tile formatting and refactored tile layouts.
+ *  1.7.16     2024-03-05      - Added dynamic support for cloud recorder URL.  Added searchable past locations tile.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.15" }
+def driverVersion() { return "1.7.16" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -136,6 +137,7 @@ def driverVersion() { return "1.7.15" }
 @Field Boolean DEFAULT_debugLogAddresses = false
 @Field Boolean DEFAULT_logLocationChanges = false
 @Field String  DEFAULT_privateLocation = "private"
+@Field Number  DEFAULT_pastLocationSearchWindow = 0.5
 
 metadata {
   definition (
@@ -196,6 +198,7 @@ preferences {
     input name: "displayMemberTile", type: "bool", title: "Create a HTML MemberLocation tile", defaultValue: DEFAULT_displayMemberTile
     input name: "colorMemberTile", type: "bool", title: "Change MemberTile background color based on presence", defaultValue: DEFAULT_colorMemberTile
     input name: "displayLastLocationTile", type: "bool", title: "Create a HTML PastLocations tile", defaultValue: DEFAULT_displayLastLocationTile
+    input name: "pastLocationSearchWindow", type: "decimal", title: "PastLocations tile search window start date is this many days from current date (0.1..31)", range: "0.1..31.0", defaultValue: DEFAULT_pastLocationSearchWindow
 
     input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: DEFAULT_descriptionTextOutput
     input name: "debugOutput", type: "bool", title: "Enable Debug Logging", defaultValue: DEFAULT_debugOutput
@@ -484,23 +487,23 @@ def generateTiles() {
     
 def generateMemberTile() {
     if (displayMemberTile) {
-        sendEvent(name: "MemberLocation", value: parent.displayTile("membermap/${state.memberName.toLowerCase()}"), displayed: true)
+        sendEvent(name: "MemberLocation", value: parent.displayTile("cloud", "membermap/${state.memberName.toLowerCase()}"), displayed: true)
     } else {
         device.deleteCurrentState('MemberLocation')
     }
 }
 
 def generatePastLocationsTile() {
-    String tiledata = generatePastLocations()
-    if (displayLastLocationTile && tiledata) {
-        sendEvent(name: "PastLocations", value: parent.checkAttributeLimit(tiledata), displayed: true)
+    if (displayLastLocationTile) {
+        sendEvent(name: "PastLocations", value: parent.displayTile(parent.recorderURLType(), "memberpastlocations/${state.memberName.toLowerCase()}"), displayed: true)
     } else {
         device.deleteCurrentState('PastLocations')
     }    
+    
 }
 
 def generatePresenceTile() {
-    sendEvent(name: "PresenceTile", value: parent.displayTile("memberpresence/${state.memberName.toLowerCase()}"), displayed: true)    
+    sendEvent(name: "PresenceTile", value: parent.displayTile("cloud", "memberpresence/${state.memberName.toLowerCase()}"), displayed: true)    
 }
 
 def generateMember() {
@@ -509,58 +512,47 @@ def generateMember() {
         long sinceTimeMilliSeconds = state.sinceTime
         tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))        
 
-        htmlData += '<div style="width:100%;height:100%;margin:2px;font-family:arial">'
-        htmlData += '<div style="background:'
-        if (colorMemberTile) {
-            htmlData += ((device.currentValue('presence') == "present") ? 'green">' : '#b40000">')
-        } else {
-            htmlData += '#555555">'
-        }
-        htmlData += '<table style="width:100%;font-size:0.8em;color:white">'          
-        htmlData += '<tr>'
-        
-        memberURL = parent.getEmbeddedImage(state.memberName)
-        if (memberURL) {        
-            htmlData += '<td align="left" width=11%><object data="' + memberURL + '" type="image/jpeg" width="35" height="35">' + state.memberName + '</object></td>'  
-        } else {
-            htmlData += '<td align="left" width=11%>' + state.memberName + '</td>'
-        }
-        htmlData += '<td align="center" width=79%>'
-        htmlData += "${device.currentValue('location')}</br>"
-        htmlData += "${tileDate}</br>"
-        htmlData += '</td>'
-        htmlData += '<td align="right" width=20%>'
-        if (!colorMemberTile) {
-            htmlData += ((device.currentValue('presence') == "present") ? '&#10004</br>Present' : '&#10008</br>Not Present')
-        }
-        htmlData += '</td>'
-        htmlData += '</tr>'
-        htmlData += '</table>'
-        htmlData += '</div>'        
-
-        htmlData += '<table style="width:100%;height:calc(100% - 110px)">'
-        htmlData += '<tr align="center">'
-        htmlData += "<td><iframe src='https://maps.google.com/?q=${device.currentValue('lat').toString()},${device.currentValue('lon').toString()}&z=17&output=embed&' style='height:100%;width:100%'></iframe></td>"
-        htmlData += '</tr>'
-        htmlData += '</table>'
-
-        htmlData += '<table style="width:100%;font-size:0.8em;color:white;background:#555555">'     
-        htmlData += "<caption>Last Update: ${device.currentValue('lastLocationtime')}</caption>"
-        htmlData += '<tr align="center">'
-        htmlData += '<th width=25%>Distance</th>'
-        if (device.currentValue('lastSpeed') != null) htmlData += '<th width=25%>Speed</th>'
-        if (device.currentValue('battery') != null) htmlData += '<th width=25%>Battery</th>'
-        if (device.currentValue('dataConnection') != null) htmlData += '<th width=25%>Data</th>'
-        htmlData += '</tr>'
- 
-        htmlData += '<tr align="center">'
-        htmlData += "<td width=25%>${parent.displayKmMiVal(device.currentValue('distanceFromHome'))} ${parent.getLargeUnits()}</td>"
-        if (device.currentValue('lastSpeed') != null)  htmlData += "<td width=25%>${parent.displayKmMiVal(device.currentValue('lastSpeed'))} ${parent.getVelocityUnits()}</td>"
-        if (device.currentValue('battery') != null) htmlData += "<td width=25%>${device.currentValue('battery')} %" + (device.currentValue('batteryStatus') ? "</br>${device.currentValue('batteryStatus')}" : "") + "</td>"
-        if (device.currentValue('dataConnection') != null) htmlData += "<td width=25%>${device.currentValue('dataConnection')}</td>"
-        htmlData += '</tr>'
-        htmlData += '</table>'
-        htmlData += '</div>'
+        htmlData += """
+        <div style="width:100%;height:100%;margin:2px;font-family:arial">
+            <div style="background:${(colorMemberTile ? ((device.currentValue("presence") == "present") ? "green" : "#b40000") : "#555555")}">
+                <table style="width:100%;font-size:0.8em;color:white">
+                    <tr>
+                        <td align="left" width=11%>
+                            ${parent.insertThumbnailObject(state.memberName, 35, true)}
+                        </td>
+                        <td align="center" width=79%>
+                            ${device.currentValue("location")}</br>
+                            ${tileDate}</br>
+                        </td>
+                        <td align="right" width=20%>
+                            ${(colorMemberTile ? "" : ((device.currentValue("presence") == "present") ? "&#10004</br>Present" : "&#10008</br>Not Present"))}
+                        </td>
+                    </tr>
+                </table>
+            </div>   
+            <table style="width:100%;height:calc(100% - 120px)">
+                <tr align="center">
+                    <td>
+                        <iframe src="https://maps.google.com/?q=${device.currentValue("lat").toString()},${device.currentValue("lon").toString()}&z=17&output=embed&" style="height:100%;width:100%;border:none;"></iframe>
+                    </td>
+                </tr>
+            </table>
+            <table style="width:100%;font-size:0.8em;color:white;background:#555555">
+                <caption style="background:#555555">Last Update: ${device.currentValue("lastLocationtime")}</caption>
+                <tr align="center">
+                    <th width=25%>Distance</th>
+                    ${(device.currentValue("lastSpeed") != null) ? "<th width=25%>Speed</th>" : ""}
+                    ${(device.currentValue("battery") != null) ? "<th width=25%>Battery</th>" : ""}
+                    ${(device.currentValue("dataConnection") != null) ? "<th width=25%>Data</th>" : ""}
+                </tr>
+                <tr align="center">
+                    <td width=25%>${parent.displayKmMiVal(device.currentValue("distanceFromHome"))} ${parent.getLargeUnits()}</td>
+                    ${(device.currentValue("lastSpeed") != null) ? "<td width=25%>${parent.displayKmMiVal(device.currentValue("lastSpeed"))} ${parent.getVelocityUnits()}</td>" : ""}
+                    ${(device.currentValue("battery") != null) ? "<td width=25%>${device.currentValue("battery")} % ${(device.currentValue("batteryStatus") ? "</br>${device.currentValue("batteryStatus")}" : "")}</td>" : ""}
+                    ${(device.currentValue("dataConnection") != null) ? "<td width=25%>${device.currentValue("dataConnection")}</td>" : ""}
+                </tr>
+            </table>
+        </div>"""
     }
 
     return (htmlData)
@@ -571,42 +563,49 @@ def generatePastLocations() {
     if (parent.getRecorderURL() && (device.currentValue('location') != DEFAULT_privateLocation)) {
         // split the topic into it's elements.  user is [1], device is [2].
         topicElements = parent.splitTopic(device.currentValue('sourceTopic').toLowerCase())
-    
-        // pick the range as the last 12-hours, in GMT
-        currentTime = now() - location.timeZone.rawOffset
-        startDate = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm").format(new Date(currentTime-(12*3600*1000)))        
-        endDate = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm").format(new Date(currentTime))
-        urlPath = parent.getRecorderURL() + '/map/index.html?from=' + startDate + '&to=' + endDate + '&format=geojson&user=' + topicElements[1] + '&device=' + topicElements[2]
-        // redo the time for the tile in local time
-        currentTime = now()
-        startDate = new SimpleDateFormat("yyyy-MM-dd  h:mm a").format(new Date(currentTime-(12*3600*1000)))        
-        endDate = new SimpleDateFormat("yyyy-MM-dd  h:mm a").format(new Date(currentTime))
 
-        htmlData += '<div style="width:100%;height:100%;margin:5px;font-size:0.7em;font-family:arial">'
-        htmlData += '<table style="width:100%">'          
-        htmlData += '<tr>'
-        
-        memberURL = parent.getImageURL(state.memberName)
-        if (memberURL) {        
-            htmlData += '<td align="left" width=20%><object data="' + memberURL + '" type="image/jpeg" width="35" height="35">' + state.memberName + '</object></td>'  
-        } else {
-            htmlData += '<td align="left" width=20%>' + state.memberName + '</td>'
-        }
-        htmlData += '<td td align="center" width=60%">'
-        htmlData += "Start: ${startDate}</br>"
-        htmlData += "End: ${endDate}</br>"
-        htmlData += '</td>'
-        htmlData += '<td width=20%>'
-        htmlData += '</td>'
-        htmlData += '</tr>'
-        htmlData += '</table>'
+        htmlData += """    
+        <div style="width:100%;height:100%;margin:4px;font-family:arial">
+            <table style="width:100%;color:white;font-size:0.8em;background:#555555">
+                <tr>
+                    <td align="left" width=20%>
+                        ${parent.insertThumbnailObject(state.memberName, 35, true)}
+                    </td>
+                    <td align="right" width=80%">
+                        Start <input type="datetime-local" id="id-startDate" value="" onchange="updateUrl()"></br>
+                        End <input type="datetime-local" id="id-endDate" value="" onchange="updateUrl()">
+                    </td>
+                </tr>
+            </table>
+            <table style="width:100%;height:calc(100% - 50px)">
+                <tr align="center">
+                    <td><iframe id="id-iframe" src="" style="height:100%;width:100%;border:none;"></iframe></td>
+                </tr>
+            </table>
+        </div>
 
-        htmlData += '<table style="width:100%;height:calc(100% - 50px)">'
-        htmlData += '<tr align="center">'
-        htmlData += "<td><iframe src=${urlPath} style='height:100%;width:100%'></iframe></td>"
-        htmlData += '</tr>'
-        htmlData += '</table>'
-        htmlData += '</div>'
+        <script>
+            // Function to update the URL with the selected date
+            function updateUrl() {
+                const startDate = new Date(document.getElementById("id-startDate").value).toISOString().slice(0, 16);
+                const endDate = new Date(document.getElementById("id-endDate").value).toISOString().slice(0, 16);
+                const urlPath = "${parent.getRecorderURL()}/map/index.html?from=" + startDate + "&to=" + endDate + "&format=geojson&user=${topicElements[1]}&device=${topicElements[2]}";
+                const iframe = document.getElementById("id-iframe");
+                iframe.src = urlPath;
+            }
+
+            // Set the date picker to the current date
+		    const endTime = new Date()
+    		const startTime = new Date()
+            const timeZoneHourOffset = endTime.getTimezoneOffset() / 60;
+            // set the time date selectors with the proper timezone
+	    	endTime.setHours(endTime.getHours() - timeZoneHourOffset)
+            startTime.setHours(startTime.getHours() - timeZoneHourOffset - ${(pastLocationSearchWindow ? pastLocationSearchWindow*24 : DEFAULT_pastLocationSearchWindow*24)})
+            document.getElementById("id-startDate").value = startTime.toISOString().slice(0, 16);
+            document.getElementById("id-endDate").value = endTime.toISOString().slice(0, 16);
+            // trigger the update to the start URL
+            window.onload = updateUrl;
+        </script>"""        
     }
 
     return (htmlData)
@@ -614,33 +613,27 @@ def generatePastLocations() {
 
 def generatePresence() {
     long sinceTimeMilliSeconds = state.sinceTime
-    sinceDate = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date(sinceTimeMilliSeconds * 1000))
-    tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))    
+    sinceDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
     
-    String htmlData = ""
-    htmlData += '<div style="width:100%;height:100%;margin:4px;background:' + ((device.currentValue('presence') == "present") ? 'green">' : '#b40000">')
-    htmlData += '<table style="height:100%;width:100%;color:white;font-size:0.8em;font-family:arial">'
-    htmlData += '<tr align="center" height=33%>'
-    htmlData += "<td valign='center'>${device.currentValue('location')}</td>"
-    htmlData += '</tr>'
-
-    htmlData += '<tr align="center" height=33%>'
-    memberURL = parent.getEmbeddedImage(state.memberName)
-    if (memberURL) {        
-        htmlData += '<td valign="center"><object data="' + memberURL + '" type="image/jpeg" width="70" height="70">' + state.memberName + '</object></td>'  
-    } else {
-        htmlData += '<td valign="center">' + state.memberName + '</td>'
-    }
-    htmlData += '</tr>'
-
-    htmlData += '<tr align="center" height=33%>'
-    htmlData += "<td valign='center'>${tileDate}</td>"
-    htmlData += '</tr>'
-    htmlData += '</table>'
-    htmlData += '</div>'
+    String htmlData = """
+    <div style="width:100%;height:100%;margin:4px;background:${((device.currentValue('presence') == "present") ? "green" : "#b40000")}">
+        <table style="height:100%;width:100%;color:white;font-size:0.8em;font-family:arial">
+            <tr align="center" height=33%>
+                <td valign="center">${device.currentValue("location")}</td>
+            </tr>
+            <tr align="center" height=33%>
+                <td valign="center">
+                    ${parent.insertThumbnailObject(state.memberName, 70, true)}
+                </td>
+            </tr>
+            <tr align="center" height=33%>
+                <td valign='center'>${sinceDate}</td>
+            </tr>
+        </table>
+    </div>"""
 
     return (htmlData)
-}
+} 
 
 private logDebug(msg) {
     if (settings?.debugOutput) {

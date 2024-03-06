@@ -78,6 +78,7 @@
  *  1.7.25     2024-02-25      - Only add geocode locations to region list if there is no current region list.
  *  1.7.26     2024-02-26      - Changed layout to collapse menu items for cleaner look.  Added Family map using Google Maps API.  Added Google Maps API to region creation to allow for radius' to be viewed.
  *  1.7.27     2024-03-03      - Minor changes to screen layout. Created html links for direct member tile access.
+ *  1.7.28     2024-03-05      - Added dynamic support for cloud recorder URL.  Hide recorder cloud links when not using https.
  */
 
 import groovy.transform.Field
@@ -86,7 +87,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.27"}
+def appVersion() { return "1.7.28"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -109,7 +110,7 @@ def appVersion() { return "1.7.27"}
 @Field static final Map GEOCODE_QUOTA_INTERVAL_DAILY = [ 1: false, 2: true, 3: true ]
 @Field static final Map GEOCODE_API_KEY_LINK = [ 1: "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>", 2: "<a href='https://apidocs.geoapify.com/docs/geocoding/reverse-geocoding/#about' target='_blank'>Sign up for a Geoapify API Key</a>", 3: "<a href='https://opencagedata.com/api#quickstart' target='_blank'>Sign up for a Opencage API Key</a>" ]
 @Field static final Map GOOGLE_MAP_REFRESH_INTERVALS = [ 0: 'Disabled', 5: '5-seconds', 15: '15-seconds', 30: '30-seconds', 60: '60-seconds', 300: '5-minutes', 900: '15-minutes', 1800: '30-minutes', 3600: '60-minutes' ]
-@Field static final Map URL_SOURCE = [ "local": 0, "cloud": 1 ]
+@Field static final Map URL_SOURCE = [ "cloud": 0, "local": 1 ]
 
 // Main defaults
 @Field String  DEFAULT_APP_THEME_COLOR = "#2a0085"
@@ -329,8 +330,8 @@ def configureHubApp() {
             input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:"
         }
         section(hideable: true, hidden: true, "Map Web Links") {
-            URL_SOURCE.each{ source->        
-                paragraph (source.value==URL_SOURCE["local"] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>")
+            URL_SOURCE.each{ source->
+                paragraph ((source.value == URL_SOURCE["cloud"] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>"))
                 if (googleMapsAPIKey) {
                     paragraph ("<b>Google family map:</b></br>&emsp;<a href='${getAttributeURL(source.value, "googlemap")}'>${getAttributeURL(source.value, "googlemap")}</a></br>")
                 }
@@ -349,14 +350,18 @@ def configureHubApp() {
                     paragraph ("<b>Member Presence:</b></br>${urlList}")
                 }
                 if (recorderURL) {
-                    paragraph ("<b>OwnTracks Recorder family map:</b></br>&emsp;<a href='${getAttributeURL(source.value, "recordermap")}'>${getAttributeURL(source.value, "recordermap")}</a>")
-                }
-                if (state.members) {
-                    urlList = "" 
-                    state.members.each { member->
-                        urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source.value, "memberpastlocations/${member.name.toLowerCase()}")}'>${getAttributeURL(source.value, "memberpastlocations/${member.name.toLowerCase()}")}</a></br>"
+                    // only display the recorder links if it's a local URL or if it's https (required for the cloud link)
+                    if ((source.value == URL_SOURCE["local"]) || isHTTPsURL(getRecorderURL())) {
+                        paragraph ("<b>OwnTracks Recorder family map:</b></br>&emsp;<a href='${getAttributeURL(source.value, "recordermap")}'>${getAttributeURL(source.value, "recordermap")}</a>")
+
+                        if (state.members) {
+                            urlList = "" 
+                            state.members.each { member->
+                                urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source.value, "memberpastlocations/${member.name.toLowerCase()}")}'>${getAttributeURL(source.value, "memberpastlocations/${member.name.toLowerCase()}")}</a></br>"
+                            }
+                            paragraph ("<b>OwnTracks Recorder member past locations:</b></br>${urlList}")
+                        }
                     }
-                    paragraph ("<b>OwnTracks Recorder member past locations:</b></br>${urlList}")
                 }
             }
         }
@@ -479,7 +484,7 @@ def recorderInstallationInstructions() {
 def configureRecorder() {
     return dynamicPage(name: "configureRecorder", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Recorder Configuration")) {
-            paragraph("The <a href='https://owntracks.org/booklet/clients/recorder/' target='_blank'>OwnTracks Recorder</a> (optional) can be installed for local tracking.")
+            paragraph("The <a href='https://owntracks.org/booklet/clients/recorder/' target='_blank'>OwnTracks Recorder</a> (optional) can be installed for local tracking.  For the Recorder dashboard tiles and links to work outside the home network, the recorder must have a secure URL (https) and be secured with a public certificate.")
             input name: "recorderURL", type: "text", title: "HTTP URL of the OwnTracks Recorder.  It will be in the format <b>'http://enter.your.recorder.ip:8083'</b>, assuming using the default port of 8083.  The app will automatically add the <b>'$RECORDER_PUBLISH_FOLDER'</b> path.", defaultValue: ""
             input name: "enableRecorder", type: "bool", title: "Enable location updates to be sent to the Recorder URL", defaultValue: false, submitOnChange: true
             if (!recorderURL) {
@@ -580,7 +585,7 @@ def configureRegions() {
         }
         section(getFormat("line", "")) {
             input "homePlace", "enum", multiple: false, title:(homePlace ? '<div>' : '<div style="color:#ff0000">') + "Select your 'Home' place. ${(homePlace ? "" : "Use 'Configure Regions'->'Add Regions' to create a home location.")}" + '</div>', options: getNonFollowRegions(true), submitOnChange: true
-            paragraph("<iframe src='${getRegionMapLink(getHomeRegion())}' style='height: 500px; width:100%; border: none;'></iframe>")
+            paragraph("<iframe src='${getRegionMapLink(getHomeRegion())}' style='height: 500px; width: 100%; border: none;'></iframe>")
             checkForHome()
         }
         section(getFormat("line", "")) {
@@ -662,12 +667,12 @@ def getHomeRegion() {
     return ((homePlace ? state.places.find {it.tst==homePlace} : []))
 }
 
-def getAttributeURL(local, path) {
-    // get the local or cloud URL
-    if (local) {
-        return(getFullLocalApiServerUrl() + "/${path}" + "?access_token=${state.accessToken}")
-    } else {
+def getAttributeURL(urlSource, path) {
+    // get the cloud or local URL
+    if (urlSource == URL_SOURCE["cloud"]) {
         return(fullApiServerUrl().replaceAll("null","${path}?access_token=${state.accessToken}"))
+    } else {
+        return(getFullLocalApiServerUrl() + "/${path}" + "?access_token=${state.accessToken}")
     }
 }
 
@@ -2332,22 +2337,63 @@ def generateRegionMap() {
     // convert the string back to a map
     def region = evaluate((params.region).replaceAll("%20",""))
 
-    String htmlData = ""
+    String htmlData = "Google Maps API Not Configured or Quota Exceeded"
     APIKey = googleMapsAPIKey?.trim()
     if (APIKey && isMapAllowed()) {
-        htmlData += '<div style="width:100%;height:100%;margin:5px">'
-        htmlData += '<div id="map" style="width:100%;height:100%;"></div>'
-        htmlData += '<script>'
-        htmlData += 'function m() {const map = new google.maps.Map(document.getElementById("map"),  {zoom:17,center:{lat:' + region.lat + ',lng:' + region.lon + '},mapId:"owntracks",});'
-        
-        // place the region pin
-        htmlData += 'const i=new google.maps.marker.PinElement({scale:1.0,background:"' + DEFAULT_APP_THEME_COLOR +'",borderColor:"' + DEFAULT_APP_THEME_COLOR +'",glyphColor:"white"});new google.maps.marker.AdvancedMarkerElement({map,position:{lat:' + region.lat + ',lng:' + region.lon + '},content:i.element});'
-        // place the region radius
-        htmlData += 'const radius = new google.maps.Circle({map,center:{lat:' + region.lat + ',lng:' + region.lon + '},radius:' + region.rad + ',strokeColor:"' + DEFAULT_APP_THEME_COLOR +'",strokeOpacity:0.17,strokeWeight:1,fillColor:"' + DEFAULT_APP_THEME_COLOR +'",fillOpacity:0.17});}'
-
-        htmlData += '</script>'
-        htmlData += '<script src="https://maps.googleapis.com/maps/api/js?key=' + APIKey + '&loading=async&libraries=marker,maps&callback=m"></script>'
-        htmlData += '</div>'
+        htmlData = """            
+        <div style="width:100%;height:100%;margin:5px">
+            <div id="map" style="width:100%;height:100%;"></div>
+            <script>
+                function m() {
+                    const map = new google.maps.Map(
+                        document.getElementById("map"), 
+                        {
+                            zoom:17,
+                            center:{
+                                lat:${region.lat},
+                                lng:${region.lon}
+                            },
+                            mapId:"owntracks",
+                        }
+                    );
+                    // place the region pin
+                    const i=new google.maps.marker.PinElement(
+                        {
+                            scale:1.0,
+                            background:"${DEFAULT_APP_THEME_COLOR}",
+                            borderColor:"${DEFAULT_APP_THEME_COLOR}",
+                            glyphColor:"white"
+                        }
+                    );
+                    new google.maps.marker.AdvancedMarkerElement(
+                        {
+                            map,
+                            position:{
+                                lat:${region.lat},
+                                lng:${region.lon}
+                            },
+                            content:i.element
+                        }
+                    );
+                    // place the region radius
+                    const radius = new google.maps.Circle(
+                        {
+                            map,
+                            center:{
+                                lat:${region.lat}, lng:${region.lon}
+                            },
+                            radius: ${region.rad},
+                            strokeColor:"${DEFAULT_APP_THEME_COLOR}",
+                            strokeOpacity:0.17,
+                            strokeWeight:1,
+                            fillColor:"${DEFAULT_APP_THEME_COLOR}",
+                            fillOpacity:0.17
+                        }
+                    );
+                }
+             </script>
+            <script src="https://maps.googleapis.com/maps/api/js?key=${APIKey}&loading=async&libraries=marker,maps&callback=m"></script>
+        </div>"""
     } 
 
     return render(contentType: "text/html", data: htmlData)
@@ -2429,46 +2475,84 @@ def displayGoogleFriendsMap() {
 }
 
 def generateGoogleFriendsMap() {
-    String htmlData = ""
+    String htmlData = "Google Maps API Not Configured or Quota Exceeded"
     APIKey = googleMapsAPIKey?.trim()
     if (APIKey && isMapAllowed()) {
         // get the member structure for all enabled and public members
         publicMembers = getEnabledAndNotHiddenMemberData()
         // determine the map center based on the members
         mapCenterAndZoom = calculateCenterAndZoom(publicMembers)
-        
-        htmlData += '<div style="width:100%;height:100%;margin:5px">'
-        htmlData += '<div id="map" style="width:100%;height:100%;"></div>'
-        htmlData += '<script>'
-        htmlData += 'function m() {const map = new google.maps.Map(document.getElementById("map"),  {zoom:' + mapCenterAndZoom.zoom + ',center:{lat:' + mapCenterAndZoom.lat + ',lng:' + mapCenterAndZoom.lon + '},mapId:"owntracks",});'
 
-        htmlData += 'const locations = ['
-        publicMembers.eachWithIndex { member, index ->
-            htmlData += '{lat:' + member.latitude + ',lng:' + member.longitude + ',img:"' + getEmbeddedImage(member.name) +'",name:"' + member.name + '",zIndex:' + index + '},'
-        }
-        htmlData += '];'
-        htmlData += 'const places = ['
-        state.places.each { place->
-            htmlData += '{lat:' + place.lat + ',lng:' + place.lon + ',rad:' + place.rad + ',title:"' + place.desc + '"},'
-        }
-        htmlData += '];'
-        
-        // place the members on the map
-        htmlData += 'locations.forEach(location => {' +
-            'const imagePin = document.createElement("object");imagePin.data=location.img;imagePin.type="image/jpeg";imagePin.width="45";' +
-            'const namePin = document.createElement("div");namePin.textContent=location.name;' +
-            'const pin=new google.maps.marker.PinElement({scale:2.8,background:"' + DEFAULT_APP_THEME_COLOR +'",borderColor:"' + DEFAULT_APP_THEME_COLOR +'",glyphColor:"white"});' +
-            'imagePin.appendChild(namePin);pin.glyph=imagePin;' +
-            'new google.maps.marker.AdvancedMarkerElement({map,position:{lat:location.lat,lng:location.lng},title:location.name,zIndex:location.zIndex,content:pin.element})' +
-        '});'
-        // place the region pins
-        htmlData += 'places.forEach(location => {const i=new google.maps.marker.PinElement({scale:0.5,background:"' + DEFAULT_APP_THEME_COLOR +'",borderColor:"' + DEFAULT_APP_THEME_COLOR +'",glyphColor:"white"});new google.maps.marker.AdvancedMarkerElement({map,position:{lat:location.lat,lng:location.lng},title:location.title,content:i.element})});'
-        // place the region radius'
-        htmlData += 'places.forEach(location => {new google.maps.Circle({map,center:{lat:location.lat,lng:location.lng},radius:location.rad,strokeColor:"' + DEFAULT_APP_THEME_COLOR +'",strokeOpacity:0.17,strokeWeight:1,fillColor:"' + DEFAULT_APP_THEME_COLOR +'",fillOpacity:0.17})});}'
-
-        htmlData += '</script>'
-        htmlData += '<script src="https://maps.googleapis.com/maps/api/js?key=' + APIKey + '&loading=async&libraries=marker,maps&callback=m"></script>'
-        htmlData += '</div>'
+        htmlData = """    
+        <div style="width:100%;height:100%;margin:5px">
+            <div id="map" style="width:100%;height:100%;"></div>
+            <script>
+                function m() { 
+                    const map = new google.maps.Map(document.getElementById("map"), {zoom:${mapCenterAndZoom.zoom}, center:{lat:${mapCenterAndZoom.lat},lng:${mapCenterAndZoom.lon}}, mapId:"owntracks",});
+                    const locations = ["""
+                        publicMembers.eachWithIndex { member, index -> 
+                            htmlData += """{lat:${member.latitude},lng:${member.longitude},img:"${getEmbeddedImage(member.name)}",name:"${member.name}",zIndex:${index}},"""
+                        }
+                        htmlData += """        
+                    ];
+                    const places = ["""
+                        state.places.each { place->
+                            htmlData += """{lat:${place.lat},lng:${place.lon},rad:${place.rad},title:"${place.desc}"},"""
+                        }
+                        htmlData += """        
+                    ];
+                    // place the members on the map
+                    locations.forEach(location => {
+                        const imagePin = document.createElement("object");imagePin.data=location.img;imagePin.type="image/jpeg";imagePin.width="45";
+                        const namePin = document.createElement("div");namePin.textContent=location.name;
+                        const pin=new google.maps.marker.PinElement({scale:2.8,background:"${DEFAULT_APP_THEME_COLOR}",borderColor:"${DEFAULT_APP_THEME_COLOR}",glyphColor:"white"});
+                        imagePin.appendChild(namePin);pin.glyph=imagePin;
+                        new google.maps.marker.AdvancedMarkerElement({map,position:{lat:location.lat,lng:location.lng},title:location.name,zIndex:location.zIndex,content:pin.element})
+                    });
+                    // place the region pins
+                    places.forEach(location => {
+                        const i=new google.maps.marker.PinElement(
+                            {
+                                scale:0.5,
+                                background:"${DEFAULT_APP_THEME_COLOR}",
+                                borderColor:"${DEFAULT_APP_THEME_COLOR}",
+                                glyphColor:"white"
+                            }
+                        );
+                        new google.maps.marker.AdvancedMarkerElement(
+                            {
+                                map,
+                                position:{
+                                    lat:location.lat,
+                                    lng:location.lng,
+                                },
+                                title:location.title,
+                                content:i.element
+                            }
+                        )
+                    });
+                    // place the region radius'
+                    places.forEach(location => {
+                        new google.maps.Circle(
+                            {
+                                map,
+                                center:{
+                                    lat:location.lat,
+                                    lng:location.lng,
+                                },
+                                radius:location.rad,
+                                strokeColor:"${DEFAULT_APP_THEME_COLOR}",
+                                strokeOpacity:0.17,
+                                strokeWeight:1,
+                                fillColor:"${DEFAULT_APP_THEME_COLOR}",
+                                fillOpacity:0.17
+                            }
+                        )
+                    });
+                }
+            </script>
+            <script src="https://maps.googleapis.com/maps/api/js?key=${APIKey}&loading=async&libraries=marker,maps&callback=m"></script>
+        </div>"""
     } 
     
     return render(contentType: "text/html", data: htmlData)
@@ -2476,60 +2560,80 @@ def generateGoogleFriendsMap() {
 
 def generateGoogleFriendsLocation() {
     String htmlData = ""
-    urlPath = getAttributeURL(URL_SOURCE["local"], "apigooglemap")
+    urlPath = getAttributeURL(URL_SOURCE["cloud"], "apigooglemap")
 
-    htmlData += '<div style="width:100%;height:100%;font-family:arial;font-size:0.7em">'
-    htmlData += '<table align="center" style="width:100%;height:calc(100% - 25px)">'
-    htmlData += '<tr>'
-    htmlData += "<td><iframe src=${urlPath} style='height:100%;width:100%'></iframe></td>"
-    htmlData += '</tr>'
-    htmlData += '</table>'
-    htmlData += '<table align="center" style="width:100%">' 
-    htmlData += "<caption>Last Update: ${state?.lastReportTime}</caption>"
-    htmlData += '</table>'
-    htmlData += '</div>'
+    htmlData = """    
+    <div style="width:100%;height:100%;font-family:arial;font-size:0.7em">
+        <table align="center" style="width:100%;height:calc(100% - 25px)">
+            <tr>
+                <td><iframe src=${urlPath} style='height:100%;width:100%;border:none;'></iframe></td>
+            </tr>
+        </table>
+        <table align="center" style="width:100%">
+            <caption>Last Update: ${state?.lastReportTime}</caption>
+        </table>
+    </div>"""
 
     return (htmlData)    
 }
 
+def isHTTPsURL(url) {
+    parsedURL = url?.split(":")
+    
+    return(parsedURL[0]?.toLowerCase() == "https")
+}
+
+def recorderURLType() {
+    // check the recorder URL and switch as necessary
+    if (isHTTPsURL(getRecorderURL())) {
+        return("cloud")
+    } else {
+        return("local")
+    }
+}
+
 def generateRecorderFriendsLocation() {
-    String htmlData = ""
+    String htmlData = "OwnTracks Recorder Not Configured"
     if (getRecorderURL()) {
         publicMembers = getEnabledAndNotHiddenMembers()
         urlPath = getRecorderURL() + '/last/index.html'
-      
-        htmlData += '<div style="width:100%;height:100%;margin:5px;padding-top:2px">'
-        htmlData += '<table align="center" style="width:100%;font-family:arial">'          
-        htmlData += '<tr>'
-        // loop through all the members
-        publicMembers.each { name->
-            memberURL = getImageURL(name)
-            if (memberURL) {
-                htmlData += '<td align="center"><object data="' + memberURL + '" type="image/jpeg" width="35" height="35">' + name + '</object></td>'  
-            } else {
-                htmlData += '<td align="center">' + name + '</td>'
-            }
-        }
-        htmlData += '</tr>'
-        htmlData += '</table>'
-        htmlData += '<table align="center" style="width:100%;height:calc(100% - 48px);padding-top:2px">'
-        htmlData += '<tr>'
-        htmlData += "<td><iframe src=${urlPath} style='height:100%;width:100%'></iframe></td>"
-        htmlData += '</tr>'
-        htmlData += '</table>'
-        htmlData += '</div>'
+        htmlData = """
+        <div style="width:100%;height:100%;margin:4px;">
+            <table align="center" style="width:100%;font-family:arial;padding-top:4px;padding-bottom:5px;">
+                <tr>"""
+                    publicMembers.each { name-> htmlData += """<td align="center">${insertThumbnailObject(name, 35, false)}</td>"""}
+                    htmlData += """
+                </tr>
+            </table>
+            <table align="center" style="width:100%;height:calc(100% - 52px);">
+                <tr>
+                    <td>
+                        <iframe src=${urlPath} style="height:100%;width:100%;border:none;"></iframe>
+                    </td>
+                </tr>
+            </table>
+        </div>"""
     }
 
     return (htmlData)    
 }
 
-def displayTile(tileSource) {
+def insertThumbnailObject(memberName, size, embed) {
+    if (embed) {
+        memberURL = getEmbeddedImage(memberName)
+    } else {
+        memberURL = getImageURL(memberName)
+    }
+    return((memberURL ? """<object data="${memberURL}" type="image/jpeg" width="${size}" height="${size}">${memberName}</object>""" : memberName))
+}    
+
+def displayTile(urlSource, tileSource) {
     String htmlData = ""
-    urlPath = getAttributeURL(URL_SOURCE["local"], tileSource)
-    
+    urlPath = getAttributeURL(URL_SOURCE[urlSource], tileSource)
+
     // create the embedded tile frame
     htmlData += '<div style="width:100%;height:100%">'
-    htmlData += "<iframe src=${urlPath} style='width:100%;height:100%'></iframe>"
+    htmlData += "<iframe src=${urlPath} style='width:100%;height:100%;border:none;'></iframe>"
     htmlData += '</div>'
 
     return (checkAttributeLimit(htmlData))

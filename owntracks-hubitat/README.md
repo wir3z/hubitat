@@ -220,6 +220,7 @@ Displays direct cloud and local web links for the family, member and recorder ma
 	- Sends back each user's thumbnail picture when the send their location report.		
 ## Enable OwnTracks Recorder
 - The optional Owntracks recorder:  https://owntracks.org/booklet/clients/recorder/ can be installed for local tracking.
+- For the Recorder dashboard tiles and links to work outside the home network, the recorder must have a secure URL (https) and be secured with a public certificate.
 - HTTP URL of the OwnTracks Recorder will be in the format 'http://enter.your.recorder.ip:8083', assuming using the default port of 8083.
 - Follow the directions on the page 'Installing OwnTracks Recorder and Configuring User Card Instructions' to install OwnTrack Recorder and configure user cards.
 - When 'Enable location updates to be sent to the Recorder URL' is selected, incoming mobile locations are mirrored to the above URL. 
@@ -312,7 +313,9 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 - Change MemberLocation background color based on presence
 	- Background for the map in the MemberLocation will be green for present, red for not present if enabled.  Otherwise the default background color is used.
 - Create a HTML PastLocations tile	
-	- Creates a 'PastLocations' HTML attribute that can be added to the dashboards.  Displays the the member's locations in the past 12-hours.  Requires Recorder to be configured.
+	- Creates a 'PastLocations' HTML attribute that can be added to the dashboards.  Displays the the member's locations based on the selected start/end dates in the tile.  By default, it selects 0.5 days (12-hours) and can be configured with the setting below.  Requires Recorder to be configured.
+- PastLocations tile search window start date is this many days from current date (0.1..31)
+	- Enter the number of days the 'PastLocations' tile will start searching from the current date.
 - Create a notification if member enters a region
 	- Sends Hubitat app notifications when the member arrives
 	NOTE:  Requires a notification device to be selected in the 'Additional Hub App Settings' -> 'Select notification devices to get region enter/leave notifications."

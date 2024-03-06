@@ -23,12 +23,13 @@
  *  1.7.2      2024-02-17      - Fixed friends tile text when thumbnails are missing.
  *  1.7.3      2024-02-25      - Changed the friends tile name to 'RecorderFriendsLocation'.  Added a 'GoogleFriendsLocation' tile attribute.
  *  1.7.4      2024-03-03      - Updated map link.  Refactored tile layouts.
+ *  1.7.5      2024-03-05      - Added dynamic support for cloud recorder URL.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.4" }
+def driverVersion() { return "1.7.5" }
 
 @Field Boolean DEFAULT_displayFriendsTile = false
 
@@ -79,9 +80,8 @@ def push() {
 }
 
 def generateRecorderFriendsLocationTile() {
-    String tiledata = parent.generateRecorderFriendsLocation()   
-    if (displayRecorderFriendsLocation && tiledata) {
-        sendEvent(name: "RecorderFriendsLocation", value: parent.checkAttributeLimit(tiledata), displayed: true)
+    if (displayRecorderFriendsLocation) {
+        sendEvent(name: "RecorderFriendsLocation", value: parent.displayTile(parent.recorderURLType(), "recordermap"), displayed: true)
     } else {
         device.deleteCurrentState('RecorderFriendsLocation')
     }
