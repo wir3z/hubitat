@@ -72,7 +72,11 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 - Click the up arrow button in the top right of the map to trigger a 'Send Location Now' to register the device with the Hubitat App.  
 
 ## Configure Regions
-NOTE:  If a Google Map API key is entered in the 'Additional Hubitat App Settings -> Google map Settings', the regions will be able to display radius bubbles.
+NOTE:  If a Google Map API key is entered in the 'Additional Hubitat App Settings -> Google map Settings', an interactive map will be displayed to allow regions to be added, edited, and deleted.  Regions will show radius bubbles and the home region can be directly assign to any pin.
+- Select the 'Region Map Instructions and Delete Behavior' for information on how to use the interactive map.
+- If a Google geocode API has been entered, an input box to allow direct address lookup will be displayed.
+- If no Google Map API key has been entered, or the lookup quota has been exceeded, then the app will change to use the direct approach, below.
+
 - Add Regions:
     - If a geocode provider has been configured in 'Additional Hub Settings', a text box will be displayed to allow entering street addresses to be converted to latitude/longitude.
 		- NOTE: Google provides the best lookup accuracy.  If using other providers, confirm the map pin looks correct.
@@ -107,6 +111,10 @@ NOTE:  If a Google Map API key is entered in the 'Additional Hubitat App Setting
 - Hubitat can retrieve regions from a member's OwnTracks mobile device and merge them into the Hubitat region list. 
 	- If member(s) OwnTracks app already has configured regions, select member(s) that you wish to retrieve their regions when they report their location.
 	- Those regions will be added to the Hubitat region list to be shared with other members.
+	
+- Send Region List to Secondary Hub
+	- If a secondary hub is configured and enabled, and there is at least one member in the primary hub, this button is displayed.
+	- Pressing the button will send all regions from the primary hub to the secondary hub.
 	
 NOTE: A region named '+follow' is automatically created to allow iOS phones to have transition reporting.  	
 
@@ -192,7 +200,14 @@ The defaults for the rest of these settings should be sufficient for verifying o
 - Select 'Disabled' to disable geocode lookups.
 
 ### Google Map Settings - Creates a combined family map and adds radius bubbles on the 'Region' 'Add/Edit/Delete' page maps
-Creates a Google map with all members' thumbnails shown as well as region radius' when adding/editing regions.  
+Creates a Google map with all members' thumbnails shown as well as region radius' when adding/editing regions.
+	- Selecting a member will display an information window on their location and metrics.
+	- If battery saver is turned on, the battery percentage is displayed in red.
+	- If charging, the battery icon changes to a lightning bolt.
+	- If wifi is disabled, the wifi symbol will have a line through it, and the member name is displayed in red
+	- If the phone is using mobile data, the cellular signal icon is displayed in the top banner.  If using wifi data, a wifi symbol is displayed.
+	- Distance from home, location accuracy and speed will be displayed if enabled.
+	- The last location time will be displayed in red if it is stale.
 NOTE:  Requires member thumbnails to be enabled, and will only display users using a local dashboard.
 - Enable to refresh map as soon as a member's location change, disable for manual refresh. 
 	- Each refresh contributes to the map API usage quota.
@@ -314,6 +329,8 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 	- Background for the map in the MemberLocation will be green for present, red for not present if enabled.  Otherwise the default background color is used.
 - Create a HTML PastLocations tile	
 	- Creates a 'PastLocations' HTML attribute that can be added to the dashboards.  Displays the the member's locations based on the selected start/end dates in the tile.  By default, it selects 0.5 days (12-hours) and can be configured with the setting below.  Requires Recorder to be configured.
+- Display past locations history as lines instead of points
+	- By default, the past location history is displayed as bread crumb points.  Select to display as string lines.
 - PastLocations tile search window start date is this many days from current date (0.1..31)
 	- Enter the number of days the 'PastLocations' tile will start searching from the current date.
 - Create a notification if member enters a region

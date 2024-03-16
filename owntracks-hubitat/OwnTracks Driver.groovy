@@ -41,8 +41,8 @@
  *      // added to packet
  *      currentDistanceFromHome:0.234,  // distance from home in current units
  *      private:false                   // if true, user is configured to not share their information, only their current presence
- *      memberWiFiHome:true             // if true, user is connected to the home wifi SSID   
- *      memberAtHome:true               // if true, user is at home  
+ *      memberWiFiHome:true             // if true, user is connected to the home wifi SSID
+ *      memberAtHome:true               // if true, user is at home
  *
  *      // added in the sided load APK
  *      hib:0,                          // App can pause when unused (1=yes, 0=no)
@@ -111,12 +111,14 @@
  *  1.7.14     2024-02-26      - Changed presence tile text when colored tiles are enabled.
  *  1.7.15     2024-03-03      - Fixed tile formatting and refactored tile layouts.
  *  1.7.16     2024-03-05      - Added dynamic support for cloud recorder URL.  Added searchable past locations tile.
+ *  1.7.17     2024-03-05      - Added ability to change past locations from points to lines.
+ *  1.7.18     2024-03-14      - Text cleanup.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.16" }
+def driverVersion() { return "1.7.18" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -136,14 +138,15 @@ def driverVersion() { return "1.7.16" }
 @Field Boolean DEFAULT_debugOutput = false
 @Field Boolean DEFAULT_debugLogAddresses = false
 @Field Boolean DEFAULT_logLocationChanges = false
-@Field String  DEFAULT_privateLocation = "private"
+@Field String  DEFAULT_privateLocation = "Private"
+@Field Boolean DEFAULT_lastLocationViewTracks = false
 @Field Number  DEFAULT_pastLocationSearchWindow = 0.5
 
 metadata {
   definition (
-      name:        "OwnTracks Driver", 
-      namespace:   "lpakula", 
-      author:      "Lyle Pakula", 
+      name:        "OwnTracks Driver",
+      namespace:   "lpakula",
+      author:      "Lyle Pakula",
       importUrl:   "https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20Driver.groovy"
   ) {
         capability "Actuator"
@@ -174,7 +177,7 @@ metadata {
         attribute  "MemberLocation", "string"
         attribute  "PastLocations", "string"
         attribute  "PresenceTile", "string"
-      
+
         // extended attributes
         attribute  "lat", "number"
         attribute  "lon", "number"
@@ -198,6 +201,7 @@ preferences {
     input name: "displayMemberTile", type: "bool", title: "Create a HTML MemberLocation tile", defaultValue: DEFAULT_displayMemberTile
     input name: "colorMemberTile", type: "bool", title: "Change MemberTile background color based on presence", defaultValue: DEFAULT_colorMemberTile
     input name: "displayLastLocationTile", type: "bool", title: "Create a HTML PastLocations tile", defaultValue: DEFAULT_displayLastLocationTile
+    input name: "lastLocationViewTracks", type: "bool", title: "Display past locations history as lines instead of points", defaultValue: DEFAULT_lastLocationViewTracks
     input name: "pastLocationSearchWindow", type: "decimal", title: "PastLocations tile search window start date is this many days from current date (0.1..31)", range: "0.1..31.0", defaultValue: DEFAULT_pastLocationSearchWindow
 
     input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: DEFAULT_descriptionTextOutput
@@ -254,8 +258,8 @@ def arrived() {
     descriptionText = device.displayName +  " has arrived"
     sendEvent (name: "presence", value: "present", descriptionText: descriptionText)
     sendEvent( name: "transitionRegion", value: state.homeName )
-    sendEvent( name: "transitionTime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )	
-    sendEvent( name: "transitionDirection", value: "enter" )	
+    sendEvent( name: "transitionTime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )
+    sendEvent( name: "transitionDirection", value: "enter" )
     logDescriptionText("$descriptionText")
     parent.generateTransitionNotification(device.displayName, TRANSITION_PHRASES[device.currentValue('transitionDirection',true)], device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
     runIn(1, generateTiles)
@@ -264,9 +268,9 @@ def arrived() {
 def departed() {
     descriptionText = device.displayName +  " has departed"
     sendEvent (name: "presence", value: "not present", descriptionText: descriptionText)
-    sendEvent( name: "transitionRegion", value: state.homeName )	
-    sendEvent( name: "transitionTime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )	
-    sendEvent( name: "transitionDirection", value: "leave" )	
+    sendEvent( name: "transitionRegion", value: state.homeName )
+    sendEvent( name: "transitionTime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )
+    sendEvent( name: "transitionDirection", value: "leave" )
     logDescriptionText("$descriptionText")
     parent.generateTransitionNotification(device.displayName, TRANSITION_PHRASES[device.currentValue('transitionDirection',true)], device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
     runIn(1, generateTiles)
@@ -276,11 +280,11 @@ def createMemberTile() {
     generateTiles()
 }
 
-def updateAttributes(data, locationType) { 
+def updateAttributes(data, locationType) {
     // remove the attributes if not enabled or the member is private
     if (data.private || !displayExtendedAttributes) {
-         deleteExtendedAttributes(true)    
-    } 
+         deleteExtendedAttributes(true)
+    }
     // display the extended attributes if they were received, but only allow them to be removed on non-tranisition eve
     if (!data.private) {
         // requires a valid location report
@@ -289,7 +293,7 @@ def updateAttributes(data, locationType) {
             if (data?.vac)     sendEvent (name: "verticalAccuracy", value: parent.displayMFtVal(data.vac)) else if (locationType) device.deleteCurrentState('verticalAccuracy')
             if (data?.alt)     sendEvent (name: "altitude", value: parent.displayMFtVal(data.alt))         else if (locationType) device.deleteCurrentState('altitude')
             if (data?.address) {
-                sendEvent (name: "address", value: data.address)                           
+                sendEvent (name: "address", value: data.address)
                 sendEvent (name: "streetAddress", value: data.streetAddress)
             } else {
                 if (locationType) device.deleteCurrentState('address')
@@ -304,7 +308,7 @@ def updateAttributes(data, locationType) {
         if (data?.BSSID)   sendEvent (name: "BSSID", value: data.BSSID)                                    else if (locationType) device.deleteCurrentState('BSSID')
         if (data?.t)       sendEvent (name: "triggerSource", value: TRIGGER_TYPE[data.t])                  else if (locationType) device.deleteCurrentState('triggerSource')
         if (data?.m)       sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])              else if (locationType) device.deleteCurrentState('monitoringMode')
-            
+
         if (locationType) {
             // process the additional setting information
             if (data?.wifi) {
@@ -342,7 +346,7 @@ def updateAttributes(data, locationType) {
             }
         }
     }
-    
+
     // needed for the presence detection check -- if the phone holds onto the SSID, check if we switched to wifi
     if ((data?.SSID) && ((data?.conn) == "w"))  sendEvent (name: "SSID", value: data.SSID) else if (locationType) device.deleteCurrentState('SSID')
 }
@@ -350,7 +354,7 @@ def updateAttributes(data, locationType) {
 Boolean generatePresenceEvent(member, homeName, data) {
     // cleanup
     device.deleteCurrentState('imageURL')
-    
+
     // update the driver version if necessary
     if (state.driverVersion != driverVersion()) {
         state.driverVersion = driverVersion()
@@ -371,21 +375,21 @@ Boolean generatePresenceEvent(member, homeName, data) {
     if (data.private) {
         logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${(data.memberAtHome ? "'present'" : "'not present'")}, accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits()} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")}")
     } else {
-        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${(data.memberAtHome ? "'present'" : "'not present'")} (Home Wifi: ${data.memberWiFiHome}, High Accuracy: ${member.dynamicLocaterAccuracy}), " + 
-                 "${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}" + 
+        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${(data.memberAtHome ? "'present'" : "'not present'")} (Home Wifi: ${data.memberWiFiHome}, High Accuracy: ${member.dynamicLocaterAccuracy}), " +
+                 "${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}" +
                  "accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }" +
                  (debugLogAddresses ? ", Location: [${data.lat},${data.lon}] ${(data?.address ? ", Address: [${data.address}]" : "")} ${(data?.streetAddress ? ", Street Address: [${data.streetAddress}]" : "")} " : "") +
                  "${(data?.inregions ? ", Regions: ${data.inregions}" : "")} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")} ${(data.tst == 0 ? ", Ignoring Bad Location" : "")}" )
-    }    
+    }
 
     // update the last location time
     locationTime = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date())
     sendEvent( name: "lastLocationtime", value: locationTime )
     sendEvent( name: "imperialUnits", value: parent.isimperialUnits() )
-    
+
     // update the attributes - only allow attribute deletion on location updates
     updateAttributes(data, (data._type == "location"))
-    
+
     // if we get a blank timestamp, then the phone has no location or this is a ping with high inaccuracy, so do not update any location fields
     if (data.tst != 0) {
         // only update the presence for 'home'
@@ -397,8 +401,8 @@ Boolean generatePresenceEvent(member, homeName, data) {
 
         // update the coordinates so the member tile can populate correctly
         if (data?.lat) sendEvent (name: "lat", value: data.lat)
-        if (data?.lon) sendEvent (name: "lon", value: data.lon)  
-        
+        if (data?.lon) sendEvent (name: "lon", value: data.lon)
+
         // only log additional data if the user is not marked as private
         if (!data.private) {
             // if we have a tranistion event
@@ -409,15 +413,15 @@ Boolean generatePresenceEvent(member, homeName, data) {
                     parent.generateTransitionNotification(state.memberName, TRANSITION_PHRASES[data.event], data.desc, locationTime)
                     descriptionText = device.displayName +  " has ${TRANSITION_PHRASES[data.event]} " + data.desc
                     logDescriptionText("$descriptionText")
-                
+
                     // only update the time if there was a state change
                     if ((device.currentValue('transitionDirection') != data.event) || (device.currentValue('transitionRegion') != data.desc)) {
                         state.sinceTime = data.tst
                     }
                     // update the transition
-                    sendEvent( name: "transitionRegion", value: data.desc )	
-                    sendEvent( name: "transitionTime", value: locationTime )	
-                    sendEvent( name: "transitionDirection", value: data.event )	
+                    sendEvent( name: "transitionRegion", value: data.desc )
+                    sendEvent( name: "transitionTime", value: locationTime )
+                    sendEvent( name: "transitionDirection", value: data.event )
                 }
             } else {
                 // if we are in a region stored in the app
@@ -430,7 +434,7 @@ Boolean generatePresenceEvent(member, homeName, data) {
                         }
                     }
                     // remove the trailing comma
-                    currentLocation = locationList.substring(0, locationList.length() - 1) 
+                    currentLocation = locationList.substring(0, locationList.length() - 1)
                 } else {
                     // display the street address if it was reported (or the default lat,lon if no geocodeing was sent from the app)
                     currentLocation = data.streetAddress
@@ -443,7 +447,7 @@ Boolean generatePresenceEvent(member, homeName, data) {
                     state.sinceTime = data.tst
                 }
             }
-    
+
             long sinceTimeMilliSeconds = state.sinceTime
             sinceDate = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date(sinceTimeMilliSeconds * 1000))
             tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
@@ -454,12 +458,12 @@ Boolean generatePresenceEvent(member, homeName, data) {
                 sendEvent( name: "lastSpeed", value:  parent.displayKmMiVal(data.vel).toInteger() )
             } else {
                 sendEvent( name: "lastSpeed", value:  0 )
-            } 
+            }
 
             // create the HTML tiles -- schedule for 1-second so that the attributes are saved
             runIn(1, generateTiles)
         }
-        
+
         // allowed all the time
         if (device.currentValue("presence") != memberPresence) {
             logDescriptionText "$device.displayName is $memberPresence"
@@ -475,7 +479,7 @@ Boolean generatePresenceEvent(member, homeName, data) {
         sendEvent( name: "presence", value: memberPresence, descriptionText: descriptionText)
         sendEvent( name: "location", value: currentLocation )
     }
-   
+
     return true
 }
 
@@ -484,7 +488,7 @@ def generateTiles() {
     generatePastLocationsTile()
     generatePresenceTile()
 }
-    
+
 def generateMemberTile() {
     if (displayMemberTile) {
         sendEvent(name: "MemberLocation", value: parent.displayTile("cloud", "membermap/${state.memberName.toLowerCase()}"), displayed: true)
@@ -498,19 +502,19 @@ def generatePastLocationsTile() {
         sendEvent(name: "PastLocations", value: parent.displayTile(parent.recorderURLType(), "memberpastlocations/${state.memberName.toLowerCase()}"), displayed: true)
     } else {
         device.deleteCurrentState('PastLocations')
-    }    
-    
+    }
+
 }
 
 def generatePresenceTile() {
-    sendEvent(name: "PresenceTile", value: parent.displayTile("cloud", "memberpresence/${state.memberName.toLowerCase()}"), displayed: true)    
+    sendEvent(name: "PresenceTile", value: parent.displayTile("cloud", "memberpresence/${state.memberName.toLowerCase()}"), displayed: true)
 }
 
 def generateMember() {
-    String htmlData = ""    
+    String htmlData = ""
     if (device.currentValue('location') != DEFAULT_privateLocation) {
         long sinceTimeMilliSeconds = state.sinceTime
-        tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))        
+        tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
 
         htmlData += """
         <div style="width:100%;height:100%;margin:2px;font-family:arial">
@@ -529,7 +533,7 @@ def generateMember() {
                         </td>
                     </tr>
                 </table>
-            </div>   
+            </div>
             <table style="width:100%;height:calc(100% - 120px)">
                 <tr align="center">
                     <td>
@@ -564,7 +568,7 @@ def generatePastLocations() {
         // split the topic into it's elements.  user is [1], device is [2].
         topicElements = parent.splitTopic(device.currentValue('sourceTopic').toLowerCase())
 
-        htmlData += """    
+        htmlData += """
         <div style="width:100%;height:100%;margin:4px;font-family:arial">
             <table style="width:100%;color:white;font-size:0.8em;background:#555555">
                 <tr>
@@ -589,7 +593,7 @@ def generatePastLocations() {
             function updateUrl() {
                 const startDate = new Date(document.getElementById("id-startDate").value).toISOString().slice(0, 16);
                 const endDate = new Date(document.getElementById("id-endDate").value).toISOString().slice(0, 16);
-                const urlPath = "${parent.getRecorderURL()}/map/index.html?from=" + startDate + "&to=" + endDate + "&format=geojson&user=${topicElements[1]}&device=${topicElements[2]}";
+                const urlPath = "${parent.getRecorderURL()}/map/index.html?from=" + startDate + "&to=" + endDate + "&format=${(lastLocationViewTracks ? "linestring" : "geojson")}&user=${topicElements[1]}&device=${topicElements[2]}";
                 const iframe = document.getElementById("id-iframe");
                 iframe.src = urlPath;
             }
@@ -605,7 +609,7 @@ def generatePastLocations() {
             document.getElementById("id-endDate").value = endTime.toISOString().slice(0, 16);
             // trigger the update to the start URL
             window.onload = updateUrl;
-        </script>"""        
+        </script>"""
     }
 
     return (htmlData)
@@ -614,7 +618,7 @@ def generatePastLocations() {
 def generatePresence() {
     long sinceTimeMilliSeconds = state.sinceTime
     sinceDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
-    
+
     String htmlData = """
     <div style="width:100%;height:100%;margin:4px;background:${((device.currentValue('presence') == "present") ? "green" : "#b40000")}">
         <table style="height:100%;width:100%;color:white;font-size:0.8em;font-family:arial">
@@ -633,7 +637,7 @@ def generatePresence() {
     </div>"""
 
     return (htmlData)
-} 
+}
 
 private logDebug(msg) {
     if (settings?.debugOutput) {
@@ -661,4 +665,4 @@ private logNonOptimalSettings(msg) {
     } else {
         logDebug(msg)
     }
-}    
+}

@@ -24,20 +24,21 @@
  *  1.7.3      2024-02-25      - Changed the friends tile name to 'RecorderFriendsLocation'.  Added a 'GoogleFriendsLocation' tile attribute.
  *  1.7.4      2024-03-03      - Updated map link.  Refactored tile layouts.
  *  1.7.5      2024-03-05      - Added dynamic support for cloud recorder URL.
+ *  1.7.6      2024-03-15      - Added configuration map tile.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.5" }
+def driverVersion() { return "1.7.6" }
 
 @Field Boolean DEFAULT_displayFriendsTile = false
 
 metadata {
   definition (
-      name:        "OwnTracks Common Driver", 
-      namespace:   "lpakula", 
-      author:      "Lyle Pakula", 
+      name:        "OwnTracks Common Driver",
+      namespace:   "lpakula",
+      author:      "Lyle Pakula",
       importUrl:   "https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20Common%20Driver.groovy"
   ) {
         capability "Actuator"
@@ -46,6 +47,7 @@ metadata {
 
         attribute  "RecorderFriendsLocation", "string"
         attribute  "GoogleFriendsLocation", "string"
+        attribute  "ConfigurationMap", "string"
     }
 }
 
@@ -73,10 +75,11 @@ def push() {
     // update the driver version if necessary
     if (state.driverVersion != driverVersion()) {
         state.driverVersion = driverVersion()
-    }    
+    }
 
     generateRecorderFriendsLocationTile()
     generateGoogleFriendsLocationTile()
+    generateConfigMapTile()
 }
 
 def generateRecorderFriendsLocationTile() {
@@ -88,11 +91,19 @@ def generateRecorderFriendsLocationTile() {
 }
 
 def generateGoogleFriendsLocationTile() {
-    String tiledata = parent.generateGoogleFriendsLocation()  
+    String tiledata = parent.generateGoogleFriendsLocation()
     if (displayGoogleFriendsLocation && tiledata) {
         sendEvent(name: "GoogleFriendsLocation", value: parent.checkAttributeLimit(tiledata), displayed: true)
     } else {
         device.deleteCurrentState('GoogleFriendsLocation')
+    }
+}
+
+def generateConfigMapTile() {
+    if (parent.getGoogleMapsAPIKey()) {
+        sendEvent(name: "ConfigurationMap", value: parent.displayTile("cloud", "configmap"), displayed: true)
+    } else {
+        device.deleteCurrentState('ConfigurationMap')
     }
 }
 
