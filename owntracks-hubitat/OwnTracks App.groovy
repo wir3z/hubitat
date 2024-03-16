@@ -81,6 +81,7 @@
  *  1.7.28     2024-03-05      - Added dynamic support for cloud recorder URL.  Hide recorder cloud links when not using https.
  *  1.7.29     2024-03-07      - Added an info box when a member is selected in Google maps.  Fixed secondary hubs not receiving region updates.  Added a send regions to secondary button.
  *  1.7.30     2024-03-15      - Updated Google family map to have info windows when a user is clicked, and tracking ability.  Added a configuration map when the Google Maps API key is entered.  Fixed exception when no recorder URL is present.
+ *  1.7.31     2024-03-16      - Fixed exception when configure regions was selected with no Google Maps API key.
  */
 
 import groovy.transform.Field
@@ -89,7 +90,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.30"}
+def appVersion() { return "1.7.31"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -579,49 +580,51 @@ def configureDisplay() {
 
 def configureRegions() {
     return dynamicPage(name: "configureRegions", title: "", nextPage: "mainPage") {
-        def deviceWrapper = getChildDevice(getCommonChildDNI())
-        if (deviceWrapper) {
-            deviceWrapper.generateConfigMapTile()
-        }
         section(getFormat("box", "Configure Regions")) {
         }
-        section(hideable: true, hidden: true, "Region Map Instructions and Delete Behavior") {
-            paragraph ("<h2>Add a Region</h2>" +
-                       "1. Click the map to drop a pin at a desired location.\r" +
-                       "2. Add the region name and radius information.\r" +
-                       "3. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" +
-                       "4. Clicking on the map or another region without saving will remove this pin.\r" +
-                       "5. The pin will remain red until it is saved.\r" +
-                       "<b>NOTE:</b> If a Google geocode API has been entered, an input box to allow direct address lookup will be displayed."
-            )
-            paragraph ("<h2>Edit a Region</h2>" +
-                       "1. Select the pin to be edited or a region from the selection box.\r" +
-                       "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" +
-                       "<b>NOTE:</b> Changing the 'Region Name' will create a new region on iOS devices.  The previous named region will need to be manually delete from each device.\r"
-            )
-            paragraph ("<h2>Assign a Home Region</h2>" +
-                       "1. Select a pin to be 'Home'.\r" +
-                       "2. Select the 'Set Home' button to assign the region.\r" +
-                       "3. New pins must be saved before the 'Set Home' button is visible.\r" +
-                       "4. The 'Home' pin will be larger with a green glyph.\r"
-            )
-            paragraph ("<h2>Delete a Region</h2>" +
-                       "1. Select the pin to be deleted.\r" +
-                       "2. Select the 'Delete' button to remove the region from the map.\r" +
-                       "3. <b>NOTE:</b> The actual delete behavior will be based on the operation described below.\r"
-            )
-            input name: "manualDeleteBehavior", type: "bool", title: "Manual Delete", defaultValue: DEFAULT_manualDeleteBehavior, submitOnChange: true
-            paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.</b></div>")
-            paragraph("<h3><b>Manual Delete: Region Deleted from Hub Only.  Requires Region to be Manually Deleted from Mobile</b></h3>" +
-                      "1. Deleted regions will be deleted from the Hubitat <b>ONLY</b>.\r" +
-                      "2. On each mobile phone, find and remove the region that was deleted.\r"
-                     )
+        if (isMapAllowed(false)) {
+            def deviceWrapper = getChildDevice(getCommonChildDNI())
+            if (deviceWrapper) {
+                deviceWrapper.generateConfigMapTile()
+            }
+            section(hideable: true, hidden: true, "Region Map Instructions and Delete Behavior") {
+                paragraph ("<h2>Add a Region</h2>" +
+                           "1. Click the map to drop a pin at a desired location.\r" +
+                           "2. Add the region name and radius information.\r" +
+                           "3. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" +
+                           "4. Clicking on the map or another region without saving will remove this pin.\r" +
+                           "5. The pin will remain red until it is saved.\r" +
+                           "<b>NOTE:</b> If a Google geocode API has been entered, an input box to allow direct address lookup will be displayed."
+                )
+                paragraph ("<h2>Edit a Region</h2>" +
+                           "1. Select the pin to be edited or a region from the selection box.\r" +
+                           "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" +
+                           "<b>NOTE:</b> Changing the 'Region Name' will create a new region on iOS devices.  The previous named region will need to be manually delete from each device.\r"
+                )
+                paragraph ("<h2>Assign a Home Region</h2>" +
+                           "1. Select a pin to be 'Home'.\r" +
+                           "2. Select the 'Set Home' button to assign the region.\r" +
+                           "3. New pins must be saved before the 'Set Home' button is visible.\r" +
+                           "4. The 'Home' pin will be larger with a green glyph.\r"
+                )
+                paragraph ("<h2>Delete a Region</h2>" +
+                           "1. Select the pin to be deleted.\r" +
+                           "2. Select the 'Delete' button to remove the region from the map.\r" +
+                           "3. <b>NOTE:</b> The actual delete behavior will be based on the operation described below.\r"
+                )
+                input name: "manualDeleteBehavior", type: "bool", title: "Manual Delete", defaultValue: DEFAULT_manualDeleteBehavior, submitOnChange: true
+                paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.</b></div>")
+                paragraph("<h3><b>Manual Delete: Region Deleted from Hub Only.  Requires Region to be Manually Deleted from Mobile</b></h3>" +
+                          "1. Deleted regions will be deleted from the Hubitat <b>ONLY</b>.\r" +
+                          "2. On each mobile phone, find and remove the region that was deleted.\r"
+                         )
 
-            paragraph ("<h3><b>Automatic Delete: Region Deleted from Hub and Mobile after Location Update</b></h3>" +
-                       "1. The deleted region will be assigned an invalid lat/lon, but will not be immediately removed.\r" +
-                       "2. The region will remain in the Hubitat until <b>ALL</b> enabled users have sent a location report.\r" +
-                       "3. Once the last user has sent a location report, the region will be deleted from Hubitat.\r"
-                      )
+                paragraph ("<h3><b>Automatic Delete: Region Deleted from Hub and Mobile after Location Update</b></h3>" +
+                           "1. The deleted region will be assigned an invalid lat/lon, but will not be immediately removed.\r" +
+                           "2. The region will remain in the Hubitat until <b>ALL</b> enabled users have sent a location report.\r" +
+                           "3. Once the last user has sent a location report, the region will be deleted from Hubitat.\r"
+                          )
+            }
         }
         section() {
             if (isMapAllowed(false)) {
@@ -2365,7 +2368,7 @@ private def geocode(address) {
 }
 
 def getGoogleMapsAPIKey() {
-    return(googleMapsAPIKey?.trim())
+    return(settings["googleMapsAPIKey"]?.trim())
 }
 
 private def isGeocodeAllowed() {
