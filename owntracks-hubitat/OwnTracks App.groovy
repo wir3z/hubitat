@@ -629,17 +629,6 @@ def configureRegions() {
         section() {
             if (isMapAllowed(false)) {
                 configMapURL = "${getAttributeURL(URL_SOURCE['cloud'],'configmap')}"
-                addRegionToEdit()
-                if (regionToEdit) {
-                    // get the place map and assign the current values
-                    def foundPlace = state.places.find {it.desc==regionToEdit}
-                    configMapURL += "&lat=${foundPlace.lat}&lon=${foundPlace.lon}"
-                    clearSettingFields()
-                }
-                addGeocodeOption()
-                if (regionAddress) {
-                    configMapURL += "&lat=${regionLat}&lon=${regionLon}"
-                }
                 paragraph("<iframe src='${configMapURL}' style='height: 650px; width: 100%; border: none;'></iframe>")
             } else {
                 clearSettingFields()
@@ -767,19 +756,6 @@ def displayMissingHomePlace() {
     }
 }
 
-def addGeocodeOption() {
-    if (geocodeProvider == "0") {
-        paragraph ("<b>Configure a geocode provider in 'Additional Hubitat App Settings' -> 'Geocode Settings' to enable address to latitude/longitude lookup.</b>")
-    } else {
-        input "regionAddress", "text", title: "Enter address to populate the latitude/longitude.  Confirm the location is correct using the map below.", submitOnChange: true
-        if (regionAddress) {
-            (addressLat, addressLon) = geocode(regionAddress)
-            app.updateSetting("regionLat",[value:addressLat,type:"double"])
-            app.updateSetting("regionLon",[value:addressLon,type:"double"])
-        }
-    }
-}
-
 def addRegions() {
     return dynamicPage(name: "addRegions", title: "", nextPage: "configureRegions") {
         section(getFormat("box", "Add a Region")) {
@@ -790,7 +766,16 @@ def addRegions() {
             paragraph ("1. Add the region to be information.\r" +
                        "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r"
             )
-            addGeocodeOption()
+            if (geocodeProvider == "0") {
+                paragraph ("<b>Configure a geocode provider in 'Additional Hubitat App Settings' -> 'Geocode Settings' to enable address to latitude/longitude lookup.</b>")
+            } else {
+                input "regionAddress", "text", title: "Enter address to populate the latitude/longitude.  Confirm the location is correct using the map below.", submitOnChange: true
+                if (regionAddress) {
+                    (addressLat, addressLon) = geocode(regionAddress)
+                    app.updateSetting("regionLat",[value:addressLat,type:"double"])
+                    app.updateSetting("regionLon",[value:addressLon,type:"double"])
+                }
+            }
         }
         section(getFormat("line", "")) {
             // assign defaults so the map populates properly
@@ -2509,7 +2494,13 @@ def generateConfigMap() {
     if (APIKey && isMapAllowed(true)) {
         htmlData = """
         <div style="width:100%;height:100%;margin:5px">
-            <div id="map" style="width:100%;height:100%;"></div>
+            <table style="width:100%">
+                <tr>
+                    <td align="left"><select id="id-region" style="font-size:1.0em"></select></td>
+                    <td align="right"><input id="id-address" placeholder="" size="40" style="font-size:1.0em"></input></td>
+                </tr>
+            </table>
+            <div id="map" style="width:100%;height:95%;"></div>
             <script>
                 const places = ["""
                     getNonFollowRegions(false).each { region->
@@ -2551,7 +2542,13 @@ def generateConfigMap() {
                     const infoWindow = new google.maps.InfoWindow();
                     const markers = [];
                     lastIndex = "";
+                    lastPosition = "";
                     homeRegionName = "${getHomeRegion()?.desc}";
+                    updateRegionSelector()
+                    addRegionListener()
+                    updateAddressInput()
+                    addAddressListener()
+
                     map = new google.maps.Map(
                         document.getElementById("map"),
                         {
@@ -2582,12 +2579,13 @@ def generateConfigMap() {
                         // first remove any unsaved markers, if any
                         deleteUnsavedMarkers();
                         addMarker({ lat: evt.latLng.lat(), lng: evt.latLng.lng() })
+                        updateRegionSelector()
                     });
 
                     function addMarker(region) {
                         newMarker = { lat: region.lat, lng: region.lng, rad: ${DEFAULT_RADIUS}, desc: '', tst: ${(now()/1000).toInteger()} };
                         createMarker(newMarker, places.length);
-                        displayInfo(region, places.length);
+                        displayInfo(region, places.length, true);
                         infoWindow.open(map, markers[markers.length - 1].marker);
                     }
 
@@ -2634,12 +2632,14 @@ def generateConfigMap() {
                             radius.setCenter(evt.latLng);
                         });
                         marker.addListener("dragend", (evt) => {
-                            displayInfo({ lat: evt.latLng.lat(), lng: evt.latLng.lng() }, index);
+                            displayInfo({ lat: evt.latLng.lat(), lng: evt.latLng.lng() }, index, true);
                             infoWindow.open(map, marker);
+                            updateRegionSelector()
                         });
                         marker.addListener("click", (evt) => {
-                            displayInfo({ lat: evt.latLng.lat(), lng: evt.latLng.lng() }, index);
+                            displayInfo({ lat: evt.latLng.lat(), lng: evt.latLng.lng() }, index, true);
                             infoWindow.open(map, marker);
+                            updateRegionSelector()
                         });
 
                         // save the markers and radiuses
@@ -2681,11 +2681,40 @@ def generateConfigMap() {
                         }
                     };
 
-                    function displayInfo(event, index) {
+                    function updateRegionSelector() {
+                        const regionSelector = document.getElementById("id-region");
+                        // clear exisitng and then add the elements from the places list
+                        regionSelector.innerHTML = "";
+                        const option = document.createElement("option");
+                        option.text = "Select a region";
+                        regionSelector.appendChild(option);
+                        places.forEach((place) => {
+                            const option = document.createElement("option");
+                            option.text = place.desc;
+                            option.value = place.tst;
+                            regionSelector.appendChild(option);
+                        });
+                    }
+
+                    function updateAddressInput() {
+                        const address = document.getElementById("id-address");
+                        address.value = "";
+                        address.placeholder = (${isGeocodeAllowed()} ? "Search for address" : "Requires a Geocode API key for address lookup")
+                    }
+
+                    function displayInfo(event, index, addressLookup) {
                         map.setCenter(event);
                         infoWindow.close();
                         infoWindow.setPosition(event);
-                        infoWindow.setContent(infoContent(event.lat, event.lng, index));
+                        // deal with the first time the map loads and there is no position to display.  The reverseGeocode callback will update this next time.                    
+                        if (lastPosition == "") {
+                            lastPosition = "" + event.lat.toFixed(6) + "," + event.lng.toFixed(6) + "";
+                        }
+                        infoWindow.setContent(infoContent(lastPosition, index));
+                        if (addressLookup) {
+                            // request the address lookup and populate the window in the callback
+                            reverseGeocode(event, index);
+                        }
                     };
 
                     function displayButtons(locationExists) {
@@ -2719,6 +2748,43 @@ def generateConfigMap() {
                         }
                     };
 
+                    function addRegionListener() {
+                        const regionBox = document.getElementById("id-region");
+                        regionBox.addEventListener("change", function() {
+                            const regionTst = regionBox.options[regionBox.selectedIndex].value;
+                            for (let idx = 0; idx < markers.length; idx++) {
+                                if (markers[idx].marker.zIndex == regionTst) {
+                                    displayInfo({ lat: markers[idx].marker.position.lat, lng: markers[idx].marker.position.lng }, idx, false);
+                                    infoWindow.open(map, markers[idx].marker);
+                                }
+                            }
+                        });
+                    };
+
+                    function addAddressListener() {
+                        const addressBox = document.getElementById("id-address");
+                        addressBox.addEventListener("keypress", function() {
+                            if (event.key === 'Enter') {
+                                address = addressBox.value.trim();
+                                if (address) {
+                                    dataMap = {};
+                                    dataMap["address"] = address;
+                                    sendDataToHub(dataMap, "geocode");
+                                }
+                                // clear the input box
+                                updateAddressInput();
+                            }
+                        });
+                    };
+
+                    function reverseGeocode(event, index) {
+                        const dataMap = {};
+                        dataMap["lat"] = event.lat.toFixed(6);
+                        dataMap["lon"] = event.lng.toFixed(6);
+                        dataMap["index"] = index;
+                        return(sendDataToHub(dataMap, "reversegeocode"));
+                    }
+
                     function addInfoListener() {
                         google.maps.event.addListener(infoWindow, "domready", function () {
                             const saveButton = document.getElementById("id-save");
@@ -2747,6 +2813,7 @@ def generateConfigMap() {
                                 deleteUnsavedMarkers();
                             }
 
+                            // only set the box values if they are blank.
                             if (markerIndex.value < places.length) {
                                 nameBox.value = places[markerIndex.value].desc;
                                 radBox.value = convertRadiusToFeet(places[markerIndex.value].rad);
@@ -2754,7 +2821,8 @@ def generateConfigMap() {
                                 nameBox.value = "";
                                 radBox.value = convertRadiusToFeet(${DEFAULT_RADIUS});
                             }
-
+                            markers[markerIndex.value].radius.setRadius(convertRadiusToMeters(parseInt(radBox.value)));
+        
                             // show/hide the buttons when the window opens
                             displayButtons(markerIndex.value < places.length);
 
@@ -2769,7 +2837,7 @@ def generateConfigMap() {
                                 }
                                 markers[markerIndex.value].marker.title = nameBox.value;
                                 markers[markerIndex.value].marker.rad = parseInt(radBox.value);
-                                places[markerIndex.value].desc =  markers[markerIndex.value].marker.title;
+                                places[markerIndex.value].desc = markers[markerIndex.value].marker.title;
                                 places[markerIndex.value].rad = markers[markerIndex.value].marker.rad;
                                 places[markerIndex.value].lat = markers[markerIndex.value].marker.position.lat;
                                 places[markerIndex.value].lng = markers[markerIndex.value].marker.position.lng;
@@ -2779,8 +2847,9 @@ def generateConfigMap() {
                                 changeRadiusColor(markers[markerIndex.value].radius, markerIndex.value);
                                 changePinGlyph(markerIndex.value, markers[markerIndex.value].pin, (markers[markerIndex.value].marker.title == homeRegionName));
                                 displayButtons(markerIndex.value < places.length);
-                                sendDataToHub(markers[markerIndex.value], "save");
+                                sendDataToHub(markerDataMap(markers[markerIndex.value]), "save");
                                 alert("'" + markers[markerIndex.value].marker.title + "' saved.");
+                                updateRegionSelector()
                             });
                             setHomeButton.addEventListener("click", function () {
                                 console.log("Setting Home Region: " + markers[markerIndex.value].marker.title);
@@ -2793,19 +2862,24 @@ def generateConfigMap() {
                                 homeRegionName = markers[markerIndex.value].marker.title;
                                 changePinGlyph(markerIndex.value, markers[markerIndex.value].pin, true);
                                 displayButtons(markerIndex.value < places.length);
-                                sendDataToHub(markers[markerIndex.value], "home");
+                                sendDataToHub(markerDataMap(markers[markerIndex.value]), "home");
                             });
                             deleteButton.addEventListener("click", function () {
                                 console.log("Deleting Region: " + markers[markerIndex.value].marker.title);
                                 markers[markerIndex.value].marker.setMap(null);
                                 markers[markerIndex.value].radius.setMap(null);
                                 infoWindow.close();
-                                sendDataToHub(markers[markerIndex.value], "delete");
+                                sendDataToHub(markerDataMap(markers[markerIndex.value]), "delete");
                                 if (markers[markerIndex.value].marker.title == homeRegionName) {
                                     alert("'Home' region deleted.\\n\\nCreate or select a location and click 'Set Home' to assign a new 'Home' location.");
                                 } else {
                                     alert("'" + markers[markerIndex.value].marker.title + "' deleted.");
                                 }
+                                // remove the item from the lists
+                                markers.splice(markerIndex.value, 1);
+                                places.splice(markerIndex.value, 1);
+                                lastIndex = "";
+                                updateRegionSelector()
                             });
                             nameBox.addEventListener("input", function () {
                                 // show/hide the buttons based on the user text
@@ -2828,17 +2902,22 @@ def generateConfigMap() {
                         return (${imperialUnits} ? parseInt(val*3.28084) : parseInt(val))
                     }
 
-                    function sendDataToHub(marker, action) {
-                        const dataMap = {};
+                    function markerDataMap(marker) {
+                        dataMap = {};
                         dataMap["_type"] = "waypoint";
                         dataMap["desc"] = marker.marker.title;
                         dataMap["lat"] = marker.marker.position.lat;
                         dataMap["lon"] = marker.marker.position.lng;
                         dataMap["tst"] = marker.marker.zIndex;
                         dataMap["rad"] = marker.radius.getRadius();
+
+                        return(dataMap)
+                    }
+
+                    function sendDataToHub(dataMap, action) {
                         const postData = {};
                         postData["action"] = action;
-                        postData["region"] = dataMap;
+                        postData["payload"] = dataMap;
 
                         fetch("${getAttributeURL(URL_SOURCE["cloud"], "apidata")}", {
                             method: "POST",
@@ -2848,11 +2927,28 @@ def generateConfigMap() {
                             }
                         })
                         .then(response => response.json())
-                        .then(data => {})
+                        .then(data => {
+                            switch (data.action) {
+                                case "geocode":
+                                    center = {};
+                                    center["lat"] = parseFloat(data.lat);
+                                    center["lng"] = parseFloat(data.lon);
+                                    map.setCenter(center);
+                                    addMarker({ lat: parseFloat(data.lat), lng: parseFloat(data.lon) });
+                                break;
+                                case "reversegeocode":
+                                    lastPosition = data.address;
+                                    infoWindow.setContent(infoContent(data.address, data.index));
+                                break;
+                                default:
+                                    // do nothing
+                                break;
+                            }
+                        })
                         .catch(error => { console.error('Error fetching data:', error); })
                     };
 
-                    function infoContent(lat, lon, index) {
+                    function infoContent(position, index) {
                         const contentString =
                         "<table style='width:100%;font-size:1.0em'>" +
         	                "<tr>" +
@@ -2871,7 +2967,7 @@ def generateConfigMap() {
              	            "</tr>" +
         	                "<tr>" +
         		                "<td><b>Location:</b></td>" +
-        		                "<td>" + lat.toFixed(6) + "," + lon.toFixed(6) + "</td>" +
+        		                "<td>" + position + "</td>" +
         	                "</tr>" +
             	            "<tr>" +
 	            	            "<td align='left'>" +
@@ -2964,6 +3060,7 @@ def displayRecorderFriendsMap() {
 
 def processAPIData() {
     // process incoming data
+    response = []
     data = parseJson(request.body)
     if (data.zoom) {
         state.googleMapsZoom = data.zoom
@@ -2975,21 +3072,28 @@ def processAPIData() {
         switch (data.action) {
             case "save":
                 // trigger and add/update of the region
-                addPlace([ "name":"" ], data.region, false)
+                addPlace([ "name":"" ], data.payload, false)
             break;
             case "home":
                 // set home to the place matching the timestamp
                 app.removeSetting("homePlace")
-                app.updateSetting("homePlace", [value: data.region.tst, type: "string"])
+                app.updateSetting("homePlace", [value: data.payload.tst, type: "string"])
             break;
             case "delete":
                 // delete region from hub/mobile or just hub depending on setting
-                app.updateSetting("regionName",[value:data.region.desc,type:"text"])
+                app.updateSetting("regionName",[value:data.payload.desc,type:"text"])
                 if (manualDeleteBehavior) {
                     appButtonHandler("deleteRegionFromHubButton")
                 } else {
                     appButtonHandler("deleteRegionFromAllButton")
                 }
+            break;
+            case "geocode":
+                (addressLat, addressLon) = geocode(data.payload.address)
+                response = ["lat" : addressLat, "lon" : addressLon, "action" : data.action]
+            break;
+            case "reversegeocode":
+                response = ["address" : reverseGeocode(data.payload.lat,data.payload.lon), "index" : data.payload.index, "action" : data.action]
             break;
             default:
                 logWarn("Unhandled API action: ${data.action}")
@@ -2998,7 +3102,7 @@ def processAPIData() {
     }
 
     // send back a success response
-    return render(contentType: "text/html", data: [], status: 200)
+    return render(contentType: "text/html", data: (new JsonBuilder(response)).toPrettyString(), status: 200)
 }
 
 def retrieveGoogleFriendsMapZoom() {
