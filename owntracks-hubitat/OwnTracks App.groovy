@@ -84,6 +84,7 @@
  *  1.7.31     2024-03-16      - Fixed exception when configure regions was selected with no Google Maps API key.
  *  1.7.32     2024-03-18      - Moved region and address selectors directly to the config map.
  *  1.7.33     2024-03-19      - Added a service member to allow for secondary hub region transfers.
+ *  1.7.34     2024-03-21      - Fixed dashboard tiles not automatically updating.
  */
 
 import groovy.transform.Field
@@ -92,7 +93,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.33"}
+def appVersion() { return "1.7.34"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -2878,7 +2879,7 @@ def generateConfigMap() {
                             const nameBox = document.getElementById("id-name");
                             const radBox = document.getElementById("id-rad");
                             const markerIndex = document.getElementById("id-index");
-                            const http = document.getElementById("id-http");
+
                             // check if we need to undo changes to the last marker
                             if (lastIndex) {
                                 if (lastIndex != markerIndex.value) {
@@ -3065,8 +3066,7 @@ def generateConfigMap() {
 	        	                "</td>" +
             	            "</tr>" +
                         "</table>" +
-                        "<input type='hidden' id='id-index' value='" + index + "'>" +
-                        "<img id='id-http' src='' style='display:none'>"
+                        "<input type='hidden' id='id-index' value='" + index + "'>"
 
                         return(contentString)
                     };
@@ -3530,6 +3530,8 @@ def displayTile(urlSource, tileSource) {
     htmlData += '<div style="width:100%;height:100%">'
     htmlData += "<iframe src=${urlPath} style='width:100%;height:100%;border:none;'></iframe>"
     htmlData += '</div>'
+    // the page needs to change on each call, otherwise Hubitat won't push to the dashboard as an attribute change.  So we will embed a hidden random number
+    htmlData += '<input type="hidden" value=' + Math.random() + '>'
 
     return (checkAttributeLimit(htmlData))
 }
