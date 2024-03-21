@@ -82,6 +82,8 @@
  *  1.7.29     2024-03-07      - Added an info box when a member is selected in Google maps.  Fixed secondary hubs not receiving region updates.  Added a send regions to secondary button.
  *  1.7.30     2024-03-15      - Updated Google family map to have info windows when a user is clicked, and tracking ability.  Added a configuration map when the Google Maps API key is entered.  Fixed exception when no recorder URL is present.
  *  1.7.31     2024-03-16      - Fixed exception when configure regions was selected with no Google Maps API key.
+ *  1.7.32     2024-03-18      - Moved region and address selectors directly to the config map.
+ *  1.7.33     2024-03-19      - Added a service member to allow for secondary hub region transfers.
  */
 
 import groovy.transform.Field
@@ -90,7 +92,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.31"}
+def appVersion() { return "1.7.33"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -112,7 +114,7 @@ def appVersion() { return "1.7.31"}
 @Field static final Map GEOCODE_QUOTA = [ 1: 40000, 2: 3000, 3: 2500 ]
 @Field static final Map GEOCODE_QUOTA_INTERVAL_DAILY = [ 1: false, 2: true, 3: true ]
 @Field static final Map GEOCODE_API_KEY_LINK = [ 1: "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>", 2: "<a href='https://apidocs.geoapify.com/docs/geocoding/reverse-geocoding/#about' target='_blank'>Sign up for a Geoapify API Key</a>", 3: "<a href='https://opencagedata.com/api#quickstart' target='_blank'>Sign up for a Opencage API Key</a>" ]
-@Field static final Map GOOGLE_MAP_REFRESH_INTERVALS = [ 0: 'Disabled', 5: '5-seconds', 15: '15-seconds', 30: '30-seconds', 60: '60-seconds', 300: '5-minutes', 900: '15-minutes', 1800: '30-minutes', 3600: '60-minutes' ]
+@Field static final Map GOOGLE_MAP_REFRESH_INTERVALS = [ 0: 'Disabled', 1: 'Auto - Refresh on Location Update', 5: '5-seconds', 15: '15-seconds', 30: '30-seconds', 60: '60-seconds', 300: '5-minutes', 900: '15-minutes', 1800: '30-minutes', 3600: '60-minutes' ]
 @Field static final Map URL_SOURCE = [ "cloud": 0, "local": 1 ]
 
 // Main defaults
@@ -120,6 +122,8 @@ def appVersion() { return "1.7.31"}
 @Field Number  GOOGLE_MAP_API_QUOTA = 28500
 @Field String  GOOGLE_MAP_API_KEY_LINK = "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>"
 @Field Number  DEFAULT_googleMapRefreshInterval = 0
+@Field Number  DEFAULT_googleMapFastestRefreshInterval = 5
+@Field String  DEFAULT_googleMapAutoRefreshEnum = "1"
 @Field String  RECORDER_PUBLISH_FOLDER = "/pub"
 @Field String  MQTT_TOPIC_PREFIX = "owntracks"
 @Field Number  INVALID_COORDINATE = 999
@@ -648,12 +652,13 @@ def configureRegions() {
         checkForHome()
         section(getFormat("line", "")) {
             input "getMobileRegions", "enum", multiple: true, title:"Hubitat can retrieve regions from a member's OwnTracks mobile device and merge them into the Hubitat region list. Select family member(s) to retrieve their region list on next location update.", options: getEnabledAndNotHiddenMembers()
-            if (secondaryHubURL && enableSecondaryHub && state.members) {
+            if (secondaryHubURL && enableSecondaryHub) {
                 if (state.submit) {
                     paragraph "<b>${appButtonHandler(state.submit)}</b>"
                     state.submit = ""
                 }
                 input name: "sendRegionsToSecondaryButton", type: "button", title: "Send Region List to Secondary Hub", state: "submit"
+                input name: "getRegionsFromSecondaryButton", type: "button", title: "Retrieve Region List from Secondary Hub", state: "submit"
             }
         }
     }
@@ -862,9 +867,14 @@ def deleteRegions() {
 }
 
 def sendRegionsToSecondaryHub() {
-    // use the first member to populate the necessary headers for the secondary hub
     data = [ "_type":"waypoints", "waypoints":state.places ]
-    def postParams = [ uri: secondaryHubURL?.trim(), requestContentType: 'application/json', contentType: 'application/json', headers: ["X-limit-u" : state.members[0].name, "X-limit-d" : state.members[0].deviceID], body : (new JsonBuilder(data)).toPrettyString() ]
+    def postParams = [ uri: secondaryHubURL?.trim(), requestContentType: 'application/json', contentType: 'application/json', headers: ["X-limit-u" : COMMON_CHILDNAME, "X-limit-d" : COMMON_CHILDNAME], body : (new JsonBuilder(data)).toPrettyString() ]
+    asynchttpPost("httpCallbackMethod", postParams)
+}
+
+def retrieveRegionsFromSecondaryHub() {
+    data = sendReportWaypointsRequest([ name:COMMON_CHILDNAME ])
+    def postParams = [ uri: secondaryHubURL?.trim(), requestContentType: 'application/json', contentType: 'application/json', headers: ["X-limit-u" : COMMON_CHILDNAME, "X-limit-d" : COMMON_CHILDNAME], body : (new JsonBuilder(data)).toPrettyString() ]
     asynchttpPost("httpCallbackMethod", postParams)
 }
 
@@ -978,6 +988,9 @@ String appButtonHandler(btn) {
             sendRegionsToSecondaryHub()
             result = "Regions sent to secondary hub."
         break
+        case "getRegionsFromSecondaryButton":
+            retrieveRegionsFromSecondaryHub()
+            result = "Regions requested from secondary hub."
         case "deleteMembersButton":
             if (selectFamilyMembers) {
                 selectFamilyMembers.each { name ->
@@ -1469,11 +1482,16 @@ def webhookEventHandler() {
         // strip the [] around these values
         sourceName = sourceName.substring(1, (sourceName.length()-1))
         sourceDeviceID = sourceDeviceID.substring(1, (sourceDeviceID.length()-1))
+        // check if this a message from the service device.  If not, check for a matching member
+        if (sourceName == COMMON_CHILDNAME) {
+            findMember = [ name:COMMON_CHILDNAME, deviceID:COMMON_CHILDNAME, id:getCommonChildDNI() ] 
+        } else {
+            findMember = state.members.find {it.name==sourceName}
+        }
+        
         data = parseJson(request.body)
         logDebug("Received update' from user: '$sourceName', deviceID: '$sourceDeviceID', data: $data")
 
-        // check the list for a matching member
-        findMember = state.members.find {it.name==sourceName}
         if (!findMember?.id) {
             // add the new user to the list if they don't exist yet.  We will use the current time since not all incoming packets have a timestamp
             if (findMember == null) {
@@ -1481,60 +1499,16 @@ def webhookEventHandler() {
             }
             logWarn("User: '${sourceName}' not configured.  To enable this member, open the Hubitat OwnTracks app, select '${sourceName}' in 'Select family member(s) to monitor' box and then click 'Done'.")
         } else {
-            // only process events from enabled members
-            if (settings?.enabledMembers.find {it==sourceName}) {
+            // only process events from enabled members, or the service member
+            if ((settings?.enabledMembers.find {it==sourceName}) || (sourceName == COMMON_CHILDNAME)) {
                 // Pass the location to a secondary hub if configured
                 if (secondaryHubURL && enableSecondaryHub) {
                     def postParams = [ uri: secondaryHubURL?.trim(), requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
                     asynchttpPost("httpCallbackMethod", postParams)
                 }
                 // update the device ID should it have changed
-                findMember.deviceID=sourceDeviceID
-                switch (data._type) {
-                    case "location":
-                    case "transition":
-                        // store the last report time for the Google friends map
-                        state.lastReportTime = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date())
-                        updateMemberAttributes(findMember, data)
-                        // flag the data as private if necessary, but let the raw message pass to the secondary hub to be filtered
-                        data.private = ((settings?.privateMembers.find {it==findMember.name}) ? true : false)
-
-                        // log the elapsed distance and time
-                        logDistanceTraveledAndElapsedTime(findMember, data)
-                        // send push event to driver
-                        updateDevicePresence(findMember, data)
-                        // return with the rest of the users positions and waypoints if pending
-                        result = sendUpdate(findMember, data)
-
-                        // if the country code was not defined, replace with with hub timezone country
-                        if (!data.cc) { data.cc = location.getTimeZone().getID().substring(0, 2).toUpperCase() }
-                        // if the course over ground was not defined, replace distance from home
-                        if (!data.cog) { data.cog = data.currentDistanceFromHome }
-                        // if we have the OwnTracks recorder configured, and the timestamp is valid, and the user is not parked as private, pass the location data to it
-                        if (recorderURL && enableRecorder && (data.tst != 0) && !data.private) {
-                            def postParams = [ uri: recorderURL + RECORDER_PUBLISH_FOLDER, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)).toPrettyString() ]
-                            asynchttpPost("httpCallbackMethod", postParams)
-                            // update the recorder friends tile
-                            createRecorderFriendsLocationTile()
-                        }
-                        // only update if we have auto-refresh enabled
-                        if (googleMapRefreshInterval?.toInteger()) {
-                            // update the google friends tile
-                            createGoogleFriendsLocationTile()
-                        }
-                    break
-                    case "waypoint":
-                        // append/update to the places list
-                        addPlace(findMember, data, true)
-                    break
-                    case "waypoints":
-                        // update the places list
-                        updatePlaces(findMember, data)
-                    break
-                    default:
-                        logWarn("Unhandled message type: ${data._type}")
-                    break
-                }
+                findMember.deviceID = sourceDeviceID
+                result = parseMessage(request.headers, data, findMember);
             } else {
                 if (warnOnDisabledMember) {
                     logWarn("User: '${sourceName}' not enabled.  To enable this member, open the Hubitat OwnTracks app, select '${sourceName}' in 'Select family member(s) to monitor' box and then click 'Done'.")
@@ -1548,6 +1522,78 @@ def webhookEventHandler() {
     // app requires a non-empty JSON response, or it will display HTTP 500
     return render(contentType: "text/html", data: result, status: 200)
 }
+
+def parseMessage(headers, data, member) {
+    // default to an empty payload
+    result = []
+    
+    switch (data._type) {
+        case "location":
+        case "transition":
+            // store the last report time for the Google friends map
+            state.lastReportTime = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date())
+            updateMemberAttributes(member, data)
+            // flag the data as private if necessary, but let the raw message pass to the secondary hub to be filtered
+            data.private = ((settings?.privateMembers.find {it==member.name}) ? true : false)
+
+            // log the elapsed distance and time
+            logDistanceTraveledAndElapsedTime(member, data)
+            // send push event to driver
+            updateDevicePresence(member, data)
+            // return with the rest of the users positions and waypoints if pending
+            result = sendUpdate(member, data)
+
+            // if the country code was not defined, replace with with hub timezone country
+            if (!data.cc) { data.cc = location.getTimeZone().getID().substring(0, 2).toUpperCase() }
+            // if the course over ground was not defined, replace distance from home
+            if (!data.cog) { data.cog = data.currentDistanceFromHome }
+            // if we have the OwnTracks recorder configured, and the timestamp is valid, and the user is not parked as private, pass the location data to it
+            if (recorderURL && enableRecorder && (data.tst != 0) && !data.private) {
+                def postParams = [ uri: recorderURL + RECORDER_PUBLISH_FOLDER, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(headers), body : (new JsonBuilder(data)).toPrettyString() ]
+                asynchttpPost("httpCallbackMethod", postParams)
+                // update the recorder friends tile
+                createRecorderFriendsLocationTile()
+            }
+            // only update if we have auto-refresh enabled
+            if (googleMapRefreshInterval?.toInteger()) {
+                // update the google friends tile
+                createGoogleFriendsLocationTile()
+            }
+            break
+        case "waypoint":
+            // append/update to the places list
+            addPlace(member, data, true)
+        break
+        case "waypoints":
+            // update the places list
+            updatePlaces(member, data)
+        break
+        case "cmd":
+            // parse the action
+            switch (data.action) {
+                case "setWaypoints":
+                    // update the waypoint list from the payload
+                    updatePlaces(member, data.waypoints)
+                break
+                case "waypoints":
+                    // send waypoints
+                    result = new JsonBuilder(sendWaypoints(member)).toPrettyString()
+                break
+                case "restart":
+                case "reportLocation":
+                case "setConfiguration":
+                default:
+                    // do nothing
+                break
+            }
+        break
+        default:
+            logWarn("Unhandled message type: ${data._type}")
+        break
+    }
+
+    return (result)
+}    
 
 def parsePostHeaders(postHeaders) {
     def newHeaders = [:]
@@ -1564,6 +1610,19 @@ def parsePostHeaders(postHeaders) {
 def httpCallbackMethod(response, data) {
     if (response.status == 200) {
         logDebug "Posted successfully to OwnTracks URL."
+        responseData = response?.getJson()
+        if (responseData) {
+            // parse the response
+            try {
+                // for map of maps
+                for (i=0; i<responseData.size(); i++) {
+                    parseMessage(responseHeaders, responseData[i], [ name:COMMON_CHILDNAME ])
+                }
+            } catch(e) {
+                // single map
+                parseMessage(responseHeaders, responseData, [ name:COMMON_CHILDNAME ])
+            }
+        }
     } else {
         logWarn "OwnTracks HTTP response: ${response.status}, with error: ${response.getErrorMessage()}"
     }
@@ -2112,12 +2171,37 @@ private def createRecorderFriendsLocationTile() {
     }
 }
 
+def updateMapRefreshInterval() {
+    result = 0
+
+    if (googleMapRefreshInterval) {
+        // auto tracking interval
+        if (googleMapRefreshInterval == DEFAULT_googleMapAutoRefreshEnum) {
+            // default to the locator interval
+            result = locatorInterval
+            // check if a member is using the faster update interval
+            settings?.enabledMembers.each { enabledMember->
+                member = state.members.find {it.name==enabledMember}
+                // use a faster interval
+                if (member.dynamicLocaterAccuracy) {
+                    result = DEFAULT_googleMapFastestRefreshInterval
+                }
+            }
+        } else {
+            result = googleMapRefreshInterval
+        }
+    } 
+
+    return (result)
+}
+
 def createGoogleFriendsLocationTile() {
     // add a deadband to prevent repetitive refreshes
     // get the times in milliseconds
     currentTime = now()
     elapsedTime = currentTime - state.lastGoogleFriendsLocationTime
-    timeRemaining = (googleMapRefreshInterval?.toInteger() * 1000) - elapsedTime
+    
+    timeRemaining = (updateMapRefreshInterval().toInteger() * 1000) - elapsedTime
     // convert times to seconds
     elapsedSeconds = (elapsedTime / 1000).toInteger()
     secondsRemaining = (timeRemaining / 1000).toInteger()
@@ -2543,7 +2627,7 @@ def generateConfigMap() {
                     const markers = [];
                     lastIndex = "";
                     lastPosition = "";
-                    homeRegionName = "${getHomeRegion()?.desc}";
+                    homeRegion = "${getHomeRegion()?.tst}";
                     updateRegionSelector()
                     addRegionListener()
                     updateAddressInput()
@@ -2597,7 +2681,7 @@ def generateConfigMap() {
                             }
                         );
                         // change the pin glyph if it is home or just a region
-                        changePinGlyph(index, pin, (markerElement.desc == homeRegionName));
+                        changePinGlyph(index, pin, (markerElement.tst == homeRegion));
 
                         const marker = new google.maps.marker.AdvancedMarkerElement(
                             {
@@ -2717,31 +2801,31 @@ def generateConfigMap() {
                         }
                     };
 
-                    function displayButtons(locationExists) {
+                    function displayButtons(index) {
                         const nameBox = document.getElementById("id-name");
                         const setHomeButton = document.getElementById("id-sethome");
                         const homeButton = document.getElementById("id-home");
                         const deleteButton = document.getElementById("id-delete");
                         const saveButton = document.getElementById("id-save");
 
-                        if (nameBox.value.trim() === "") {
+                        if (nameBox.value.trim() == "") {
                             setHomeButton.style.display = "none";
                             homeButton.style.display = "none";
                             deleteButton.style.display = "none";
                             saveButton.style.display = "none";
                         } else {
-                            if (nameBox.value.trim() === homeRegionName) {
+                            if (markers[index].marker.zIndex == homeRegion) {
                                 setHomeButton.style.display = "none";
                                 homeButton.style.display = "block";
                             } else {
-                                if (locationExists) {
+                                if (index < places.length) {
                                     setHomeButton.style.display = "block";
                                 } else {
                                     setHomeButton.style.display = "none";
                                 }
                                 homeButton.style.display = "none";
                             }
-                            if (locationExists) {
+                            if (index < places.length) {
                                 deleteButton.style.display = "block";
                             }
                             saveButton.style.display = "block";
@@ -2824,7 +2908,7 @@ def generateConfigMap() {
                             markers[markerIndex.value].radius.setRadius(convertRadiusToMeters(parseInt(radBox.value)));
         
                             // show/hide the buttons when the window opens
-                            displayButtons(markerIndex.value < places.length);
+                            displayButtons(markerIndex.value);
 
                             saveButton.addEventListener("click", function () {
                                 console.log("Saving Region: " + nameBox.value);
@@ -2845,8 +2929,8 @@ def generateConfigMap() {
 
                                 // set the color since the pin is saved
                                 changeRadiusColor(markers[markerIndex.value].radius, markerIndex.value);
-                                changePinGlyph(markerIndex.value, markers[markerIndex.value].pin, (markers[markerIndex.value].marker.title == homeRegionName));
-                                displayButtons(markerIndex.value < places.length);
+                                changePinGlyph(markerIndex.value, markers[markerIndex.value].pin, (markers[markerIndex.value].marker.zIndex == homeRegion));
+                                displayButtons(markerIndex.value);
                                 sendDataToHub(markerDataMap(markers[markerIndex.value]), "save");
                                 alert("'" + markers[markerIndex.value].marker.title + "' saved.");
                                 updateRegionSelector()
@@ -2854,14 +2938,14 @@ def generateConfigMap() {
                             setHomeButton.addEventListener("click", function () {
                                 console.log("Setting Home Region: " + markers[markerIndex.value].marker.title);
                                 for (let idx = 0; idx < places.length; idx++) {
-                                    if (markers[idx].marker.title == homeRegionName) {
+                                    if (markers[idx].marker.zIndex == homeRegion) {
                                         // switch the home pin
                                         changePinGlyph(idx, markers[idx].pin, false);
                                     }
                                 };
-                                homeRegionName = markers[markerIndex.value].marker.title;
+                                homeRegion = markers[markerIndex.value].marker.zIndex;
                                 changePinGlyph(markerIndex.value, markers[markerIndex.value].pin, true);
-                                displayButtons(markerIndex.value < places.length);
+                                displayButtons(markerIndex.value);
                                 sendDataToHub(markerDataMap(markers[markerIndex.value]), "home");
                             });
                             deleteButton.addEventListener("click", function () {
@@ -2870,7 +2954,7 @@ def generateConfigMap() {
                                 markers[markerIndex.value].radius.setMap(null);
                                 infoWindow.close();
                                 sendDataToHub(markerDataMap(markers[markerIndex.value]), "delete");
-                                if (markers[markerIndex.value].marker.title == homeRegionName) {
+                                if (markers[markerIndex.value].marker.zIndex == homeRegion) {
                                     alert("'Home' region deleted.\\n\\nCreate or select a location and click 'Set Home' to assign a new 'Home' location.");
                                 } else {
                                     alert("'" + markers[markerIndex.value].marker.title + "' deleted.");
@@ -2883,7 +2967,7 @@ def generateConfigMap() {
                             });
                             nameBox.addEventListener("input", function () {
                                 // show/hide the buttons based on the user text
-                                displayButtons(markerIndex.value < places.length);
+                                displayButtons(markerIndex.value);
                             });
                             radBox.addEventListener("input", function () {
                                 markers[markerIndex.value].radius.setRadius(convertRadiusToMeters(radBox.value));
@@ -3168,7 +3252,7 @@ def generateGoogleFriendsMap() {
                     const places = ["""
                         getNonFollowRegions(false).each { region->
                             place = state.places.find {it.desc==region}
-                            htmlData += """{lat:${place.lat},lng:${place.lon},rad:${place.rad},title:"${place.desc}"},"""
+                            htmlData += """{lat:${place.lat},lng:${place.lon},rad:${place.rad},desc:"${place.desc}",tst:${place.tst}},"""
                         }
                         htmlData += """
                     ];
@@ -3280,7 +3364,7 @@ def generateGoogleFriendsMap() {
                                     lat:location.lat,
                                     lng:location.lng,
                                 },
-                                title:location.title,
+                                title:location.desc,
                                 content:i.element
                             }
                         )
@@ -3301,7 +3385,7 @@ def generateGoogleFriendsMap() {
                             }
                         )
                         // change the home pin glyph
-                        if (location.title == "${getHomeRegion().desc}") {
+                        if (location.tst == "${getHomeRegion().tst}") {
                             i.glyphColor = "green"
                             i.scale = 2.0;
                         }

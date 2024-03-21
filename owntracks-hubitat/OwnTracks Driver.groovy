@@ -113,12 +113,13 @@
  *  1.7.16     2024-03-05      - Added dynamic support for cloud recorder URL.  Added searchable past locations tile.
  *  1.7.17     2024-03-05      - Added ability to change past locations from points to lines.
  *  1.7.18     2024-03-14      - Text cleanup.
+ *  1.7.19     2024-03-21      - Fix error on the first time a member is added and the tiles were being generated.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.18" }
+def driverVersion() { return "1.7.19" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -484,9 +485,12 @@ Boolean generatePresenceEvent(member, homeName, data) {
 }
 
 def generateTiles() {
-    generateMemberTile()
-    generatePastLocationsTile()
-    generatePresenceTile()
+    // we need one location to arrive and set the name before we can make the tiles
+    if (state.memberName) {
+        generateMemberTile()
+        generatePastLocationsTile()
+        generatePresenceTile()
+    }
 }
 
 def generateMemberTile() {

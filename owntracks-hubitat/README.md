@@ -113,9 +113,13 @@ NOTE:  If a Google Map API key is entered in the 'Additional Hubitat App Setting
 	- Those regions will be added to the Hubitat region list to be shared with other members.
 	
 - Send Region List to Secondary Hub
-	- If a secondary hub is configured and enabled, and there is at least one member in the primary hub, this button is displayed.
-	- Pressing the button will send all regions from the primary hub to the secondary hub.
-	
+	- If a secondary hub is configured and enabled, this button is displayed.
+	- Pressing the button will copy all regions from the primary hub to the secondary hub.
+
+- Retrieve Region List from Secondary Hub
+	- If a secondary hub is configured and enabled, this button is displayed.
+	- Pressing the button will copy all regions from the secondary hub to the primary hub.
+
 NOTE: A region named '+follow' is automatically created to allow iOS phones to have transition reporting.  	
 
 ## Select Family Member(s) to Monitor
