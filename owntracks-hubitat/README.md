@@ -213,10 +213,6 @@ Creates a Google map with all members' thumbnails shown as well as region radius
 	- Distance from home, location accuracy and speed will be displayed if enabled.
 	- The last location time will be displayed in red if it is stale.
 NOTE:  Requires member thumbnails to be enabled, and will only display users using a local dashboard.
-- Enable to refresh map as soon as a member's location change, disable for manual refresh. 
-	- Each refresh contributes to the map API usage quota.
-	- A 'Momentary' attribute for the 'OwnTracks' device can be added to a dashboard for a manual refresh.
-	- If an auto-refresh interval is selected, 60-seconds or larger is recommended.
 - Prevent generating maps once free quota has been exhausted.  Current usage: x/y per month.	
 	- Google maps as a free quota level.  This slider should be selected unless you are on a paid plan.
 	- The usage total indicates the current usage in the quota period.  Google resets the total at the first of every month.

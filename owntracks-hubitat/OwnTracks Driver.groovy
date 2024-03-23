@@ -114,12 +114,13 @@
  *  1.7.17     2024-03-05      - Added ability to change past locations from points to lines.
  *  1.7.18     2024-03-14      - Text cleanup.
  *  1.7.19     2024-03-21      - Fix error on the first time a member is added and the tiles were being generated.
+ *  1.7.20     2024-03-23      - Changed tile generation timing.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.19" }
+def driverVersion() { return "1.7.20" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -263,7 +264,7 @@ def arrived() {
     sendEvent( name: "transitionDirection", value: "enter" )
     logDescriptionText("$descriptionText")
     parent.generateTransitionNotification(device.displayName, TRANSITION_PHRASES[device.currentValue('transitionDirection',true)], device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
-    runIn(1, generateTiles)
+    generateTiles()
 }
 
 def departed() {
@@ -274,7 +275,7 @@ def departed() {
     sendEvent( name: "transitionDirection", value: "leave" )
     logDescriptionText("$descriptionText")
     parent.generateTransitionNotification(device.displayName, TRANSITION_PHRASES[device.currentValue('transitionDirection',true)], device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
-    runIn(1, generateTiles)
+    generateTiles()
 }
 
 def createMemberTile() {
@@ -461,8 +462,7 @@ Boolean generatePresenceEvent(member, homeName, data) {
                 sendEvent( name: "lastSpeed", value:  0 )
             }
 
-            // create the HTML tiles -- schedule for 1-second so that the attributes are saved
-            runIn(1, generateTiles)
+            generateMemberTile()
         }
 
         // allowed all the time
@@ -476,6 +476,7 @@ Boolean generatePresenceEvent(member, homeName, data) {
             } else {
                 sendEvent( name: "transitionDirection", value: "leave" )
             }
+            generatePresenceTile()
         }
         sendEvent( name: "presence", value: memberPresence, descriptionText: descriptionText)
         sendEvent( name: "location", value: currentLocation )

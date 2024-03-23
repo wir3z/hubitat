@@ -85,6 +85,7 @@
  *  1.7.32     2024-03-18      - Moved region and address selectors directly to the config map.
  *  1.7.33     2024-03-19      - Added a service member to allow for secondary hub region transfers.
  *  1.7.34     2024-03-21      - Fixed dashboard tiles not automatically updating.
+ *  1.7.35     2024-03-23      - Refactored Google Friends map to dynamically update.
  */
 
 import groovy.transform.Field
@@ -93,7 +94,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.34"}
+def appVersion() { return "1.7.35"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -115,16 +116,12 @@ def appVersion() { return "1.7.34"}
 @Field static final Map GEOCODE_QUOTA = [ 1: 40000, 2: 3000, 3: 2500 ]
 @Field static final Map GEOCODE_QUOTA_INTERVAL_DAILY = [ 1: false, 2: true, 3: true ]
 @Field static final Map GEOCODE_API_KEY_LINK = [ 1: "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>", 2: "<a href='https://apidocs.geoapify.com/docs/geocoding/reverse-geocoding/#about' target='_blank'>Sign up for a Geoapify API Key</a>", 3: "<a href='https://opencagedata.com/api#quickstart' target='_blank'>Sign up for a Opencage API Key</a>" ]
-@Field static final Map GOOGLE_MAP_REFRESH_INTERVALS = [ 0: 'Disabled', 1: 'Auto - Refresh on Location Update', 5: '5-seconds', 15: '15-seconds', 30: '30-seconds', 60: '60-seconds', 300: '5-minutes', 900: '15-minutes', 1800: '30-minutes', 3600: '60-minutes' ]
 @Field static final Map URL_SOURCE = [ "cloud": 0, "local": 1 ]
 
 // Main defaults
 @Field String  DEFAULT_APP_THEME_COLOR = "#2a0085"
 @Field Number  GOOGLE_MAP_API_QUOTA = 28500
 @Field String  GOOGLE_MAP_API_KEY_LINK = "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>"
-@Field Number  DEFAULT_googleMapRefreshInterval = 0
-@Field Number  DEFAULT_googleMapFastestRefreshInterval = 5
-@Field String  DEFAULT_googleMapAutoRefreshEnum = "1"
 @Field String  RECORDER_PUBLISH_FOLDER = "/pub"
 @Field String  MQTT_TOPIC_PREFIX = "owntracks"
 @Field Number  INVALID_COORDINATE = 999
@@ -335,7 +332,6 @@ def configureHubApp() {
         section(hideable: true, hidden: true, "Google Map Settings - Creates a combined family map and adds radius bubbles on the 'Region' 'Add/Edit/Delete' page maps") {
             paragraph ("If user thumbnails have not been added to Hubitat, follow the instructions for 'Enabling User Thumbnail Instructions' first:")
             href(title: "Enabling User Thumbnails", description: "", style: "page", page: "thumbnailCreation")
-            input name: "googleMapRefreshInterval", type: "enum", title: "Enable to refresh map as soon as a member's location change, disable for manual refresh. <b>Note: each refresh contributes to the map API usage quota.</b>, Recommended='60-seconds'", defaultValue: "${DEFAULT_googleMapRefreshInterval}", options: GOOGLE_MAP_REFRESH_INTERVALS
             input name: "mapFreeOnly", type: "bool", title: "Prevent generating maps once free quota has been exhausted.  Current usage: <b>${state.mapApiUsage}/${GOOGLE_MAP_API_QUOTA} per month</b>.", defaultValue: DEFAULT_mapFreeOnly
             paragraph (GOOGLE_MAP_API_KEY_LINK + " -- <i><b>'Maps JavaScript API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Maps JavaScript API</b>.</i>")
             input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:"
@@ -1128,7 +1124,6 @@ def initializeHub(forceDefaults) {
         app.removeSetting("regionHighAccuracyRadius")
         app.removeSetting("wifiPresenceKeepRadius")
         app.removeSetting("geocodeProvider")
-        app.removeSetting("googleMapRefreshInterval")
     }
     if (forceDefaults || (regionHighAccuracyRadius == null)) app.updateSetting("regionHighAccuracyRadius", [value: DEFAULT_regionHighAccuracyRadius, type: "number"])
     if (forceDefaults || (wifiPresenceKeepRadius == null)) app.updateSetting("wifiPresenceKeepRadius", [value: DEFAULT_wifiPresenceKeepRadius, type: "number"])
@@ -1143,7 +1138,6 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (useCustomNotificationMessage == null)) app.updateSetting("useCustomNotificationMessage", [value: DEFAULT_useCustomNotificationMessage, type: "bool"])
     if (forceDefaults || (notificationMessage == null)) app.updateSetting("notificationMessage", [value: DEFAULT_notificationMessage, type: "string"])
     if (forceDefaults || (mapFreeOnly == null)) app.updateSetting("mapFreeOnly", [value: DEFAULT_mapFreeOnly, type: "bool"])
-    if (forceDefaults || (googleMapRefreshInterval == null)) app.updateSetting("googleMapRefreshInterval", [value: DEFAULT_googleMapRefreshInterval, type: "number"])
     if (forceDefaults || (manualDeleteBehavior == null)) app.updateSetting("manualDeleteBehavior", [value: DEFAULT_manualDeleteBehavior, type: "bool"])
 }
 
@@ -1285,6 +1279,9 @@ def updated() {
         timeZoneOffset = 24 + timeZoneOffset
     }
     schedule("0 0 $timeZoneOffset * * ? *", dailyScheduler)
+    // refresh the maps nightly
+    schedule("0 0 0 * * ? *", refreshMaps)
+    refreshMaps()
 }
 
 def refresh() {
@@ -1466,6 +1463,17 @@ def splitTopic(topic) {
    return(topic.split("/"))
 }
 
+def refreshMaps() {
+    // runs at midnight to refresh the map contents
+    createRecorderFriendsLocationTile()
+    createGoogleFriendsLocationTile()
+    // loop through all the members
+    state.members.each { member->
+        deviceWrapper = getChildDevice(member.id)    
+        deviceWrapper.generatePastLocationsTile()		
+    }
+}
+
 def webhookEventHandler() {
     // Get the user/device from the message header
     String sourceName     = request.headers.'X-limit-u'
@@ -1519,14 +1527,15 @@ def webhookEventHandler() {
             }
         }
     }
-
+    
     // app requires a non-empty JSON response, or it will display HTTP 500
-    return render(contentType: "text/html", data: result, status: 200)
+    payload = new JsonBuilder(result).toPrettyString()
+    return render(contentType: "text/html", data: payload, status: 200)
 }
 
 def parseMessage(headers, data, member) {
     // default to an empty payload
-    result = []
+    payload = []
     
     switch (data._type) {
         case "location":
@@ -1542,8 +1551,7 @@ def parseMessage(headers, data, member) {
             // send push event to driver
             updateDevicePresence(member, data)
             // return with the rest of the users positions and waypoints if pending
-            result = sendUpdate(member, data)
-
+            payload = sendUpdate(member, data)
             // if the country code was not defined, replace with with hub timezone country
             if (!data.cc) { data.cc = location.getTimeZone().getID().substring(0, 2).toUpperCase() }
             // if the course over ground was not defined, replace distance from home
@@ -1552,13 +1560,6 @@ def parseMessage(headers, data, member) {
             if (recorderURL && enableRecorder && (data.tst != 0) && !data.private) {
                 def postParams = [ uri: recorderURL + RECORDER_PUBLISH_FOLDER, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(headers), body : (new JsonBuilder(data)).toPrettyString() ]
                 asynchttpPost("httpCallbackMethod", postParams)
-                // update the recorder friends tile
-                createRecorderFriendsLocationTile()
-            }
-            // only update if we have auto-refresh enabled
-            if (googleMapRefreshInterval?.toInteger()) {
-                // update the google friends tile
-                createGoogleFriendsLocationTile()
             }
             break
         case "waypoint":
@@ -1578,7 +1579,7 @@ def parseMessage(headers, data, member) {
                 break
                 case "waypoints":
                     // send waypoints
-                    result = new JsonBuilder(sendWaypoints(member)).toPrettyString()
+                    payload = sendWaypoints(member)
                 break
                 case "restart":
                 case "reportLocation":
@@ -1593,7 +1594,7 @@ def parseMessage(headers, data, member) {
         break
     }
 
-    return (result)
+    return (payload)
 }    
 
 def parsePostHeaders(postHeaders) {
@@ -2148,7 +2149,7 @@ private def sendUpdate(currentMember, data) {
     }
 
     logDebug("Updating user: ${currentMember.name} with data: ${update}")
-    return (new JsonBuilder(update).toPrettyString())
+    return (update)
 }
 
 private def sendCmdToMember(currentMember) {
@@ -2172,60 +2173,10 @@ private def createRecorderFriendsLocationTile() {
     }
 }
 
-def updateMapRefreshInterval() {
-    result = 0
-
-    if (googleMapRefreshInterval) {
-        // auto tracking interval
-        if (googleMapRefreshInterval == DEFAULT_googleMapAutoRefreshEnum) {
-            // default to the locator interval
-            result = locatorInterval
-            // check if a member is using the faster update interval
-            settings?.enabledMembers.each { enabledMember->
-                member = state.members.find {it.name==enabledMember}
-                // use a faster interval
-                if (member.dynamicLocaterAccuracy) {
-                    result = DEFAULT_googleMapFastestRefreshInterval
-                }
-            }
-        } else {
-            result = googleMapRefreshInterval
-        }
-    } 
-
-    return (result)
-}
-
 def createGoogleFriendsLocationTile() {
-    // add a deadband to prevent repetitive refreshes
-    // get the times in milliseconds
-    currentTime = now()
-    elapsedTime = currentTime - state.lastGoogleFriendsLocationTime
-    
-    timeRemaining = (updateMapRefreshInterval().toInteger() * 1000) - elapsedTime
-    // convert times to seconds
-    elapsedSeconds = (elapsedTime / 1000).toInteger()
-    secondsRemaining = (timeRemaining / 1000).toInteger()
-
-    // check if we are still inside the deadband window
-    if (secondsRemaining > 0) {
-        if (currentTime > state.nextRefreshTime) {
-            // schedule the next refresh, and store the next refresh time
-            runIn(secondsRemaining, createGoogleFriendsLocationTile)
-            state.nextRefreshTime = currentTime + timeRemaining
-            logDebug("Delaying Google map generation, last refresh was ${elapsedSeconds} seconds ago.  Running in ${secondsRemaining} seconds.")
-        } else {
-            logDebug("Skipping Google map generation, last refresh was ${elapsedSeconds} seconds ago.")
-        }
-    } else {
-        // consume the scheduled refresh since we are firing now
-        unschedule(createGoogleFriendsLocationTile)
-        def deviceWrapper = getChildDevice(getCommonChildDNI())
-        if (deviceWrapper) {
-            deviceWrapper.generateGoogleFriendsLocationTile()
-        }
-        // save the last refresh time in milliseconds
-        state.lastGoogleFriendsLocationTime = currentTime
+    def deviceWrapper = getChildDevice(getCommonChildDNI())
+    if (deviceWrapper) {
+        deviceWrapper.generateGoogleFriendsLocationTile()
     }
 }
 
@@ -2570,7 +2521,7 @@ def generateRegionMap() {
         </div>"""
     }
 
-    return render(contentType: "text/html", data: htmlData)
+    return render(contentType: "text/html", data: (insertOwnTracksFavicon() + htmlData))
 }
 
 def generateConfigMap() {
@@ -3076,7 +3027,7 @@ def generateConfigMap() {
         </div>"""
     }
 
-    return render(contentType: "text/html", data: htmlData)
+    return render(contentType: "text/html", data: (insertOwnTracksFavicon() + htmlData))
 }
 
 def displayMemberMap() {
@@ -3093,7 +3044,7 @@ def displayMemberMap() {
         }
     }
 
-    return render(contentType: "text/html", data: htmlData)
+    return render(contentType: "text/html", data: (insertOwnTracksFavicon() + htmlData))
 }
 
 def displayMemberPresence() {
@@ -3110,7 +3061,7 @@ def displayMemberPresence() {
         }
     }
 
-    return render(contentType: "text/html", data: htmlData)
+    return render(contentType: "text/html", data: (insertOwnTracksFavicon() + htmlData))
 }
 
 def displayMemberPastLocations() {
@@ -3127,19 +3078,7 @@ def displayMemberPastLocations() {
         }
     }
 
-    return render(contentType: "text/html", data: htmlData)
-}
-
-def displayRecorderFriendsMap() {
-    String htmlData = "OwnTracks Recorder Not Configured"
-
-    displayData = generateRecorderFriendsLocation()
-    // only display if we could retrieve the data
-    if (displayData) {
-        htmlData = displayData
-    }
-
-    return render(contentType: "text/html", data: htmlData)
+    return render(contentType: "text/html", data: (insertOwnTracksFavicon() + htmlData))
 }
 
 def processAPIData() {
@@ -3179,6 +3118,41 @@ def processAPIData() {
             case "reversegeocode":
                 response = ["address" : reverseGeocode(data.payload.lat,data.payload.lon), "index" : data.payload.index, "action" : data.action]
             break;
+            case "members":
+                // return with the consolidated list of member information
+                def memberLocations = []
+                publicMembers = getEnabledAndNotHiddenMemberData()
+                publicMembers.eachWithIndex { member, index ->
+                    def deviceWrapper = getChildDevice(member.id)
+                    def memberLocation = [
+                        "name" :        "${member.name}",
+                        "id" :          member.id,
+                        "lat" :         member.latitude,
+                        "lng" :         member.longitude,
+                        "speed" :       member?.speed,
+                        "bat" :         member?.battery,
+                        "acc" :         member?.accuracy,
+                        "wifi" :        member?.wifi,
+                        "ps" :          member?.ps,
+                        "app" :         member?.hib || member?.bo || member?.loc,
+                        "stale" :       member.staleReport,
+                        "bs" :          "${member?.bs}",
+                        "last" :        "${member?.lastReportDate}",
+                        "since" :       "${deviceWrapper?.currentValue("since")}",
+                        "data" :        "${member?.conn}",
+                        "location" :    "${deviceWrapper?.currentValue("location")}",
+                        "dfh" :         deviceWrapper?.currentValue("distanceFromHome"),
+                        "zIndex" :      index+1,
+                    ]
+                    // split out the img since that is a large data payload that we only need once during the page init
+                    if (data.payload == "img") {
+                        memberLocation["img"] = "${getEmbeddedImage(member.name)}"
+                    }
+                    memberLocations << memberLocation
+                }
+
+                response = memberLocations
+            break;
             default:
                 logWarn("Unhandled API action: ${data.action}")
             break;
@@ -3197,17 +3171,9 @@ def retrieveGoogleFriendsMapMember() {
     return(state.googleMapsMember)
 }
 
-def displayGoogleFriendsMap() {
-    String htmlData = "Google Maps API Not Configured or Quota Exceeded"
-
-    displayData = generateGoogleFriendsLocation()
-    // only display if we could retrieve the data
-    if (displayData) {
-        htmlData = displayData
-    }
-
-    return render(contentType: "text/html", data: htmlData)
-}
+def insertOwnTracksFavicon() {
+    return('<link rel="icon" type="image/png" sizes="64x64" href="data:image/png;base64,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"/>')
+}    
 
 def generateGoogleFriendsMap() {
     String htmlData = "Google Maps API Not Configured or Quota Exceeded"
@@ -3218,37 +3184,31 @@ def generateGoogleFriendsMap() {
         // determine the map center based on the members
         mapCenterAndZoom = calculateCenterAndZoom(publicMembers)
 
-        lastMember = retrieveGoogleFriendsMapMember();
-        if (!lastMember) {
-            lastMember = "null";
-        }
-        lastZoom = retrieveGoogleFriendsMapZoom();
-        if (!lastZoom) {
-            lastZoom = mapCenterAndZoom.zoom;
-        }
-
         htmlData = """
         <div style="width:100%;height:100%;margin:5px">
-            <div id="map" style="width:100%;height:100%;"></div>
+            <div id="map" style="width:100%;height:calc(100% - 25px)"></div>
+            <div id="footer" style="width:100%;color:white;background:#555555;text-align:center">
+                <div id="id-lastTime" style="font-size:0.8em;color:white;font-family:arial;padding:5px"></div>
+            </div>
             <script>
+                locations = [];
+                currentMember = "${retrieveGoogleFriendsMapMember()}";
+                if (!currentMember) {
+                    currentMember = "null";
+                }
+                currentZoom = ${retrieveGoogleFriendsMapZoom()};
+                if (!currentZoom) {
+                    currentZoom = ${mapCenterAndZoom.zoom};
+                }
+
                 function initMap() {
-                    const locations = ["""
-                        // default to the last person that reported a position
-                        memberIndex = (publicMembers.size())-1;
-                        publicMembers.eachWithIndex { member, index ->
-                            def deviceWrapper = getChildDevice(member.id)
-                            htmlData += """{
-                                lat:${member.latitude},lng:${member.longitude},img:"${getEmbeddedImage(member.name)}",name:"${member.name}",zIndex:${index+1},
-                                location:"${deviceWrapper?.currentValue("location")}",speed:${member?.speed},bat:${member?.battery},acc:${member?.accuracy},dfh:${deviceWrapper?.currentValue("distanceFromHome")},last:"${member?.lastReportDate}",
-                                since:"${deviceWrapper?.currentValue("since")}",data:"${member?.conn}",wifi:${member?.wifi},bs:"${member?.bs}",ps:${member?.ps},app:${member?.hib || member?.bo || member?.loc},stale:${member.staleReport}
-                            },"""
-                            // save the index of the member we are tracking
-                            if (member.name == lastMember) {
-                                memberIndex = index;
-                            }
-                        }
-                        htmlData += """
-                    ];
+                    const infoWindow = new google.maps.InfoWindow();
+                    const markers = [];
+                    infoWindowVisible = false;
+
+                    // get the member data with thumbnail images
+                    retrieveMemberLocations("img");
+
                     const places = ["""
                         getNonFollowRegions(false).each { region->
                             place = state.places.find {it.desc==region}
@@ -3259,94 +3219,46 @@ def generateGoogleFriendsMap() {
 
                     const map = new google.maps.Map(
                         document.getElementById("map"), {
-                            zoom: ${lastZoom},
+                            zoom: ${mapCenterAndZoom.zoom},
                             center: {
-                                lat: locations[${memberIndex}].lat, lng: locations[${memberIndex}].lng
+                                lat: ${mapCenterAndZoom.lat}, lng: ${mapCenterAndZoom.lon}
                             },
                             mapId:"owntracks",
                             gestureHandling: "auto",
                         }
                     );
 
-                    // Create an info window to share between markers
-                    const infoWindow = new google.maps.InfoWindow();
-                    // place the members on the map
-                    locations.forEach(location => {
-                        const namePin = document.createElement("div");
-                        namePin.textContent = location.name;
-
-                        const imagePin = document.createElement("object");
-                        imagePin.data = location.img;
-                        imagePin.type = "image/jpeg";
-                        imagePin.width = "45";
-                        imagePin.appendChild(namePin);
-
-                        const pin = new google.maps.marker.PinElement({
-                            scale: 2.8,
-                            background: "${DEFAULT_APP_THEME_COLOR}",
-                            borderColor: "${DEFAULT_APP_THEME_COLOR}",
-                            glyphColor: "white"
-                        });
-                        pin.glyph = imagePin;
-
-                        const marker = new google.maps.marker.AdvancedMarkerElement({
-                            map,
-                            position: {
-                                lat: location.lat,
-                                lng: location.lng
-                            },
-                            title: location.name,
-                            zIndex: location.zIndex,
-                            content: pin.element
-                        });
-
-                        // Add a click listener for each marker, and set up the info window
-                        marker.addListener("click", () => {
-                            infoWindow.close();
-                            infoWindow.setContent(infoContent(location));
-                            infoWindow.open(marker.map, marker);
-                            map.setCenter(marker.position);
-                            // on first click, zoom to 14, and then keep zooming in by 3 on each future click
-                            var currentZoom = map.getZoom()
-                            if (currentZoom < 14) {
-                                currentZoom = 14;
-                            } else {
-                                currentZoom += 3;
-                                if (currentZoom > 21) {
-                                    currentZoom = 21;
-                                }
+                    map.addListener("click", () => {
+                        infoWindow.close();
+                        infoWindowVisible = false;
+                        // when the map is clicked, zoom back out to 14, and then next click to full zoom
+                        var currentZoom = map.getZoom()
+                        if (currentZoom > 14) {
+                            currentZoom = 14;
+                        } else {
+                            currentZoom -= 1;
+                            if (currentZoom < ${mapCenterAndZoom.zoom}) {
+                                currentZoom = ${mapCenterAndZoom.zoom};
                             }
-                            map.setZoom(currentZoom);
-                            postData = {};
-                            postData["zoom"] = currentZoom;
-                            postData["member"] = marker.title;
-                            sendDataToHub(postData);
-                        });
-                        map.addListener("click", () => {
-                            infoWindow.close();
-                            // when the map is clicked, zoom back out to 14, and then next click to full zoom
-                            var currentZoom = map.getZoom()
-                            if (currentZoom > 14) {
-                                currentZoom = 14;
-                            } else {
-                                currentZoom -= 1;
-                                if (currentZoom < ${mapCenterAndZoom.zoom}) {
-                                    currentZoom = ${mapCenterAndZoom.zoom};
-                                }
-                            }
-                            map.setZoom(currentZoom);
-                            postData = {};
-                            postData["zoom"] = currentZoom;
-                            postData["member"] = "null";
-                            sendDataToHub(postData);
-                        });
-                        map.addListener("zoom_changed", () => {
-                            // when the user clicks the +/- zoom buttons
-                            postData = {};
-                            postData["zoom"] = map.getZoom();
-                            sendDataToHub(postData);
-                        });
+                        }
+                        map.setZoom(currentZoom);
+                        currentMember = "null";
+                        postData = {};
+                        postData["zoom"] = currentZoom;
+                        postData["member"] = currentMember;
+                        sendDataToHub(postData);
                     });
+                    map.addListener("zoom_changed", () => {
+                        // when the user clicks the +/- zoom buttons
+                        currentZoom = map.getZoom();
+                        postData = {};
+                        postData["zoom"] = currentZoom;
+                        sendDataToHub(postData);
+                    });
+                    google.maps.event.addListener(infoWindow, 'closeclick', () => {
+                        infoWindowVisible = false;
+                    });
+
                     // place the region pins
                     places.forEach(location => {
                         const i=new google.maps.marker.PinElement(
@@ -3390,7 +3302,153 @@ def generateGoogleFriendsMap() {
                             i.scale = 2.0;
                         }
                     });
+
+                    function addMemberMarkers() {
+                        // place the members on the map
+                        locations.forEach(location => {
+                            const namePin = document.createElement("div");
+                            namePin.textContent = location.name;
+
+                            const imagePin = document.createElement("object");
+                            imagePin.data = location.img;
+                            imagePin.type = "image/jpeg";
+                            imagePin.width = "45";
+                            imagePin.appendChild(namePin);
+
+                            const pin = new google.maps.marker.PinElement({
+                                scale: 2.8,
+                                background: "${DEFAULT_APP_THEME_COLOR}",
+                                borderColor: "${DEFAULT_APP_THEME_COLOR}",
+                                glyphColor: "white"
+                            });
+                            pin.glyph = imagePin;
+    
+                            const marker = new google.maps.marker.AdvancedMarkerElement({
+                                map,
+                                position: {
+                                    lat: location.lat,
+                                    lng: location.lng
+                                },
+                                title: location.name,
+                                zIndex: location.zIndex,
+                                content: pin.element
+                            });
+
+                            // Add a click listener for each marker, and set up the info window
+                            marker.addListener("click", () => {
+                                infoWindow.close();
+                                infoWindow.setContent(infoContent(location));
+                                infoWindow.open(marker.map, marker);
+                                map.setCenter(marker.position);
+
+                                // on the first click, just display the info box
+                                if (infoWindowVisible) {
+                                    // on second click, zoom to 14, and then keep zooming in by 3 on each future click
+                                    var currentZoom = map.getZoom()
+                                    if (currentZoom < 14) {
+                                        currentZoom = 14;
+                                    } else {
+                                        currentZoom += 3;
+                                        if (currentZoom > 21) {
+                                            currentZoom = 21;
+                                        }
+                                    }
+                                    map.setZoom(currentZoom);
+                                }
+                                infoWindowVisible = true;
+
+                                currentMember = marker.title;
+                                postData = {};
+                                postData["zoom"] = currentZoom;
+                                postData["member"] = currentMember;
+                                sendDataToHub(postData);
+                            });
+                            // save the marker
+                            markers.push(marker);
+                            followLocation(location);
+                        });
+                    };
+
+                    function followLocation(location) {
+                        // change the center and zoom to match the member being tracked
+                        if (location.name == currentMember) {
+                            // center the map on the member
+                            center = {};
+                            center["lat"] = location.lat;
+                            center["lng"] = location.lng;
+                            map.setZoom(currentZoom);
+                            infoWindow.setContent(infoContent(location));
+                            // recenter the map if the marker is out of bounds
+                            const mapBounds = map.getBounds();
+                            if (!mapBounds.contains(center)) {
+                                map.setCenter(center);
+                            }
+                        }
+                    };
+
+                    function updateLocations(data) {
+                        // update the marker based on the incoming changes.  
+                        if (locations.length) {
+                            // Incoming order may be different due to zIndex changes, so we need to search for matches
+                            data.forEach(member => {
+                                for (let idx = 0; idx < locations.length; idx++) {
+                                    if (locations[idx].id == member.id) {
+                                        // update the location data
+                                        locations[idx] = member;
+                                        // update the marker data
+                                        center = {};
+                                        center["lat"] = member.lat;
+                                        center["lng"] = member.lng;
+                                        markers[idx].position = center;
+                                        markers[idx].zIndex = member.zIndex;
+                                        followLocation(locations[idx]);
+                                    }
+                                }
+                                // last person in the list is the one reported the latest location
+                                updateLastUpdate(member.last);
+                            });
+                        } else {
+                            // if there are no locations, copy the first instance and add the markers
+                            locations = data;
+                            addMemberMarkers();
+                            // last person in the list is the one reported the latest location
+                            updateLastUpdate(locations[locations.length - 1].last);
+                        }
+                    };
+
+                    function updateLastUpdate(last) {
+                        document.getElementById("id-lastTime").textContent = 'Last Update: ' + last;
+                    }
+
+                    function retrieveMemberLocations(payload) {
+                        const postData = {};
+                        postData["action"] = "members";
+                        postData["payload"] = payload;
+                        sendDataToHub(postData)	
+                    };
+
+                    function sendDataToHub(postData) {
+                        fetch("${getAttributeURL(URL_SOURCE["cloud"], "apidata")}", {
+                            method: "POST",
+                            body: JSON.stringify(postData),
+                            headers: {
+                                "Content-type": "application/json; charset=UTF-8"
+                            }
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            // process return data
+                            updateLocations(data);
+                        })
+                        .catch(error => { console.error('Error fetching data:', error); })
+                    };
+
+                    // Poll for member data every 5000ms
+                    setInterval(() => {
+                        retrieveMemberLocations("");
+                    }, 5000);
                 };
+
                 function infoContent(location) {
                     const contentString =
                     "<table style='width:100%;font-size:1.0em'>" +
@@ -3429,44 +3487,12 @@ def generateGoogleFriendsMap() {
 
                     return(contentString)
                 };
-
-                function sendDataToHub(postData) {
-                    fetch("${getAttributeURL(URL_SOURCE["cloud"], "apidata")}", {
-                        method: "POST",
-                        body: JSON.stringify(postData),
-                        headers: {
-                            "Content-type": "application/json; charset=UTF-8"
-                        }
-                    })
-                    .then(response => response.json())
-                    .then(data => {})
-                    .catch(error => { console.error('Error fetching data:', error); })
-                };
             </script>
             <script src="https://maps.googleapis.com/maps/api/js?key=${APIKey}&loading=async&libraries=marker,maps&callback=initMap"></script>
         </div>"""
     }
 
-    return render(contentType: "text/html", data: htmlData)
-}
-
-def generateGoogleFriendsLocation() {
-    String htmlData = ""
-    urlPath = getAttributeURL(URL_SOURCE["cloud"], "apigooglemap")
-
-    htmlData = """
-    <div style="width:100%;height:100%;font-family:arial;font-size:0.7em">
-        <table align="center" style="width:100%;height:calc(100% - 25px)">
-            <tr>
-                <td><iframe src=${urlPath} style='height:100%;width:100%;border:none;'></iframe></td>
-            </tr>
-        </table>
-        <table align="center" style="width:100%">
-            <caption>Last Update: ${state?.lastReportTime}</caption>
-        </table>
-    </div>"""
-
-    return (htmlData)
+    return render(contentType: "text/html", data: (insertOwnTracksFavicon() + htmlData))
 }
 
 def isHTTPsURL(url) {
@@ -3510,7 +3536,7 @@ def generateRecorderFriendsLocation() {
         </div>"""
     }
 
-    return (htmlData)
+    return render(contentType: "text/html", data: (insertOwnTracksFavicon() + htmlData))
 }
 
 def insertThumbnailObject(memberName, size, embed) {
@@ -3599,11 +3625,6 @@ mappings {
             GET:  "webhookGetHandler",        // used for tesing through a web browser
         ]
     }
-	path("/apigooglemap") {
-    	action: [
-            GET:  "generateGoogleFriendsMap",
-        ]
-    }
 	path("/apidata") {
     	action: [
             POST:  "processAPIData",
@@ -3611,12 +3632,12 @@ mappings {
     }
 	path("/googlemap") {
     	action: [
-            GET:  "displayGoogleFriendsMap",
+            GET:  "generateGoogleFriendsMap",
         ]
     }
 	path("/recordermap") {
     	action: [
-            GET:  "displayRecorderFriendsMap",
+            GET:  "generateRecorderFriendsLocation",
         ]
     }
 	path("/regionmap/:region") {

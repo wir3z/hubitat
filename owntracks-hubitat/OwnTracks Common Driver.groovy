@@ -25,12 +25,13 @@
  *  1.7.4      2024-03-03      - Updated map link.  Refactored tile layouts.
  *  1.7.5      2024-03-05      - Added dynamic support for cloud recorder URL.
  *  1.7.6      2024-03-15      - Added configuration map tile.
+ *  1.7.7      2024-03-23      - Changed the GoogleFriendsLocation tile generation.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.6" }
+def driverVersion() { return "1.7.7" }
 
 @Field Boolean DEFAULT_displayFriendsTile = false
 
@@ -91,9 +92,8 @@ def generateRecorderFriendsLocationTile() {
 }
 
 def generateGoogleFriendsLocationTile() {
-    String tiledata = parent.generateGoogleFriendsLocation()
-    if (displayGoogleFriendsLocation && tiledata) {
-        sendEvent(name: "GoogleFriendsLocation", value: parent.checkAttributeLimit(tiledata), displayed: true)
+    if (displayGoogleFriendsLocation) {
+        sendEvent(name: "GoogleFriendsLocation", value: parent.displayTile("cloud", "googlemap"), displayed: true)
     } else {
         device.deleteCurrentState('GoogleFriendsLocation')
     }
