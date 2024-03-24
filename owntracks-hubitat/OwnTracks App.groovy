@@ -87,6 +87,7 @@
  *  1.7.34     2024-03-21      - Fixed dashboard tiles not automatically updating.
  *  1.7.35     2024-03-23      - Refactored Google Friends map to dynamically update.
  *  1.7.36     2024-03-24      - Fixed Google Friends map info box.
+ *  1.7.37     2024-03-24      - Shuffled menu tabs and text to make the flow more intuitive.
  */
 
 import groovy.transform.Field
@@ -95,7 +96,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.36"}
+def appVersion() { return "1.7.37"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -251,9 +252,46 @@ def mainPage() {
                 input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: DEFAULT_imperialUnits, submitOnChange: true
                 input name: "deviceNamePrefix", type: "string", title: "Prefix to be added to each member's device name.  For example, member '<b>Bob</b>' with a prefix of '<b>${DEFAULT_CHILDPREFIX}</b>' will have a device name of '<b>${DEFAULT_CHILDPREFIX}Bob</b>'. Member device name will be updated once 'Done' is pressed, below. Enter a space to have no prefix in front of the member name.", defaultValue: DEFAULT_CHILDPREFIX, submitOnChange: true, required: true
                 href(title: "Configure Region Arrived/Left Notifications", description: "", style: "page", page: "configureNotifications")
-                href(title: "Additional Hubitat App Settings", description: "", style: "page", page: "configureHubApp")
+                href(title: "Additional Hubitat App Settings - Geocode and Map API keys, WiFi Settings, Advanced Hub Settings", description: "", style: "page", page: "configureHubApp")
             }
-            section(hideable: true, hidden: true, getFormat("box", "Optional Features")) {
+            section(hideable: true, hidden: true, getFormat("box", "Map Web Links")) {
+                URL_SOURCE.each{ source->
+                    paragraph ((source.value == URL_SOURCE["cloud"] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>"))
+                    if (googleMapsAPIKey) {
+                        paragraph ("<b>Google family map:</b></br>&emsp;<a href='${getAttributeURL(source.value, "googlemap")}'>${getAttributeURL(source.value, "googlemap")}</a></br>")
+                        paragraph ("<b>Region configuration map:</b></br>&emsp;<a href='${getAttributeURL(source.value, "configmap")}'>${getAttributeURL(source.value, "configmap")}</a></br>")
+                    }
+                    if (state.members) {
+                        urlList = ""
+                        state.members.each { member->
+                            urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source.value, "membermap/${member.name.toLowerCase()}")}'>${getAttributeURL(source.value, "membermap/${member.name.toLowerCase()}")}</a></br>"
+                        }
+                        paragraph ("<b>Member location map:</b></br>${urlList}")
+                    }
+                    if (state.members) {
+                        urlList = ""
+                        state.members.each { member->
+                            urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source.value, "memberpresence/${member.name.toLowerCase()}")}'>${getAttributeURL(source.value, "memberpresence/${member.name.toLowerCase()}")}</a></br>"
+                        }
+                        paragraph ("<b>Member Presence:</b></br>${urlList}")
+                    }
+                    if (recorderURL) {
+                        // only display the recorder links if it's a local URL or if it's https (required for the cloud link)
+                        if ((source.value == URL_SOURCE["local"]) || isHTTPsURL(getRecorderURL())) {
+                            paragraph ("<b>OwnTracks Recorder family map:</b></br>&emsp;<a href='${getAttributeURL(source.value, "recordermap")}'>${getAttributeURL(source.value, "recordermap")}</a>")
+    
+                            if (state.members) {
+                                urlList = ""
+                                state.members.each { member->
+                                    urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source.value, "memberpastlocations/${member.name.toLowerCase()}")}'>${getAttributeURL(source.value, "memberpastlocations/${member.name.toLowerCase()}")}</a></br>"
+                                }
+                                paragraph ("<b>OwnTracks Recorder member past locations:</b></br>${urlList}")
+                            }
+                        }
+                    }
+                }
+            }
+            section(hideable: true, hidden: true, getFormat("box", "Optional Features - Thumbnails, Recorder, Secondary Hub")) {
                 href(title: "Enabling User Thumbnails", description: "", style: "page", page: "thumbnailCreation")
                 href(title: "Enable OwnTracks Recorder", description: "", style: "page", page: "configureRecorder")
                 href(title: "Link Secondary Hub", description: "", style: "page", page: "configureSecondaryHub")
@@ -267,7 +305,7 @@ def mainPage() {
                  href(title: "Mobile App Location Settings", description: "", style: "page", page: "configureLocation")
                  href(title: "Mobile App Display Settings", description: "", style: "page", page: "configureDisplay")
             }
-            section(hideable: true, hidden: true, getFormat("box", "Maintenance")) {
+            section(hideable: true, hidden: true, getFormat("box", "Maintenance - Reset to Defaults, Update Members, Delete Members")) {
                 input "syncMobileSettings", "enum", multiple: true, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
                 href(title: "Recommended Default Settings", description: "", style: "page", page: "resetDefaults")
                 href(title: "Delete Family Members", description: "", style: "page", page: "deleteMembers")
@@ -309,16 +347,6 @@ def configureHubApp() {
             input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas.  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point(s).", defaultValue: ""
             input name: "wifiPresenceKeepRadius", type: "enum", title: "SSID will only be used for presence detection when a member is within this radius from home, Recommended=${displayMFtVal(DEFAULT_wifiPresenceKeepRadius)}", defaultValue: "${DEFAULT_wifiPresenceKeepRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',2000:'1.2 mi',5000:'3.1 mi',10000:'6.2 mi'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',2000:'2 km',5000:'5 km',10000:'10 km'])
         }
-        section(hideable: true, hidden: true, "Advanced Settings") {
-            input name: "resetHubDefaultsButton", type: "button", title: "Restore Defaults", state: "submit"
-            input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',1000:'3281 ft',1250:'4101 ft',1500:'4921 ft'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',1000:'1000 m',1250:'1250 m',1500:'1500 m'])
-            input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: DEFAULT_regionHighAccuracyRadiusHomeOnly
-            input name: "warnOnNoUpdateHours", type: "number", title: "Highlight members on the 'Member Status' that have not reported a location for this many hours (1..168)", range: "1..168", defaultValue: DEFAULT_warnOnNoUpdateHours
-            input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: DEFAULT_warnOnDisabledMember
-            input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: DEFAULT_warnOnMemberSettings
-            input name: "highAccuracyOnPing", type: "bool", title: "Request a high accuracy location from members on their next location report after a ping/manual update to keep location fresh (<b>Android ONLY</b>)", defaultValue: DEFAULT_highAccuracyOnPing
-            input name: "autoRequestLocation", type: "bool", title: "Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (<b>Android ONLY</b>)", defaultValue: DEFAULT_autoRequestLocation
-        }
         section(hideable: true, hidden: false, "Geocode Settings - Converts latitude/longitude to address") {
             input name: "geocodeProvider", type: "enum", title: "Select the optional geocode provider for address lookups.  Allows location latitude/longitude to be displayed as physical address.", description: "Enter", defaultValue: DEFAULT_geocodeProvider, options: GEOCODE_PROVIDERS, submitOnChange: true
             if (geocodeProvider != "0") {
@@ -337,42 +365,15 @@ def configureHubApp() {
             paragraph (GOOGLE_MAP_API_KEY_LINK + " -- <i><b>'Maps JavaScript API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Maps JavaScript API</b>.</i>")
             input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:"
         }
-        section(hideable: true, hidden: true, "Map Web Links") {
-            URL_SOURCE.each{ source->
-                paragraph ((source.value == URL_SOURCE["cloud"] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>"))
-                if (googleMapsAPIKey) {
-                    paragraph ("<b>Google family map:</b></br>&emsp;<a href='${getAttributeURL(source.value, "googlemap")}'>${getAttributeURL(source.value, "googlemap")}</a></br>")
-                    paragraph ("<b>Region configuration map:</b></br>&emsp;<a href='${getAttributeURL(source.value, "configmap")}'>${getAttributeURL(source.value, "configmap")}</a></br>")
-                }
-                if (state.members) {
-                urlList = ""
-                    state.members.each { member->
-                        urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source.value, "membermap/${member.name.toLowerCase()}")}'>${getAttributeURL(source.value, "membermap/${member.name.toLowerCase()}")}</a></br>"
-                    }
-                    paragraph ("<b>Member location map:</b></br>${urlList}")
-                }
-                if (state.members) {
-                    urlList = ""
-                    state.members.each { member->
-                        urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source.value, "memberpresence/${member.name.toLowerCase()}")}'>${getAttributeURL(source.value, "memberpresence/${member.name.toLowerCase()}")}</a></br>"
-                    }
-                    paragraph ("<b>Member Presence:</b></br>${urlList}")
-                }
-                if (recorderURL) {
-                    // only display the recorder links if it's a local URL or if it's https (required for the cloud link)
-                    if ((source.value == URL_SOURCE["local"]) || isHTTPsURL(getRecorderURL())) {
-                        paragraph ("<b>OwnTracks Recorder family map:</b></br>&emsp;<a href='${getAttributeURL(source.value, "recordermap")}'>${getAttributeURL(source.value, "recordermap")}</a>")
-
-                        if (state.members) {
-                            urlList = ""
-                            state.members.each { member->
-                                urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source.value, "memberpastlocations/${member.name.toLowerCase()}")}'>${getAttributeURL(source.value, "memberpastlocations/${member.name.toLowerCase()}")}</a></br>"
-                            }
-                            paragraph ("<b>OwnTracks Recorder member past locations:</b></br>${urlList}")
-                        }
-                    }
-                }
-            }
+        section(hideable: true, hidden: true, "Advanced Settings") {
+            input name: "resetHubDefaultsButton", type: "button", title: "Restore Defaults", state: "submit"
+            input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',1000:'3281 ft',1250:'4101 ft',1500:'4921 ft'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',1000:'1000 m',1250:'1250 m',1500:'1500 m'])
+            input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: DEFAULT_regionHighAccuracyRadiusHomeOnly
+            input name: "warnOnNoUpdateHours", type: "number", title: "Highlight members on the 'Member Status' that have not reported a location for this many hours (1..168)", range: "1..168", defaultValue: DEFAULT_warnOnNoUpdateHours
+            input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: DEFAULT_warnOnDisabledMember
+            input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: DEFAULT_warnOnMemberSettings
+            input name: "highAccuracyOnPing", type: "bool", title: "Request a high accuracy location from members on their next location report after a ping/manual update to keep location fresh (<b>Android ONLY</b>)", defaultValue: DEFAULT_highAccuracyOnPing
+            input name: "autoRequestLocation", type: "bool", title: "Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (<b>Android ONLY</b>)", defaultValue: DEFAULT_autoRequestLocation
         }
     }
 }
