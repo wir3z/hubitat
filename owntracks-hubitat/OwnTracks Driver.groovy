@@ -115,12 +115,13 @@
  *  1.7.18     2024-03-14      - Text cleanup.
  *  1.7.19     2024-03-21      - Fix error on the first time a member is added and the tiles were being generated.
  *  1.7.20     2024-03-23      - Changed tile generation timing.
+ *  1.7.21     2024-03-25      - Past locations tile can toggle lines/points from the tile.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.20" }
+def driverVersion() { return "1.7.21" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -203,7 +204,7 @@ preferences {
     input name: "displayMemberTile", type: "bool", title: "Create a HTML MemberLocation tile", defaultValue: DEFAULT_displayMemberTile
     input name: "colorMemberTile", type: "bool", title: "Change MemberTile background color based on presence", defaultValue: DEFAULT_colorMemberTile
     input name: "displayLastLocationTile", type: "bool", title: "Create a HTML PastLocations tile", defaultValue: DEFAULT_displayLastLocationTile
-    input name: "lastLocationViewTracks", type: "bool", title: "Display past locations history as lines instead of points", defaultValue: DEFAULT_lastLocationViewTracks
+    input name: "lastLocationViewTracks", type: "bool", title: "Past locations history defaults to lines instead of points", defaultValue: DEFAULT_lastLocationViewTracks
     input name: "pastLocationSearchWindow", type: "decimal", title: "PastLocations tile search window start date is this many days from current date (0.1..31)", range: "0.1..31.0", defaultValue: DEFAULT_pastLocationSearchWindow
 
     input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: DEFAULT_descriptionTextOutput
@@ -577,10 +578,14 @@ def generatePastLocations() {
         <div style="width:100%;height:100%;margin:4px;font-family:arial">
             <table style="width:100%;color:white;font-size:0.8em;background:#555555">
                 <tr>
-                    <td align="left" width=20%>
+                    <td align="left" width=11%>
                         ${parent.insertThumbnailObject(state.memberName, 35, true)}
                     </td>
-                    <td align="right" width=80%">
+                    <td align="right" width=21%">
+                        Points <input type="radio" id="id-points" value="" onchange="updateUrl()"></br>
+                        Lines <input type="radio" id="id-lines" value="" onchange="updateUrl()"></br>
+                    </td>
+                    <td align="right" width=68%">
                         Start <input type="datetime-local" id="id-startDate" value="" onchange="updateUrl()"></br>
                         End <input type="datetime-local" id="id-endDate" value="" onchange="updateUrl()">
                     </td>
@@ -598,10 +603,28 @@ def generatePastLocations() {
             function updateUrl() {
                 const startDate = new Date(document.getElementById("id-startDate").value).toISOString().slice(0, 16);
                 const endDate = new Date(document.getElementById("id-endDate").value).toISOString().slice(0, 16);
-                const urlPath = "${parent.getRecorderURL()}/map/index.html?from=" + startDate + "&to=" + endDate + "&format=${(lastLocationViewTracks ? "linestring" : "geojson")}&user=${topicElements[1]}&device=${topicElements[2]}";
+                const urlPath = "${parent.getRecorderURL()}/map/index.html?from=" + startDate + "&to=" + endDate + "&format=" + (linesRadio.checked ? "linestring" : "geojson") + "&user=${topicElements[1]}&device=${topicElements[2]}";
                 const iframe = document.getElementById("id-iframe");
                 iframe.src = urlPath;
             }
+
+            const pointsRadio = document.getElementById("id-points");
+            const linesRadio = document.getElementById("id-lines");
+            // set the initial state
+            if (${lastLocationViewTracks}) {
+                pointsRadio.checked;
+                linesRadio.checked = !pointsRadio.checked;
+            } else {
+                linesRadio.checked;
+                pointsRadio.checked = !linesRadio.checked;
+            }
+            // Add event listeners to toggle state
+            pointsRadio.addEventListener('click', () => {
+                linesRadio.checked = !pointsRadio.checked;
+            });
+            linesRadio.addEventListener('click', () => {
+                pointsRadio.checked = !linesRadio.checked;
+            });
 
             // Set the date picker to the current date
 		    const endTime = new Date()
