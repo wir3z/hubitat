@@ -88,6 +88,7 @@
  *  1.7.35     2024-03-23      - Refactored Google Friends map to dynamically update.
  *  1.7.36     2024-03-24      - Fixed Google Friends map info box.
  *  1.7.37     2024-03-24      - Shuffled menu tabs and text to make the flow more intuitive.
+ *  1.7.38     2024-03-25      - Updated Recorder instructions to include notes about using Google maps and reverse geocode keys.
  */
 
 import groovy.transform.Field
@@ -96,7 +97,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.37"}
+def appVersion() { return "1.7.38"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -449,8 +450,15 @@ def recorderInstallationInstructions() {
                        "                 OTR_HTTPHOST=\"0.0.0.0\"\r" +
                        "                 OTR_HTTPPORT=8083\r" +
                        "                 OTR_TOPICS=\"owntracks/#\"\r" +
+                       "                 OTR_GEOKEY=\"\"\r" +
+                       "                 OTR_BROWSERAPIKEY=\"\"\r" +
                        "                 OTR_SERVERLABEL=\"OwnTracks\"\r\n\r\n" +
-                       "          d. docker run -d --restart always --name=owntracks -p 8083:8083 -v recorder_store:/store -v config:/config owntracks/recorder\r\n\r\n" +
+                       "                 <b>NOTE:</b> Recorder defaults to OpenStreet Maps.  To use Google maps, add a Google Maps API key between the quotes for OTR_BROWSERAPIKEY.\r" +
+                       "                              For reverse Geocode address lookups, add a Google Maps API key between the quotes for OTR_GEOKEY.\r" +
+                       "                              Select <b>'Additional Hubitat App Settings'</b> for directons to get API keys: \n"
+                       )
+                      href(title: "Additional Hubitat App Settings - Geocode and Map API keys, WiFi Settings, Advanced Hub Settings", description: "", style: "page", page: "configureHubApp")
+            paragraph ("          d. docker run -d --restart always --name=owntracks -p 8083:8083 -v recorder_store:/store -v config:/config owntracks/recorder\r\n\r\n" +
                        "     3. The above 'recorder_store' (STORAGEDIR) and 'config' is found here in Docker:\r" +
                        "          a. /<b>[HOME_PATH]</b>/docker/volumes/recorder_store/_data\r" +
                        "          b. /<b>[HOME_PATH]</b>/docker/volumes/config/_data\r\n\r\n" +
