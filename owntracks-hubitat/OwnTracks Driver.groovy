@@ -116,12 +116,13 @@
  *  1.7.19     2024-03-21      - Fix error on the first time a member is added and the tiles were being generated.
  *  1.7.20     2024-03-23      - Changed tile generation timing.
  *  1.7.21     2024-03-25      - Past locations tile can toggle lines/points from the tile.
+ *  1.7.22     2024-03-26      - Presence tile was only updating when a presence change occured, not when the transition changed.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.21" }
+def driverVersion() { return "1.7.22" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -477,10 +478,10 @@ Boolean generatePresenceEvent(member, homeName, data) {
             } else {
                 sendEvent( name: "transitionDirection", value: "leave" )
             }
-            generatePresenceTile()
         }
         sendEvent( name: "presence", value: memberPresence, descriptionText: descriptionText)
         sendEvent( name: "location", value: currentLocation )
+        generatePresenceTile()
     }
 
     return true
