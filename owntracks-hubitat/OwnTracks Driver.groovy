@@ -117,12 +117,13 @@
  *  1.7.20     2024-03-23      - Changed tile generation timing.
  *  1.7.21     2024-03-25      - Past locations tile can toggle lines/points from the tile.
  *  1.7.22     2024-03-26      - Presence tile was only updating when a presence change occured, not when the transition changed.
+ *  1.7.23     2024-03-28      - Changed the transition phrases to past tense.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.22" }
+def driverVersion() { return "1.7.23" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -130,7 +131,8 @@ def driverVersion() { return "1.7.22" }
 @Field static final Map TRIGGER_TYPE = [ "p": "Ping", "c": "Region", "r": "Report Location", "u": "Manual", "b": "Beacon", "t": "Timer", "v": "Monitoring", "l": "Location" ]
 @Field static final Map PRESENCE_TILE_BATTERY_FIELD = [ 0: "Battery %", 1: "Current Location and Since Time", 2: "Distance from Home", 3: "Last Speed", 4: "Battery Status (Unplugged/Charging/Full)", 5: "Data Connection (WiFi/Mobile)", 6: "Update Trigger (Ping/Region/Report Location/Manual)", 7: "Distance from Home and Since Time" ]
 @Field static final Map LOCATION_PERMISION = [ "0": "Background - Fine", "-1": "Background - Coarse", "-2": "Foreground - Fine", "-3": "Foreground - Coarse", "-4": "Disabled" ]
-@Field static final Map TRANSITION_PHRASES = [ "enter": "arrived", "leave": "left" ]
+@Field static final Map TRANSITION_DIRECTION = [ "enter": "arrived", "leave": "departed" ]
+@Field static final Map TRANSITION_PHRASES = [ "enter": "arrived at", "leave": "departed from" ]
 @Field static final Map URL_SOURCE = [ "local": 0, "cloud": 1 ]
 
 @Field Boolean DEFAULT_presenceTileBatteryField = 0
@@ -259,24 +261,24 @@ def deleteExtendedAttributes(makePrivate) {
 }
 
 def arrived() {
-    descriptionText = device.displayName +  " has arrived"
+    descriptionText = device.displayName +  " has arrived at " + state.homeName
     sendEvent (name: "presence", value: "present", descriptionText: descriptionText)
     sendEvent( name: "transitionRegion", value: state.homeName )
     sendEvent( name: "transitionTime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )
-    sendEvent( name: "transitionDirection", value: "enter" )
+    sendEvent( name: "transitionDirection", value: "arrived" )
     logDescriptionText("$descriptionText")
-    parent.generateTransitionNotification(device.displayName, TRANSITION_PHRASES[device.currentValue('transitionDirection',true)], device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
+    parent.generateTransitionNotification(device.displayName, device.currentValue('transitionDirection',true), device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
     generateTiles()
 }
 
 def departed() {
-    descriptionText = device.displayName +  " has departed"
+    descriptionText = device.displayName +  " has departed from " + state.homeName
     sendEvent (name: "presence", value: "not present", descriptionText: descriptionText)
     sendEvent( name: "transitionRegion", value: state.homeName )
     sendEvent( name: "transitionTime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )
-    sendEvent( name: "transitionDirection", value: "leave" )
+    sendEvent( name: "transitionDirection", value: "departed" )
     logDescriptionText("$descriptionText")
-    parent.generateTransitionNotification(device.displayName, TRANSITION_PHRASES[device.currentValue('transitionDirection',true)], device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
+    parent.generateTransitionNotification(device.displayName, device.currentValue('transitionDirection',true), device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
     generateTiles()
 }
 
@@ -425,7 +427,7 @@ Boolean generatePresenceEvent(member, homeName, data) {
                     // update the transition
                     sendEvent( name: "transitionRegion", value: data.desc )
                     sendEvent( name: "transitionTime", value: locationTime )
-                    sendEvent( name: "transitionDirection", value: data.event )
+                    sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION[data.event] )
                 }
             } else {
                 // if we are in a region stored in the app
