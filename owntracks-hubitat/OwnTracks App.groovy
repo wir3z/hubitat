@@ -89,6 +89,7 @@
  *  1.7.36     2024-03-24      - Fixed Google Friends map info box.
  *  1.7.37     2024-03-24      - Shuffled menu tabs and text to make the flow more intuitive.
  *  1.7.38     2024-03-25      - Updated Recorder instructions to include notes about using Google maps and reverse geocode keys.
+ *  1.7.39     2024-03-28      - Fixed issue with secondary hub link.
  */
 
 import groovy.transform.Field
@@ -97,7 +98,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.38"}
+def appVersion() { return "1.7.39"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -1599,6 +1600,8 @@ def parseMessage(headers, data, member) {
                 break
             }
         break
+        case "card":
+        break
         default:
             logWarn("Unhandled message type: ${data._type}")
         break
@@ -1623,12 +1626,16 @@ def httpCallbackMethod(response, data) {
     if (response.status == 200) {
         logDebug "Posted successfully to OwnTracks URL."
         responseData = response?.getJson()
-        if (responseData) {
+        responseHeaders = response?.getHeaders()
+        if (responseData) {    
             // parse the response
             try {
                 // for map of maps
                 for (i=0; i<responseData.size(); i++) {
-                    parseMessage(responseHeaders, responseData[i], [ name:COMMON_CHILDNAME ])
+                    // ignore the returning member positions
+                    if (responseData[i]._type != "location") {
+                        parseMessage(responseHeaders, responseData[i], [ name:COMMON_CHILDNAME ])
+                    }
                 }
             } catch(e) {
                 // single map
