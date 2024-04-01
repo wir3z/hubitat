@@ -90,6 +90,7 @@
  *  1.7.37     2024-03-24      - Shuffled menu tabs and text to make the flow more intuitive.
  *  1.7.38     2024-03-25      - Updated Recorder instructions to include notes about using Google maps and reverse geocode keys.
  *  1.7.39     2024-03-28      - Fixed issue with secondary hub link.
+ *  1.7.40     2024-03-31      - Presence and member tiles get regenerated automatically on change.
  */
 
 import groovy.transform.Field
@@ -98,7 +99,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.39"}
+def appVersion() { return "1.7.40"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -3172,6 +3173,10 @@ def processAPIData() {
                 publicMembers = getEnabledAndNotHiddenMemberData()
                 response = [ "members" : memberLocations, "mapCenterAndZoom" : calculateCenterAndZoom(publicMembers) ] 
             break;
+            case "update":
+                member = state.members.find {it.name==data.payload}
+                response = ["lastReportTime" : member?.lastReportTime]
+            break;
             default:
                 logWarn("Unhandled API action: ${data.action}")
             break;
@@ -3583,7 +3588,7 @@ def generateRecorderFriendsLocation() {
         <div style="width:100%;height:100%;margin:4px;">
             <table align="center" style="width:100%;font-family:arial;padding-top:4px;padding-bottom:5px;">
                 <tr>"""
-                    publicMembers.each { name-> htmlData += """<td align="center">${insertThumbnailObject(name, 35, false)}</td>"""}
+                    publicMembers.each { name-> htmlData += """<td align="center">${insertThumbnailObject(name, 35, true)}</td>"""}
                     htmlData += """
                 </tr>
             </table>
@@ -3638,7 +3643,7 @@ private def calculateCenterAndZoom(members) {
     def minLat = null
     def maxLat = null
     def maxZoom = 18
-
+    
     members.each { mem ->
         // assign to the first location
         if (minLng == null) {
@@ -3654,9 +3659,9 @@ private def calculateCenterAndZoom(members) {
         if (mem.longitude < minLng) minLng = mem.longitude
     }
     // get the center point
-    avgLat = (maxLat + minLat) / 2
-    avgLon = (maxLng + minLng) / 2
-
+    centerLat = (maxLat + minLat) / 2
+    centerLon = (maxLng + minLng) / 2
+   
     // a constant in Google's map projection
     GLOBE_WIDTH = 256
     angle = maxLng - minLng
@@ -3676,7 +3681,7 @@ private def calculateCenterAndZoom(members) {
         }
     }
 
-    return [ lat: avgLat, lon: avgLon, zoom: zoomfactor ]
+    return [ lat: centerLat, lon: centerLon, zoom: zoomfactor ]
 }
 
 mappings {

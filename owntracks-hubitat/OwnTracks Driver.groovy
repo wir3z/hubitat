@@ -118,12 +118,13 @@
  *  1.7.21     2024-03-25      - Past locations tile can toggle lines/points from the tile.
  *  1.7.22     2024-03-26      - Presence tile was only updating when a presence change occured, not when the transition changed.
  *  1.7.23     2024-03-28      - Changed the transition phrases to past tense.
+ *  1.7.24     2024-03-31      - Presence and member tiles get regenerated automatically on change.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.23" }
+def driverVersion() { return "1.7.24" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -133,7 +134,7 @@ def driverVersion() { return "1.7.23" }
 @Field static final Map LOCATION_PERMISION = [ "0": "Background - Fine", "-1": "Background - Coarse", "-2": "Foreground - Fine", "-3": "Foreground - Coarse", "-4": "Disabled" ]
 @Field static final Map TRANSITION_DIRECTION = [ "enter": "arrived", "leave": "departed" ]
 @Field static final Map TRANSITION_PHRASES = [ "enter": "arrived at", "leave": "departed from" ]
-@Field static final Map URL_SOURCE = [ "local": 0, "cloud": 1 ]
+@Field static final Map URL_SOURCE = [ "cloud": 0, "local": 1 ]
 
 @Field Boolean DEFAULT_presenceTileBatteryField = 0
 @Field Boolean DEFAULT_displayExtendedAttributes = true
@@ -565,6 +566,7 @@ def generateMember() {
                     ${(device.currentValue("dataConnection") != null) ? "<td width=25%>${device.currentValue("dataConnection")}</td>" : ""}
                 </tr>
             </table>
+            ${generateScriptData()}
         </div>"""
     }
 
@@ -600,7 +602,6 @@ def generatePastLocations() {
                 </tr>
             </table>
         </div>
-
         <script>
             // Function to update the URL with the selected date
             function updateUrl() {
@@ -649,7 +650,7 @@ def generatePastLocations() {
 def generatePresence() {
     long sinceTimeMilliSeconds = state.sinceTime
     sinceDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
-
+    
     String htmlData = """
     <div style="width:100%;height:100%;margin:4px;background:${((device.currentValue('presence') == "present") ? "green" : "#b40000")}">
         <table style="height:100%;width:100%;color:white;font-size:0.8em;font-family:arial">
@@ -665,8 +666,49 @@ def generatePresence() {
                 <td valign='center'>${sinceDate}</td>
             </tr>
         </table>
+        ${generateScriptData()}
     </div>"""
 
+    return (htmlData)
+}
+
+def generateScriptData() {
+    String htmlData = """
+	<script>
+		lastUpdate = sessionStorage.getItem('lastReportTime') || 0;
+
+		function updateTile() {
+			const postData = {};
+			postData["action"] = "update";
+			postData["payload"] = "${state.memberName}";
+			sendDataToHub(postData)	
+		};
+
+		function sendDataToHub(postData) {
+			fetch("${parent.getAttributeURL(URL_SOURCE["cloud"], "apidata")}", {
+				method: "POST",
+				body: JSON.stringify(postData),
+				headers: {
+					"Content-type": "application/json; charset=UTF-8"
+				}
+			})
+			.then(response => response.json())
+			.then(data => {
+				if (lastUpdate != data.lastReportTime) {
+					sessionStorage.setItem('lastReportTime', data.lastReportTime);
+					// refresh the window
+					location.reload(true);
+				}
+			})
+			.catch(error => { console.error('Error fetching data:', error); })
+		};
+
+		// Poll for member data every 5000ms
+		setInterval(() => {
+			updateTile();
+		}, 5000);
+	</script>"""
+    
     return (htmlData)
 }
 
