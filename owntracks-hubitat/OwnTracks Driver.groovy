@@ -119,12 +119,13 @@
  *  1.7.22     2024-03-26      - Presence tile was only updating when a presence change occured, not when the transition changed.
  *  1.7.23     2024-03-28      - Changed the transition phrases to past tense.
  *  1.7.24     2024-03-31      - Presence and member tiles get regenerated automatically on change.
+ *  1.7.25     2024-04-01      - Missed a transition phrase on the presence check.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.24" }
+def driverVersion() { return "1.7.25" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -266,7 +267,7 @@ def arrived() {
     sendEvent (name: "presence", value: "present", descriptionText: descriptionText)
     sendEvent( name: "transitionRegion", value: state.homeName )
     sendEvent( name: "transitionTime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )
-    sendEvent( name: "transitionDirection", value: "arrived" )
+    sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION["enter"] )
     logDescriptionText("$descriptionText")
     parent.generateTransitionNotification(device.displayName, device.currentValue('transitionDirection',true), device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
     generateTiles()
@@ -277,7 +278,7 @@ def departed() {
     sendEvent (name: "presence", value: "not present", descriptionText: descriptionText)
     sendEvent( name: "transitionRegion", value: state.homeName )
     sendEvent( name: "transitionTime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )
-    sendEvent( name: "transitionDirection", value: "departed" )
+    sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION["leave"] )
     logDescriptionText("$descriptionText")
     parent.generateTransitionNotification(device.displayName, device.currentValue('transitionDirection',true), device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
     generateTiles()
@@ -477,9 +478,9 @@ Boolean generatePresenceEvent(member, homeName, data) {
             sendEvent( name: "transitionRegion", value: state.homeName )
             sendEvent( name: "transitionTime", value: locationTime )
             if (data.memberAtHome) {
-                sendEvent( name: "transitionDirection", value: "enter" )
+                sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION["enter"] )
             } else {
-                sendEvent( name: "transitionDirection", value: "leave" )
+                sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION["leave"] )
             }
         }
         sendEvent( name: "presence", value: memberPresence, descriptionText: descriptionText)
