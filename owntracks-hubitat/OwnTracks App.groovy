@@ -91,6 +91,7 @@
  *  1.7.38     2024-03-25      - Updated Recorder instructions to include notes about using Google maps and reverse geocode keys.
  *  1.7.39     2024-03-28      - Fixed issue with secondary hub link.
  *  1.7.40     2024-03-31      - Presence and member tiles get regenerated automatically on change.
+ *  1.7.41     2024-04-06      - Detect the incoming phone OS and prevent +follow regions from being sent to Android.
  */
 
 import groovy.transform.Field
@@ -99,7 +100,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.40"}
+def appVersion() { return "1.7.41"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -122,6 +123,7 @@ def appVersion() { return "1.7.40"}
 @Field static final Map GEOCODE_QUOTA_INTERVAL_DAILY = [ 1: false, 2: true, 3: true ]
 @Field static final Map GEOCODE_API_KEY_LINK = [ 1: "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>", 2: "<a href='https://apidocs.geoapify.com/docs/geocoding/reverse-geocoding/#about' target='_blank'>Sign up for a Geoapify API Key</a>", 3: "<a href='https://opencagedata.com/api#quickstart' target='_blank'>Sign up for a Opencage API Key</a>" ]
 @Field static final Map URL_SOURCE = [ "cloud": 0, "local": 1 ]
+@Field static final Map COLLECT_PLACES = [ "desc": 0, "desc_tst": 1, "map" : 2 ]
 
 // Main defaults
 @Field String  DEFAULT_APP_THEME_COLOR = "#2a0085"
@@ -131,6 +133,7 @@ def appVersion() { return "1.7.40"}
 @Field String  MQTT_TOPIC_PREFIX = "owntracks"
 @Field Number  INVALID_COORDINATE = 999
 @Field String  COMMON_CHILDNAME = "OwnTracks"
+@Field String  ANDROID_USER_AGENT = "Android"
 @Field String  DEFAULT_CHILDPREFIX = "OwnTracks - "
 @Field Number  DEFAULT_RADIUS = 75
 @Field Number  DEFAULT_regionHighAccuracyRadius = 750
@@ -282,7 +285,7 @@ def mainPage() {
                         // only display the recorder links if it's a local URL or if it's https (required for the cloud link)
                         if ((source.value == URL_SOURCE["local"]) || isHTTPsURL(getRecorderURL())) {
                             paragraph ("<b>OwnTracks Recorder family map:</b></br>&emsp;<a href='${getAttributeURL(source.value, "recordermap")}'>${getAttributeURL(source.value, "recordermap")}</a>")
-    
+
                             if (state.members) {
                                 urlList = ""
                                 state.members.each { member->
@@ -654,7 +657,7 @@ def configureRegions() {
         // only display if we don't have a Google maps API key, or our quota is expired
         if (!isMapAllowed(false)) {
             section(getFormat("line", "")) {
-                input "homePlace", "enum", multiple: false, title:(homePlace ? '<div>' : '<div style="color:#ff0000">') + "Select your 'Home' place. ${(homePlace ? "" : "Use 'Configure Regions'->'Add Regions' to create a home location.")}" + '</div>', options: getNonFollowRegions(true), submitOnChange: true
+                input "homePlace", "enum", multiple: false, title:(homePlace ? '<div>' : '<div style="color:#ff0000">') + "Select your 'Home' place. ${(homePlace ? "" : "Use 'Configure Regions'->'Add Regions' to create a home location.")}" + '</div>', options: getNonFollowRegions(COLLECT_PLACES["desc_tst"]), submitOnChange: true
                 paragraph("<iframe src='${getRegionMapLink(getHomeRegion())}' style='height: 500px; width: 100%; border: none;'></iframe>")
             }
         }
@@ -735,9 +738,24 @@ def getNonFollowRegions(collectRegions) {
             allowedRegions << place
         }
     }
+
     if (allowedRegions) {
-        return (collectRegions ? allowedRegions.collectEntries{[it.tst, it.desc]} : allowedRegions.desc.sort())
+        switch (collectRegions) {
+            case 0:
+                // collecton of names
+                return (allowedRegions.desc.sort())
+            break
+            case 1:
+                // collecton of names and timestamp
+                return (allowedRegions.collectEntries{[it.tst, it.desc]})
+            break
+            default:
+                // entire map
+                return (allowedRegions)
+            break
+        }
     } else {
+        // blank map
         return (allowedRegions)
     }
 }
@@ -808,7 +826,7 @@ def addRegions() {
 }
 
 def addRegionToEdit() {
-    input "regionToEdit", "enum", multiple: false, title:"Select region to edit", options: getNonFollowRegions(false), submitOnChange: true
+    input "regionToEdit", "enum", multiple: false, title:"Select region to edit", options: getNonFollowRegions(COLLECT_PLACES["desc"]), submitOnChange: true
 }
 
 def editRegions() {
@@ -853,7 +871,7 @@ def deleteRegions() {
                 state.submit = ""
             }
             displayRegionsPendingDelete()
-            input "regionName", "enum", multiple: false, title:"Select region to delete", options: getNonFollowRegions(false), submitOnChange: true
+            input "regionName", "enum", multiple: false, title:"Select region to delete", options: getNonFollowRegions(COLLECT_PLACES["desc"]), submitOnChange: true
             if (regionName) {
                 deleteRegion = state.places.find {it.desc==regionName}
                 paragraph("<iframe src='${getRegionMapLink(createRegionMap(deleteRegion?.lat,deleteRegion?.lon,deleteRegion?.rad))}' style='height: 500px; width:100%; border: none;'></iframe>")
@@ -1481,8 +1499,8 @@ def refreshMaps() {
     createGoogleFriendsLocationTile()
     // loop through all the members
     state.members.each { member->
-        deviceWrapper = getChildDevice(member.id)    
-        deviceWrapper.generatePastLocationsTile()		
+        deviceWrapper = getChildDevice(member.id)
+        deviceWrapper.generatePastLocationsTile()
     }
 }
 
@@ -1505,11 +1523,11 @@ def webhookEventHandler() {
         sourceDeviceID = sourceDeviceID.substring(1, (sourceDeviceID.length()-1))
         // check if this a message from the service device.  If not, check for a matching member
         if (sourceName == COMMON_CHILDNAME) {
-            findMember = [ name:COMMON_CHILDNAME, deviceID:COMMON_CHILDNAME, id:getCommonChildDNI() ] 
+            findMember = [ name:COMMON_CHILDNAME, deviceID:COMMON_CHILDNAME, id:getCommonChildDNI() ]
         } else {
             findMember = state.members.find {it.name==sourceName}
         }
-        
+
         data = parseJson(request.body)
         logDebug("Received update' from user: '$sourceName', deviceID: '$sourceDeviceID', data: $data")
 
@@ -1539,7 +1557,7 @@ def webhookEventHandler() {
             }
         }
     }
-    
+
     // app requires a non-empty JSON response, or it will display HTTP 500
     payload = new JsonBuilder(result).toPrettyString()
     return render(contentType: "text/html", data: payload, status: 200)
@@ -1548,13 +1566,13 @@ def webhookEventHandler() {
 def parseMessage(headers, data, member) {
     // default to an empty payload
     payload = []
-    
+
     switch (data._type) {
         case "location":
         case "transition":
             // store the last report time for the Google friends map
             state.lastReportTime = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date())
-            updateMemberAttributes(member, data)
+            updateMemberAttributes(headers, data, member)
             // flag the data as private if necessary, but let the raw message pass to the secondary hub to be filtered
             data.private = ((settings?.privateMembers.find {it==member.name}) ? true : false)
 
@@ -1609,7 +1627,7 @@ def parseMessage(headers, data, member) {
     }
 
     return (payload)
-}    
+}
 
 def parsePostHeaders(postHeaders) {
     def newHeaders = [:]
@@ -1628,7 +1646,7 @@ def httpCallbackMethod(response, data) {
         logDebug "Posted successfully to OwnTracks URL."
         responseData = response?.getJson()
         responseHeaders = response?.getHeaders()
-        if (responseData) {    
+        if (responseData) {
             // parse the response
             try {
                 // for map of maps
@@ -1664,7 +1682,9 @@ def isSSIDMatch(dataString, deviceID) {
     return (result)
 }
 
-def updateMemberAttributes(member, data) {
+def updateMemberAttributes(headers, data, member) {
+    String sourceAgent    = headers.'User-agent'
+
     // round to 6-decimal places
     data.lat = data?.lat?.toDouble()?.round(6)
     data.lon = data?.lon?.toDouble()?.round(6)
@@ -1696,6 +1716,7 @@ def updateMemberAttributes(member, data) {
     member.bo             = data?.bo
     member.loc            = data?.loc
     member.conn           = data?.conn
+    member.android        = (sourceAgent.indexOf(ANDROID_USER_AGENT,0) == -1 ? false : true)
 }
 
 def updateDevicePresence(member, data) {
@@ -2047,7 +2068,8 @@ private def sendWaypoints(currentMember) {
     if (settings?.privateMembers.find {it==currentMember.name}) {
         return ([ "_type":"cmd","action":"setWaypoints", "waypoints": [ "_type":"waypoints", "waypoints":getHomeRegion() ] ])
     } else {
-        return ([ "_type":"cmd","action":"setWaypoints", "waypoints": [ "_type":"waypoints", "waypoints":state.places ] ])
+        // if the member is an android user, then do not send the +follow region
+        return ([ "_type":"cmd","action":"setWaypoints", "waypoints": [ "_type":"waypoints", "waypoints":(currentMember?.android ? getNonFollowRegions(COLLECT_PLACES["map"]) : state.places) ] ])
     }
 }
 
@@ -2557,7 +2579,7 @@ def generateConfigMap() {
             <div id="map" style="width:100%;height:95%;"></div>
             <script>
                 const places = ["""
-                    getNonFollowRegions(false).each { region->
+                    getNonFollowRegions(COLLECT_PLACES["desc"]).each { region->
                         place = state.places.find {it.desc==region}
                         htmlData += """{lat:${place.lat},lng:${place.lon},rad:${place.rad},desc:"${place.desc}",tst:${place.tst}},"""
                     }
@@ -2760,7 +2782,7 @@ def generateConfigMap() {
                         map.setCenter(event);
                         infoWindow.close();
                         infoWindow.setPosition(event);
-                        // deal with the first time the map loads and there is no position to display.  The reverseGeocode callback will update this next time.                    
+                        // deal with the first time the map loads and there is no position to display.  The reverseGeocode callback will update this next time.
                         if (lastPosition == "") {
                             lastPosition = "" + event.lat.toFixed(6) + "," + event.lng.toFixed(6) + "";
                         }
@@ -2876,7 +2898,7 @@ def generateConfigMap() {
                                 radBox.value = convertRadiusToFeet(${DEFAULT_RADIUS});
                             }
                             markers[markerIndex.value].radius.setRadius(convertRadiusToMeters(parseInt(radBox.value)));
-        
+
                             // show/hide the buttons when the window opens
                             displayButtons(markerIndex.value);
 
@@ -3162,7 +3184,7 @@ def processAPIData() {
                         "dfh" :         deviceWrapper?.currentValue("distanceFromHome"),
                         "zIndex" :      index+1,
                     ]
-                    
+
                     // split out the img since that is a large data payload that we only need once during the page init
                     if (data.payload == "img") {
                         memberLocation["img"] = "${getEmbeddedImage(member.name)}"
@@ -3171,7 +3193,7 @@ def processAPIData() {
                 }
                 // determine the map center based on the public members
                 publicMembers = getEnabledAndNotHiddenMemberData()
-                response = [ "members" : memberLocations, "mapCenterAndZoom" : calculateCenterAndZoom(publicMembers) ] 
+                response = [ "members" : memberLocations, "mapCenterAndZoom" : calculateCenterAndZoom(publicMembers) ]
             break;
             case "update":
                 member = state.members.find {it.name==data.payload}
@@ -3197,7 +3219,7 @@ def retrieveGoogleFriendsMapMember() {
 
 def insertOwnTracksFavicon() {
     return('<link rel="icon" type="image/png" sizes="64x64" href="data:image/png;base64,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"/>')
-}    
+}
 
 def generateGoogleFriendsMap() {
     String htmlData = "Google Maps API Not Configured or Quota Exceeded"
@@ -3207,7 +3229,7 @@ def generateGoogleFriendsMap() {
         publicMembers = getEnabledAndNotHiddenMemberData()
         // determine the initial map center based on the members
         initialMapCenterAndZoom = calculateCenterAndZoom(publicMembers)
-        
+
         htmlData = """
         <div style="width:100%;height:100%;margin:5px">
             <div id="map" style="width:100%;height:calc(100% - 25px)"></div>
@@ -3240,7 +3262,7 @@ def generateGoogleFriendsMap() {
                     retrieveMemberLocations("img");
 
                     const places = ["""
-                        getNonFollowRegions(false).each { region->
+                        getNonFollowRegions(COLLECT_PLACES["desc"]).each { region->
                             place = state.places.find {it.desc==region}
                             htmlData += """{lat:${place.lat},lng:${place.lon},rad:${place.rad},desc:"${place.desc}",tst:${place.tst}},"""
                         }
@@ -3352,7 +3374,7 @@ def generateGoogleFriendsMap() {
                                 glyphColor: "white"
                             });
                             pin.glyph = imagePin;
-    
+
                             const marker = new google.maps.marker.AdvancedMarkerElement({
                                 map,
                                 position: {
@@ -3444,7 +3466,7 @@ def generateGoogleFriendsMap() {
                     function updateLocations(data) {
                         // check if it is a member update response
                         if (data.mapCenterAndZoom) {
-                            // update the marker based on the incoming changes.  
+                            // update the marker based on the incoming changes.
                             mapCenterAndZoom = data.mapCenterAndZoom
                             if (locations.length) {
                                 // Incoming order may be different due to zIndex changes, so we need to search for matches
@@ -3490,7 +3512,7 @@ def generateGoogleFriendsMap() {
                         const postData = {};
                         postData["action"] = "members";
                         postData["payload"] = payload;
-                        sendDataToHub(postData)	
+                        sendDataToHub(postData)
                     };
 
                     function sendDataToHub(postData) {
@@ -3643,7 +3665,7 @@ private def calculateCenterAndZoom(members) {
     def minLat = null
     def maxLat = null
     def maxZoom = 18
-    
+
     members.each { mem ->
         // assign to the first location
         if (minLng == null) {
@@ -3661,7 +3683,7 @@ private def calculateCenterAndZoom(members) {
     // get the center point
     centerLat = (maxLat + minLat) / 2
     centerLon = (maxLng + minLng) / 2
-   
+
     // a constant in Google's map projection
     GLOBE_WIDTH = 256
     angle = maxLng - minLng
