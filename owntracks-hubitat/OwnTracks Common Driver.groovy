@@ -26,14 +26,16 @@
  *  1.7.5      2024-03-05      - Added dynamic support for cloud recorder URL.
  *  1.7.6      2024-03-15      - Added configuration map tile.
  *  1.7.7      2024-03-23      - Changed the GoogleFriendsLocation tile generation.
+ *  1.7.8      2024-04-07      - Changed cloud/local URL sourcing.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.7" }
+def driverVersion() { return "1.7.8" }
 
 @Field Boolean DEFAULT_displayFriendsTile = false
+@Field String  CLOUD_URL_SOURCE = "[cloud.hubitat.com]"
 
 metadata {
   definition (
@@ -93,7 +95,7 @@ def generateRecorderFriendsLocationTile() {
 
 def generateGoogleFriendsLocationTile() {
     if (displayGoogleFriendsLocation) {
-        sendEvent(name: "GoogleFriendsLocation", value: parent.displayTile("cloud", "googlemap"), displayed: true)
+        sendEvent(name: "GoogleFriendsLocation", value: parent.displayTile(CLOUD_URL_SOURCE, "googlemap"), displayed: true)
     } else {
         device.deleteCurrentState('GoogleFriendsLocation')
     }
@@ -101,7 +103,7 @@ def generateGoogleFriendsLocationTile() {
 
 def generateConfigMapTile() {
     if (parent.getGoogleMapsAPIKey()) {
-        sendEvent(name: "ConfigurationMap", value: parent.displayTile("cloud", "configmap"), displayed: true)
+        sendEvent(name: "ConfigurationMap", value: parent.displayTile(CLOUD_URL_SOURCE, "configmap"), displayed: true)
     } else {
         device.deleteCurrentState('ConfigurationMap')
     }

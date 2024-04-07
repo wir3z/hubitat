@@ -120,12 +120,13 @@
  *  1.7.23     2024-03-28      - Changed the transition phrases to past tense.
  *  1.7.24     2024-03-31      - Presence and member tiles get regenerated automatically on change.
  *  1.7.25     2024-04-01      - Missed a transition phrase on the presence check.
+ *  1.7.26     2024-04-07      - Changed cloud/local URL sourcing.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.25" }
+def driverVersion() { return "1.7.26" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -135,8 +136,8 @@ def driverVersion() { return "1.7.25" }
 @Field static final Map LOCATION_PERMISION = [ "0": "Background - Fine", "-1": "Background - Coarse", "-2": "Foreground - Fine", "-3": "Foreground - Coarse", "-4": "Disabled" ]
 @Field static final Map TRANSITION_DIRECTION = [ "enter": "arrived", "leave": "departed" ]
 @Field static final Map TRANSITION_PHRASES = [ "enter": "arrived at", "leave": "departed from" ]
-@Field static final Map URL_SOURCE = [ "cloud": 0, "local": 1 ]
 
+@Field String  CLOUD_URL_SOURCE = "[cloud.hubitat.com]"
 @Field Boolean DEFAULT_presenceTileBatteryField = 0
 @Field Boolean DEFAULT_displayExtendedAttributes = true
 @Field Boolean DEFAULT_displayMemberTile = false
@@ -502,7 +503,7 @@ def generateTiles() {
 
 def generateMemberTile() {
     if (displayMemberTile) {
-        sendEvent(name: "MemberLocation", value: parent.displayTile("cloud", "membermap/${state.memberName.toLowerCase()}"), displayed: true)
+        sendEvent(name: "MemberLocation", value: parent.displayTile(CLOUD_URL_SOURCE, "membermap/${state.memberName.toLowerCase()}"), displayed: true)
     } else {
         device.deleteCurrentState('MemberLocation')
     }
@@ -518,10 +519,10 @@ def generatePastLocationsTile() {
 }
 
 def generatePresenceTile() {
-    sendEvent(name: "PresenceTile", value: parent.displayTile("cloud", "memberpresence/${state.memberName.toLowerCase()}"), displayed: true)
+    sendEvent(name: "PresenceTile", value: parent.displayTile(CLOUD_URL_SOURCE, "memberpresence/${state.memberName.toLowerCase()}"), displayed: true)
 }
 
-def generateMember() {
+def generateMember(urlSource) {
     String htmlData = ""
     if (device.currentValue('location') != DEFAULT_privateLocation) {
         long sinceTimeMilliSeconds = state.sinceTime
@@ -567,7 +568,7 @@ def generateMember() {
                     ${(device.currentValue("dataConnection") != null) ? "<td width=25%>${device.currentValue("dataConnection")}</td>" : ""}
                 </tr>
             </table>
-            ${generateScriptData()}
+            ${generateScriptData(urlSource)}
         </div>"""
     }
 
@@ -648,7 +649,7 @@ def generatePastLocations() {
     return (htmlData)
 }
 
-def generatePresence() {
+def generatePresence(urlSource) {
     long sinceTimeMilliSeconds = state.sinceTime
     sinceDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
     
@@ -667,13 +668,13 @@ def generatePresence() {
                 <td valign='center'>${sinceDate}</td>
             </tr>
         </table>
-        ${generateScriptData()}
+        ${generateScriptData(urlSource)}
     </div>"""
 
     return (htmlData)
 }
 
-def generateScriptData() {
+def generateScriptData(urlSource) {
     String htmlData = """
 	<script>
 		lastUpdate = sessionStorage.getItem('lastReportTime') || 0;
@@ -686,7 +687,7 @@ def generateScriptData() {
 		};
 
 		function sendDataToHub(postData) {
-			fetch("${parent.getAttributeURL(URL_SOURCE["cloud"], "apidata")}", {
+			fetch("${parent.getAttributeURL(urlSource, "apidata")}", {
 				method: "POST",
 				body: JSON.stringify(postData),
 				headers: {

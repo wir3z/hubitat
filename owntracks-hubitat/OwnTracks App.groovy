@@ -93,6 +93,7 @@
  *  1.7.40     2024-03-31      - Presence and member tiles get regenerated automatically on change.
  *  1.7.41     2024-04-06      - Detect the incoming phone OS and prevent +follow regions from being sent to Android.
  *  1.7.42     2024-04-07      - Refactored layout and section labels to group recommend vs optional configurations.
+ *  1.7.43     2024-04-07      - Changed cloud/local URL sourcing.  Fixed Google Family map local URL not displaying members.
  */
 
 import groovy.transform.Field
@@ -101,7 +102,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.42"}
+def appVersion() { return "1.7.43"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -123,7 +124,7 @@ def appVersion() { return "1.7.42"}
 @Field static final Map GEOCODE_QUOTA = [ 1: 40000, 2: 3000, 3: 2500 ]
 @Field static final Map GEOCODE_QUOTA_INTERVAL_DAILY = [ 1: false, 2: true, 3: true ]
 @Field static final Map GEOCODE_API_KEY_LINK = [ 1: "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>", 2: "<a href='https://apidocs.geoapify.com/docs/geocoding/reverse-geocoding/#about' target='_blank'>Sign up for a Geoapify API Key</a>", 3: "<a href='https://opencagedata.com/api#quickstart' target='_blank'>Sign up for a Opencage API Key</a>" ]
-@Field static final Map URL_SOURCE = [ "cloud": 0, "local": 1 ]
+@Field static final List URL_SOURCE = [ "[cloud.hubitat.com]", "[local.com]" ]
 @Field static final Map COLLECT_PLACES = [ "desc": 0, "desc_tst": 1, "map" : 2 ]
 
 // Main defaults
@@ -255,7 +256,7 @@ def mainPage() {
             }
             section(hideable: true, hidden: false, getFormat("box", "Installation and Configuration")) {
                 href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
-                href(title: "Configure Hubitat App - WiFi Settings, Location Performance, Geocode and Map API keys", description: "", style: "page", page: "configureHubApp")
+                href(title: "Configure Hubitat App - WiFi Settings, Units, Location Performance, Geocode and Map API keys", description: "", style: "page", page: "configureHubApp")
                 href(title: "Configure Regions - Add, Edit, Delete, Assign 'Home'", description: "", style: "page", page: "configureRegions")
                 input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + "Select family member(s) to monitor.  Member device will be created and configured once 'Done' is pressed, below.</div>", options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                 input "privateMembers", "enum", multiple: true, title:(privateMembers ? '<div style="color:#ff0000">' : '<div>') + 'Select family member(s) to remain private.  Locations and regions will <B>NOT</b> be shared with other members or the Recorder.  Their Hubitat device will only display presence information.</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
@@ -263,34 +264,34 @@ def mainPage() {
             }
             section(hideable: true, hidden: true, getFormat("box", "Dashboard Web Links")) {
                 URL_SOURCE.each{ source->
-                    paragraph ((source.value == URL_SOURCE["cloud"] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>"))
+                    paragraph ((source == URL_SOURCE[0] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>"))
                     if (googleMapsAPIKey) {
-                        paragraph ("<b>Google family map:</b></br>&emsp;<a href='${getAttributeURL(source.value, "googlemap")}'>${getAttributeURL(source.value, "googlemap")}</a></br>")
-                        paragraph ("<b>Region configuration map:</b></br>&emsp;<a href='${getAttributeURL(source.value, "configmap")}'>${getAttributeURL(source.value, "configmap")}</a></br>")
+                        paragraph ("<b>Google family map:</b></br>&emsp;<a href='${getAttributeURL(source, "googlemap")}'>${getAttributeURL(source, "googlemap")}</a></br>")
+                        paragraph ("<b>Region configuration map:</b></br>&emsp;<a href='${getAttributeURL(source, "configmap")}'>${getAttributeURL(source, "configmap")}</a></br>")
                     }
                     if (state.members) {
                         urlList = ""
                         state.members.each { member->
-                            urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source.value, "membermap/${member.name.toLowerCase()}")}'>${getAttributeURL(source.value, "membermap/${member.name.toLowerCase()}")}</a></br>"
+                            urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source, "membermap/${member.name.toLowerCase()}")}'>${getAttributeURL(source, "membermap/${member.name.toLowerCase()}")}</a></br>"
                         }
                         paragraph ("<b>Member location map:</b></br>${urlList}")
                     }
                     if (state.members) {
                         urlList = ""
                         state.members.each { member->
-                            urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source.value, "memberpresence/${member.name.toLowerCase()}")}'>${getAttributeURL(source.value, "memberpresence/${member.name.toLowerCase()}")}</a></br>"
+                            urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source, "memberpresence/${member.name.toLowerCase()}")}'>${getAttributeURL(source, "memberpresence/${member.name.toLowerCase()}")}</a></br>"
                         }
                         paragraph ("<b>Member Presence:</b></br>${urlList}")
                     }
                     if (recorderURL) {
                         // only display the recorder links if it's a local URL or if it's https (required for the cloud link)
-                        if ((source.value == URL_SOURCE["local"]) || isHTTPsURL(getRecorderURL())) {
-                            paragraph ("<b>OwnTracks Recorder family map:</b></br>&emsp;<a href='${getAttributeURL(source.value, "recordermap")}'>${getAttributeURL(source.value, "recordermap")}</a>")
+                        if ((source.value != URL_SOURCE[0]) || isHTTPsURL(getRecorderURL())) {
+                            paragraph ("<b>OwnTracks Recorder family map:</b></br>&emsp;<a href='${getAttributeURL(source, "recordermap")}'>${getAttributeURL(source, "recordermap")}</a>")
 
                             if (state.members) {
                                 urlList = ""
                                 state.members.each { member->
-                                    urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source.value, "memberpastlocations/${member.name.toLowerCase()}")}'>${getAttributeURL(source.value, "memberpastlocations/${member.name.toLowerCase()}")}</a></br>"
+                                    urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}'>${getAttributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}</a></br>"
                                 }
                                 paragraph ("<b>OwnTracks Recorder member past locations:</b></br>${urlList}")
                             }
@@ -669,7 +670,7 @@ def configureRegions() {
         }
         section() {
             if (isMapAllowed(false)) {
-                configMapURL = "${getAttributeURL(URL_SOURCE['cloud'],'configmap')}"
+                configMapURL = "${getAttributeURL(URL_SOURCE[0],'configmap')}"
                 paragraph("<iframe src='${configMapURL}' style='height: 650px; width: 100%; border: none;'></iframe>")
             } else {
                 clearSettingFields()
@@ -786,8 +787,11 @@ def getHomeRegion() {
 }
 
 def getAttributeURL(urlSource, path) {
+    // remove the []
+    urlSource = urlSource.substring(1, (urlSource.length()-1))
+    
     // get the cloud or local URL
-    if (urlSource == URL_SOURCE["cloud"]) {
+    if (fullApiServerUrl().indexOf(urlSource, 0) >= 0) {
         return(fullApiServerUrl().replaceAll("null","${path}?access_token=${state.accessToken}"))
     } else {
         return(getFullLocalApiServerUrl() + "/${path}" + "?access_token=${state.accessToken}")
@@ -3060,7 +3064,7 @@ def generateConfigMap() {
                         postData["action"] = action;
                         postData["payload"] = dataMap;
 
-                        fetch("${getAttributeURL(URL_SOURCE["cloud"], "apidata")}", {
+                        fetch("${getAttributeURL(request.headers.Host.toString(), "apidata")}", {
                             method: "POST",
                             body: JSON.stringify(postData),
                             headers: {
@@ -3142,7 +3146,7 @@ def displayMemberMap() {
 
     def deviceWrapper = getChildDevice(member.id)
     if (deviceWrapper) {
-        displayData = deviceWrapper.generateMember()
+        displayData = deviceWrapper.generateMember(request.headers.Host.toString())
         // only display if we could retrieve the data
         if (displayData) {
             htmlData = displayData
@@ -3159,7 +3163,7 @@ def displayMemberPresence() {
 
     def deviceWrapper = getChildDevice(member.id)
     if (deviceWrapper) {
-        displayData = deviceWrapper.generatePresence()
+        displayData = deviceWrapper.generatePresence(request.headers.Host.toString())
         // only display if we could retrieve the data
         if (displayData) {
             htmlData = displayData
@@ -3581,7 +3585,7 @@ def generateGoogleFriendsMap() {
                     };
 
                     function sendDataToHub(postData) {
-                        fetch("${getAttributeURL(URL_SOURCE["cloud"], "apidata")}", {
+                        fetch("${getAttributeURL(request.headers.Host.toString(), "apidata")}", {
                             method: "POST",
                             body: JSON.stringify(postData),
                             headers: {
@@ -3657,10 +3661,12 @@ def isHTTPsURL(url) {
 def recorderURLType() {
     // check the recorder URL and switch as necessary
     recorderURL = getRecorderURL()
-    source = "local"
+    // default to local source
+    source = URL_SOURCE[1]
     if (recorderURL) {
         if (isHTTPsURL(getRecorderURL())) {
-            source = "cloud"
+            // cloud source
+            source = URL_SOURCE[0]
         }
     }
     return(source)
@@ -3703,7 +3709,7 @@ def insertThumbnailObject(memberName, size, embed) {
 
 def displayTile(urlSource, tileSource) {
     String htmlData = ""
-    urlPath = getAttributeURL(URL_SOURCE[urlSource], tileSource)
+    urlPath = getAttributeURL(urlSource, tileSource)
 
     // create the embedded tile frame
     htmlData += '<div style="width:100%;height:100%">'
