@@ -92,6 +92,7 @@
  *  1.7.39     2024-03-28      - Fixed issue with secondary hub link.
  *  1.7.40     2024-03-31      - Presence and member tiles get regenerated automatically on change.
  *  1.7.41     2024-04-06      - Detect the incoming phone OS and prevent +follow regions from being sent to Android.
+ *  1.7.42     2024-04-07      - Refactored layout and section labels to group recommend vs optional configurations.
  */
 
 import groovy.transform.Field
@@ -100,7 +101,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.41"}
+def appVersion() { return "1.7.42"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -133,7 +134,8 @@ def appVersion() { return "1.7.41"}
 @Field String  MQTT_TOPIC_PREFIX = "owntracks"
 @Field Number  INVALID_COORDINATE = 999
 @Field String  COMMON_CHILDNAME = "OwnTracks"
-@Field String  ANDROID_USER_AGENT = "Android"
+@Field String  ANDROID_USER_AGENT = "Owntracks-Android"
+@Field String  ANDROID_LEGACY_VERSION = "Owntracks-Android/420412000"    // PlayStore version that does not delete regions
 @Field String  DEFAULT_CHILDPREFIX = "OwnTracks - "
 @Field Number  DEFAULT_RADIUS = 75
 @Field Number  DEFAULT_regionHighAccuracyRadius = 750
@@ -202,8 +204,9 @@ preferences {
     page(name: "configureRecorder")
     page(name: "configureSecondaryHub")
     page(name: "recorderInstallationInstructions")
-    page(name: "configureLocation")
-    page(name: "configureDisplay")
+    page(name: "advancedHub")
+    page(name: "advancedLocation")
+    page(name: "advancedDisplay")
     page(name: "configureRegions")
     page(name: "addRegions")
     page(name: "editRegions")
@@ -252,15 +255,13 @@ def mainPage() {
             }
             section(hideable: true, hidden: false, getFormat("box", "Installation and Configuration")) {
                 href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
-                href(title: "Configure Regions", description: "", style: "page", page: "configureRegions")
+                href(title: "Configure Hubitat App - WiFi Settings, Location Performance, Geocode and Map API keys", description: "", style: "page", page: "configureHubApp")
+                href(title: "Configure Regions - Add, Edit, Delete, Assign 'Home'", description: "", style: "page", page: "configureRegions")
                 input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + "Select family member(s) to monitor.  Member device will be created and configured once 'Done' is pressed, below.</div>", options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                 input "privateMembers", "enum", multiple: true, title:(privateMembers ? '<div style="color:#ff0000">' : '<div>') + 'Select family member(s) to remain private.  Locations and regions will <B>NOT</b> be shared with other members or the Recorder.  Their Hubitat device will only display presence information.</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
-                input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: DEFAULT_imperialUnits, submitOnChange: true
-                input name: "deviceNamePrefix", type: "string", title: "Prefix to be added to each member's device name.  For example, member '<b>Bob</b>' with a prefix of '<b>${DEFAULT_CHILDPREFIX}</b>' will have a device name of '<b>${DEFAULT_CHILDPREFIX}Bob</b>'. Member device name will be updated once 'Done' is pressed, below. Enter a space to have no prefix in front of the member name.", defaultValue: DEFAULT_CHILDPREFIX, submitOnChange: true, required: true
-                href(title: "Configure Region Arrived/Left Notifications", description: "", style: "page", page: "configureNotifications")
-                href(title: "Additional Hubitat App Settings - Geocode and Map API keys, WiFi Settings, Advanced Hub Settings", description: "", style: "page", page: "configureHubApp")
+                href(title: "Configure Region Arrived/Departed Notifications", description: "", style: "page", page: "configureNotifications")
             }
-            section(hideable: true, hidden: true, getFormat("box", "Map Web Links")) {
+            section(hideable: true, hidden: true, getFormat("box", "Dashboard Web Links")) {
                 URL_SOURCE.each{ source->
                     paragraph ((source.value == URL_SOURCE["cloud"] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>"))
                     if (googleMapsAPIKey) {
@@ -302,16 +303,16 @@ def mainPage() {
                 href(title: "Enable OwnTracks Recorder", description: "", style: "page", page: "configureRecorder")
                 href(title: "Link Secondary Hub", description: "", style: "page", page: "configureSecondaryHub")
             }
-            section(hideable: true, hidden: true, getFormat("box", "Advanced Mobile App Settings")) {
-                paragraph("The default mobile settings provide the best balance of accuracy/power.  To view or modify advanced settings, select the items below.")
-                input name: "highPowerMode", type: "bool", title: "Use GPS for higher accuracy/performance.  <b>NOTE:</b> This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (<b>Android ONLY</b>)", defaultValue: DEFAULT_highPowerMode
+            section(hideable: true, hidden: true, getFormat("box", "Advanced Settings - Hub and Mobile")) {
+                paragraph("The default settings provide the best balance of accuracy/power.  To view or modify advanced settings, select the items below.")
                 checkLocatorPriority()
+                href(title: "Hub App Settings", description: "", style: "page", page: "advancedHub")
+                href(title: "Mobile App Location Settings", description: "", style: "page", page: "advancedLocation")
+                href(title: "Mobile App Display Settings", description: "", style: "page", page: "advancedDisplay")
 // Restart is only applicable to Android.  Current Android 2.4.x will restart the app, but fails to restart the ping service
 //                input "restartMobileApp", "enum", multiple: true, title:"Select family member(s) to restart their mobile app on next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
-                 href(title: "Mobile App Location Settings", description: "", style: "page", page: "configureLocation")
-                 href(title: "Mobile App Display Settings", description: "", style: "page", page: "configureDisplay")
             }
-            section(hideable: true, hidden: true, getFormat("box", "Maintenance - Reset to Defaults, Update Members, Delete Members")) {
+            section(hideable: true, hidden: true, getFormat("box", "Maintenance - Sync Member Settings, Reset to Defaults, Delete Members")) {
                 input "syncMobileSettings", "enum", multiple: true, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
                 href(title: "Recommended Default Settings", description: "", style: "page", page: "resetDefaults")
                 href(title: "Delete Family Members", description: "", style: "page", page: "deleteMembers")
@@ -346,12 +347,15 @@ def checkLocatorPriority() {
 def configureHubApp() {
     return dynamicPage(name: "configureHubApp", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Configure Hubitat App")) {
-            if (state.submit) {
-                appButtonHandler(state.submit)
-	            state.submit = ""
-            }
+        }
+        section(hideable: true, hidden: false, "Hubitat Settings - WiFi, Units, Device Prefix") {
             input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas.  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point(s).", defaultValue: ""
             input name: "wifiPresenceKeepRadius", type: "enum", title: "SSID will only be used for presence detection when a member is within this radius from home, Recommended=${displayMFtVal(DEFAULT_wifiPresenceKeepRadius)}", defaultValue: "${DEFAULT_wifiPresenceKeepRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',2000:'1.2 mi',5000:'3.1 mi',10000:'6.2 mi'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',2000:'2 km',5000:'5 km',10000:'10 km'])
+            if (getAndroidMembers()) {
+                input name: "highPowerMode", type: "bool", title: "Use GPS for higher accuracy/performance.  <b>NOTE:</b> This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (<b>Android ONLY</b>)", defaultValue: DEFAULT_highPowerMode
+            }
+            input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: DEFAULT_imperialUnits, submitOnChange: true
+            input name: "deviceNamePrefix", type: "string", title: "Prefix to be added to each member's device name.  For example, member '<b>Bob</b>' with a prefix of '<b>${DEFAULT_CHILDPREFIX}</b>' will have a device name of '<b>${DEFAULT_CHILDPREFIX}Bob</b>'. Member device name will be updated once the Hubibit app is exited. Enter a space to have no prefix in front of the member name.", defaultValue: DEFAULT_CHILDPREFIX, submitOnChange: true, required: true
         }
         section(hideable: true, hidden: false, "Geocode Settings - Converts latitude/longitude to address") {
             input name: "geocodeProvider", type: "enum", title: "Select the optional geocode provider for address lookups.  Allows location latitude/longitude to be displayed as physical address.", description: "Enter", defaultValue: DEFAULT_geocodeProvider, options: GEOCODE_PROVIDERS, submitOnChange: true
@@ -364,22 +368,12 @@ def configureHubApp() {
                 input name: "geocodeAPIKey_$geocodeProvider", type: "string", title: "Geocode API key for address lookups:"
             }
         }
-        section(hideable: true, hidden: true, "Google Map Settings - Creates a combined family map and adds radius bubbles on the 'Region' 'Add/Edit/Delete' page maps") {
-            paragraph ("If user thumbnails have not been added to Hubitat, follow the instructions for 'Enabling User Thumbnail Instructions' first:")
+        section(hideable: true, hidden: false, "Google Map Settings - Creates a combined family map and adds radius bubbles on the 'Region' 'Add/Edit/Delete' page maps") {
+            paragraph ("If user thumbnails have not been added to Hubitat, follow the instructions for 'Enabling User Thumbnail Instructions' to allow images to be displayed on map pins:")
             href(title: "Enabling User Thumbnails", description: "", style: "page", page: "thumbnailCreation")
             input name: "mapFreeOnly", type: "bool", title: "Prevent generating maps once free quota has been exhausted.  Current usage: <b>${state.mapApiUsage}/${GOOGLE_MAP_API_QUOTA} per month</b>.", defaultValue: DEFAULT_mapFreeOnly
             paragraph (GOOGLE_MAP_API_KEY_LINK + " -- <i><b>'Maps JavaScript API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Maps JavaScript API</b>.</i>")
             input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:"
-        }
-        section(hideable: true, hidden: true, "Advanced Settings") {
-            input name: "resetHubDefaultsButton", type: "button", title: "Restore Defaults", state: "submit"
-            input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',1000:'3281 ft',1250:'4101 ft',1500:'4921 ft'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',1000:'1000 m',1250:'1250 m',1500:'1500 m'])
-            input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: DEFAULT_regionHighAccuracyRadiusHomeOnly
-            input name: "warnOnNoUpdateHours", type: "number", title: "Highlight members on the 'Member Status' that have not reported a location for this many hours (1..168)", range: "1..168", defaultValue: DEFAULT_warnOnNoUpdateHours
-            input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: DEFAULT_warnOnDisabledMember
-            input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: DEFAULT_warnOnMemberSettings
-            input name: "highAccuracyOnPing", type: "bool", title: "Request a high accuracy location from members on their next location report after a ping/manual update to keep location fresh (<b>Android ONLY</b>)", defaultValue: DEFAULT_highAccuracyOnPing
-            input name: "autoRequestLocation", type: "bool", title: "Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (<b>Android ONLY</b>)", defaultValue: DEFAULT_autoRequestLocation
         }
     }
 }
@@ -537,8 +531,29 @@ def configureSecondaryHub() {
     }
 }
 
-def configureLocation() {
-    return dynamicPage(name: "configureLocation", title: "", nextPage: "mainPage") {
+def advancedHub() {
+    return dynamicPage(name: "advancedHub", title: "", nextPage: "mainPage") {
+        section(hideable: true, hidden: false, "Hub App Configuration") {
+            if (state.submit) {
+                appButtonHandler(state.submit)
+	            state.submit = ""
+            }
+            input name: "resetHubDefaultsButton", type: "button", title: "Restore Defaults", state: "submit"
+            input name: "regionHighAccuracyRadius", type: "enum", title: "Enable high accuracy reporting when location is between region radius and this value, Recommended=${displayMFtVal(DEFAULT_regionHighAccuracyRadius)}", defaultValue: "${DEFAULT_regionHighAccuracyRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',1000:'3281 ft',1250:'4101 ft',1500:'4921 ft'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',1000:'1000 m',1250:'1250 m',1500:'1500 m'])
+            input name: "regionHighAccuracyRadiusHomeOnly", type: "bool", title: "High accuracy reporting is used for home region only when selected, all regions if not selected", defaultValue: DEFAULT_regionHighAccuracyRadiusHomeOnly
+            input name: "warnOnNoUpdateHours", type: "number", title: "Highlight members on the 'Member Status' that have not reported a location for this many hours (1..168)", range: "1..168", defaultValue: DEFAULT_warnOnNoUpdateHours
+            input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: DEFAULT_warnOnDisabledMember
+            input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: DEFAULT_warnOnMemberSettings
+            if (getAndroidMembers()) {
+                input name: "highAccuracyOnPing", type: "bool", title: "Request a high accuracy location from members on their next location report after a ping/manual update to keep location fresh (<b>Android ONLY</b>)", defaultValue: DEFAULT_highAccuracyOnPing
+                input name: "autoRequestLocation", type: "bool", title: "Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (<b>Android ONLY</b>)", defaultValue: DEFAULT_autoRequestLocation
+            }
+        }
+    }
+}
+
+def advancedLocation() {
+    return dynamicPage(name: "advancedLocation", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Mobile App Location Configuration")) {
             if (state.submit) {
                 appButtonHandler(state.submit)
@@ -550,12 +565,16 @@ def configureLocation() {
 //            input name: "locatorPriority", type: "enum", title: "Source/power setting for location updates, Recommended=${LOCATOR_PRIORITY[DEFAULT_locatorPriority]}", required: true, options: LOCATOR_PRIORITY, defaultValue: DEFAULT_locatorPriority, submitOnChange: true
             input name: "ignoreInaccurateLocations", type: "number", title: "Do not send a location if the accuracy is greater than the given (${getSmallUnits()}) (0..${displayMFtVal(2000)}) Recommended=${displayMFtVal(DEFAULT_ignoreInaccurateLocations)}", required: true, range: "0..${displayMFtVal(2000)}", defaultValue: displayMFtVal(DEFAULT_ignoreInaccurateLocations)
             input name: "ignoreStaleLocations", type: "decimal", title: "Number of days after which location updates from friends are assumed stale and removed (0.0..7.0), Recommended=${DEFAULT_ignoreStaleLocations}", required: true, range: "0.0..7.0", defaultValue: DEFAULT_ignoreStaleLocations
-            input name: "ping", type: "number", title: "Device will send a location interval at this heart beat interval (minutes) (15..360), Recommended=${DEFAULT_ping} (<b>Android ONLY</b>)", required: true, range: "15..60", defaultValue: DEFAULT_ping
+            if (getAndroidMembers()) {
+                input name: "ping", type: "number", title: "Device will send a location interval at this heart beat interval (minutes) (15..360), Recommended=${DEFAULT_ping} (<b>Android ONLY</b>)", required: true, range: "15..60", defaultValue: DEFAULT_ping
+            }
             input name: "pegLocatorFastestIntervalToInterval", type: "bool", title: "Request that the location provider deliver updates no faster than the requested locater interval, Recommended '${DEFAULT_pegLocatorFastestIntervalToInterval}'", defaultValue: DEFAULT_pegLocatorFastestIntervalToInterval
             paragraph("<h3><b>Settings for Significant Monitoring Mode</b></h3>")
-            input name: "locatorDisplacement", type: "number", title: "How far the device travels (${getSmallUnits()}) before receiving another location update, Recommended=${displayMFtVal(DEFAULT_locatorDisplacement)}  <i><b>This value needs to be less than the minimum configured region radius for automations to trigger.</b></i> (<b>Android ONLY</b>)", required: true, range: "0..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_locatorDisplacement)
+            if (getAndroidMembers()) {
+                input name: "locatorDisplacement", type: "number", title: "How far the device travels (${getSmallUnits()}) before receiving another location update, Recommended=${displayMFtVal(DEFAULT_locatorDisplacement)}  <i><b>This value needs to be less than the minimum configured region radius for automations to trigger.</b></i> (<b>Android ONLY</b>)", required: true, range: "0..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_locatorDisplacement)
+            }
             input name: "locatorInterval", type: "number", title: "Device will not report location updates faster than this interval (seconds) unless moving.  When moving, Android uses this 'locaterInterval/6' or '5-seconds' (whichever is greater, unless 'locaterInterval' is less than 5-seconds, then 'locaterInterval' is used), Recommended=60  <i><b>Requires the device to move the above distance, otherwise no update is sent.</b></i>", required: true, range: "0..3600", defaultValue: DEFAULT_locatorInterval, submitOnChange: true
-            if (state.previousLocatorInterval != locatorInterval) {
+            if ((state.previousLocatorInterval != locatorInterval) && getiOSMembers()) {
                 paragraph "<div style='color:#ff0000'>An additional +follow region will be created on iOS devices with this new locater interval.  Manually delete '<b>+${state.previousLocatorInterval}follow</b>' from each iOS device to ensure proper operation.</div>"
             }
             // IE:  locatorInterval=0-seconds,   then locations every 0-seconds  if moved locatorDisplacement meters
@@ -574,8 +593,8 @@ def configureLocation() {
     }
 }
 
-def configureDisplay() {
-    return dynamicPage(name: "configureDisplay", title: "", nextPage: "mainPage") {
+def advancedDisplay() {
+    return dynamicPage(name: "advancedDisplay", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Mobile App Display Configuration")) {
             if (state.submit) {
                 appButtonHandler(state.submit)
@@ -612,10 +631,11 @@ def configureRegions() {
                            "5. The pin will remain red until it is saved.\r" +
                            "<b>NOTE:</b> If a Google geocode API has been entered, an input box to allow direct address lookup will be displayed."
                 )
+                iOSmembers = getiOSMembers()
                 paragraph ("<h2>Edit a Region</h2>" +
                            "1. Select the pin to be edited or a region from the selection box.\r" +
                            "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" +
-                           "<b>NOTE:</b> Changing the 'Region Name' will create a new region on iOS devices.  The previous named region will need to be manually delete from each device.\r"
+                           (iOSmembers ? "<b>NOTE:</b> Changing the 'Region Name' will create a new region on iOS devices $iOSmembers.  The previous named region will need to be manually delete from each device.\r" : "")
                 )
                 paragraph ("<h2>Assign a Home Region</h2>" +
                            "1. Select a pin to be 'Home'.\r" +
@@ -629,7 +649,10 @@ def configureRegions() {
                            "3. <b>NOTE:</b> The actual delete behavior will be based on the operation described below.\r"
                 )
                 input name: "manualDeleteBehavior", type: "bool", title: "Manual Delete", defaultValue: DEFAULT_manualDeleteBehavior, submitOnChange: true
-                paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.</b></div>")
+                legacyApps = getLegacyAndroidMembers()
+                if (legacyApps) {
+                    paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile devices of $legacyApps.</b></div>")
+                }
                 paragraph("<h3><b>Manual Delete: Region Deleted from Hub Only.  Requires Region to be Manually Deleted from Mobile</b></h3>" +
                           "1. Deleted regions will be deleted from the Hubitat <b>ONLY</b>.\r" +
                           "2. On each mobile phone, find and remove the region that was deleted.\r"
@@ -678,15 +701,15 @@ def configureRegions() {
 
 def configureNotifications() {
     return dynamicPage(name: "configureNotifications", title: "", nextPage: "mainPage") {
-        section(getFormat("box", "Configure Region Arrived/Left Notifications")) {
-            input "notificationList", "capability.notification", title: "Global enable/disable of notification devices.  Select per member enter/leave notifications below.", multiple: true, required: false, submitOnChange: true
+        section(getFormat("box", "Configure Region Arrived/Departed Notifications")) {
+            input "notificationList", "capability.notification", title: "Global enable/disable of notification devices.  Select per member enter/leave notifications below for these devices.", multiple: true, required: false, submitOnChange: true
             if (state.submit) {
                 paragraph "<b>${appButtonHandler(state.submit)}</b>"
                 state.submit = ""
             }
             app.removeSetting("notificationEnter")
             app.removeSetting("notificationLeave")
-            input "selectFamilyMembers", "enum", multiple: false, title:"Select family member to change notifications.", options: state.members.name.sort(), submitOnChange: true
+            input "selectFamilyMembers", "enum", multiple: false, title:"Select family member to change arrived/departed notifications.", options: state.members.name.sort(), submitOnChange: true
             if (selectFamilyMembers) {
                 input "notificationEnter", "enum", title: "Select device(s) to get notifications when this member <b>enters</b> a region.", multiple: true, required: false, options: notificationList.collect{entry -> entry.displayName}, defaultValue: state.members.find {it.name==selectFamilyMembers}?.enterDevices
                 input "notificationLeave", "enum", title: "Select device(s) to get notifications when this member <b>leaves</b> a region.", multiple: true, required: false, options: notificationList.collect{entry -> entry.displayName}, defaultValue: state.members.find {it.name==selectFamilyMembers}?.leaveDevices
@@ -749,15 +772,11 @@ def getNonFollowRegions(collectRegions) {
                 // collecton of names and timestamp
                 return (allowedRegions.collectEntries{[it.tst, it.desc]})
             break
-            default:
-                // entire map
-                return (allowedRegions)
-            break
         }
-    } else {
-        // blank map
-        return (allowedRegions)
     }
+    
+    // entire map or blank map
+    return (allowedRegions)
 }
 
 def getHomeRegion() {
@@ -836,9 +855,10 @@ def editRegions() {
                 paragraph "<b>${appButtonHandler(state.submit)}</b>"
                 state.submit = ""
             }
+            iOSmembers = getiOSMembers()
             paragraph ("1. Select the region to be edited.\r" +
                        "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" +
-                       "3. <b>NOTE:</b> Changing the 'Region Name' will create a new region on iOS devices.  The previous named region will need to be manually delete from each device.\r"
+                       (iOSmembers ? "3. <b>NOTE:</b> Changing the 'Region Name' will create a new region on iOS devices $iOSmembers.  The previous named region will need to be manually delete from each device.\r" : "")
             )
             addRegionToEdit()
             if (regionToEdit) {
@@ -1683,8 +1703,6 @@ def isSSIDMatch(dataString, deviceID) {
 }
 
 def updateMemberAttributes(headers, data, member) {
-    String sourceAgent    = headers.'User-agent'
-
     // round to 6-decimal places
     data.lat = data?.lat?.toDouble()?.round(6)
     data.lon = data?.lon?.toDouble()?.round(6)
@@ -1700,23 +1718,26 @@ def updateMemberAttributes(headers, data, member) {
     updateAddress(member, data)
 
     // save the position and timestamp so we can push to other users
-    member.lastReportTime = now()
-    member.latitude       = data?.lat
-    member.longitude      = data?.lon
-    member.timeStamp      = data?.tst
-    member.battery        = data?.batt
-    member.accuracy       = data?.acc
-    member.altitude       = data?.alt
-    member.speed          = data?.vel
-    member.trackerID      = data?.tid
-    member.bs             = data?.bs
-    member.wifi           = data?.wifi
-    member.hib            = data?.hib
-    member.ps             = data?.ps
-    member.bo             = data?.bo
-    member.loc            = data?.loc
-    member.conn           = data?.conn
-    member.android        = (sourceAgent.indexOf(ANDROID_USER_AGENT,0) == -1 ? false : true)
+    member.lastReportTime   = now()
+    member.latitude         = data?.lat
+    member.longitude        = data?.lon
+    member.timeStamp        = data?.tst
+    member.battery          = data?.batt
+    member.accuracy         = data?.acc
+    member.altitude         = data?.alt
+    member.speed            = data?.vel
+    member.trackerID        = data?.tid
+    member.bs               = data?.bs
+    member.wifi             = data?.wifi
+    member.hib              = data?.hib
+    member.ps               = data?.ps
+    member.bo               = data?.bo
+    member.loc              = data?.loc
+    member.conn             = data?.conn
+    member.appVersion       = headers.'User-agent'.toString()
+    
+    //TODO:  Remove in future release - cleanup from the 1.7.41 release
+    member.remove("android")
 }
 
 def updateDevicePresence(member, data) {
@@ -2069,7 +2090,7 @@ private def sendWaypoints(currentMember) {
         return ([ "_type":"cmd","action":"setWaypoints", "waypoints": [ "_type":"waypoints", "waypoints":getHomeRegion() ] ])
     } else {
         // if the member is an android user, then do not send the +follow region
-        return ([ "_type":"cmd","action":"setWaypoints", "waypoints": [ "_type":"waypoints", "waypoints":(currentMember?.android ? getNonFollowRegions(COLLECT_PLACES["map"]) : state.places) ] ])
+        return ([ "_type":"cmd","action":"setWaypoints", "waypoints": [ "_type":"waypoints", "waypoints":(currentMember?.appVersion?.indexOf(ANDROID_USER_AGENT,0) >= 0 ? getNonFollowRegions(COLLECT_PLACES["map"]) : state.places) ] ])
     }
 }
 
@@ -2199,6 +2220,50 @@ private def sendCmdToMember(currentMember) {
     } else {
         return (false)
     }
+}
+
+def getLegacyAndroidMembers() {
+    // returns a list of legacy app members
+    members = []
+    settings?.enabledMembers.each { enabledMember->
+        member = state.members.find {it.name==enabledMember}
+        if (member?.appVersion?.toString()?.indexOf(ANDROID_LEGACY_VERSION,0) >= 0) {
+            members << member.name
+        }
+    }
+    
+    return(members)
+}
+
+def getAndroidMembers() {
+    // returns a list of Android members
+    members = []
+    settings?.enabledMembers.each { enabledMember->
+        member = state.members.find {it.name==enabledMember}
+        if (member?.appVersion?.toString()?.indexOf(ANDROID_USER_AGENT,0) >= 0) {
+            members << member.name
+        }
+    }
+  
+    return(members)
+}
+
+def getiOSMembers() {
+    // returns a list of iOS members
+    members = []
+    settings?.enabledMembers.each { enabledMember->
+        member = state.members.find {it.name==enabledMember}
+        if (member?.appVersion?.toString()?.indexOf(ANDROID_USER_AGENT,0) < 0) {
+            members << member.name
+        }
+    }
+    
+    return(members)
+}
+
+def isAllAndroidMembers() {
+    // check if all users are Android
+    return(settings?.enabledMembers?.size() == getAndroidMembers()?.size() ? true : false)
 }
 
 def validLocationType(locationType) {
@@ -2620,6 +2685,7 @@ def generateConfigMap() {
                     lastIndex = "";
                     lastPosition = "";
                     homeRegion = "${getHomeRegion()?.tst}";
+                    iOSmembers = "${getiOSMembers()}";
                     updateRegionSelector()
                     addRegionListener()
                     updateAddressInput()
@@ -2908,8 +2974,8 @@ def generateConfigMap() {
                                 if (markerIndex.value == places.length) {
                                     places[markerIndex.value] = {lat:0.0,lng:0.0,rad:0,desc:"",tst:0};
                                 }
-                                if ((markers[markerIndex.value].marker.title != "") && (markers[markerIndex.value].marker.title != nameBox.value)) {
-                                    alert("Changing the 'Region Name' will create a new region on iOS devices.  The previous named region will need to be manually delete from each device.");
+                                if ((markers[markerIndex.value].marker.title != "") && (markers[markerIndex.value].marker.title != nameBox.value) && (iOSmembers != "[]")) {
+                                    alert("Changing the 'Region Name' will create a new region on iOS devices " + iOSmembers + ".  The previous named region will need to be manually delete from each device.");
                                 }
                                 markers[markerIndex.value].marker.title = nameBox.value;
                                 markers[markerIndex.value].marker.rad = parseInt(radBox.value);

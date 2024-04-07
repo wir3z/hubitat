@@ -4,7 +4,7 @@ OwnTracks app connects your OwnTracks mobile app to Hubitat Elevation for virtua
 For discussion and more information, visit the Hubitat Community <a href="https://community.hubitat.com/t/release-owntracks/130821" target="_blank">[RELEASE] OwnTracks for Hubitat Presence Detection</a>.
 
 The goal of the integration was to create a central management application for the OwnTracks app.  Mobile app settings and regions can be modified in the Hubitat app and then sent to the mobile app once they report a location.
-The main app page contains a 'Member Status' table that displays location health of each member.
+The main app page contains a 'Member Status' table that displays location health of each member.  The best experience, it is recommended to sign up for a free Google Maps API key to allow for dynamic region configuration and member maps.
 
 ## Hubitat Installation
 ### Automatic Install
@@ -71,14 +71,69 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 		
 - Click the up arrow button in the top right of the map to trigger a 'Send Location Now' to register the device with the Hubitat App.  
 
-## Configure Regions
-NOTE:  If a Google Map API key is entered in the 'Additional Hubitat App Settings -> Google map Settings', an interactive map will be displayed to allow regions to be added, edited, and deleted.  Regions will show radius bubbles and the home region can be directly assign to any pin.
+## Configure Hubitat App - WiFi Settings, Location Performance, Geocode and Map API keys
+### Hubitat Settings - WiFi, Units, Device Prefix
+- Enter your 'Home' WiFi SSID(s), separated by commas (optional):
+	- This will prevent devices from being 'non-present' if currently connected to these WiFi access points.
+- SSID will only be used for presence detection when a member is within this radius from home
+	- Once the member exceeds this distance, SSID will no longer be used for 'present' and 'not present' detection.
+	
+- Mobile App Location Performance (Android Only)	
+    - Use GPS for higher accuracy/performance.  NOTE: This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (Android ONLY)
+	
+- Display Units
+    - Select the slider to display all measurements in the Hubitat app in imperial units (mph, mi, ft) instead of metric units (kph, km, m)
+    - All distances are stored in metric and may have minor rounding errors when converted to imperial for display.
+    NOTE: The OwnTracks mobile app stores and displays all units in metric.
+		
+- Prefix to be added to each member's device name. 
+    - By default, each member device will be created with a 'OwnTracks - ' prefix.
+    - For example, member 'Bob' will have a device name of 'OwnTracks - Bob'. 
+    - Enter a space to have no prefix in front of the member name.
+	
+### Geocode Settings - Converts latitude/longitude to address
+- Select the optional geocode provider for address lookups. Allows location latitude/longitude to be displayed as physical address.	
+	- A geocode provider can be used to convert latitude/longitude into addresses and street addresses, as well as allow entering street address in the 'Add Region' section.
+	- Three providers are supported: Google, Geoapify, and Opencage.  When a provider is selected, the link to sign up for an API key will changes.
+	- Google provides the best accuracy in the forward and reverse lookups, but has the lowest quota.  NOTE: Google uses a monthly quota versus the daily quota of the other providers.
+- Prevent geocode lookups once free quota has been exhausted.  Current usage: x/y per z	
+	- Each provider has a free quota level.  This slider should be selected unless you are on a paid geocoder plan.
+	- The usage total indicates the current usage in the quota period.  Google resets the total at the first of every month, the other providers daily, at 00:00 GMT.
+	- Click the 'Sign up for a xxx API Key' link, and follow the directions to get the API key (this will be a string of random letters and numbers).
+	- Once the quota has been exhausted for the period, the application will stop converting locations until the next quote period.
+	- For Google, 'Geocoding API' must be enabled under 'API's & Services' (https://console.cloud.google.com/apis/dashboard)
+- Geocode API key for address lookups:
+	- Paste the API key provided into the box.
+- All three providers can be configured, but only the select on will be used for geocode look ups.
+- Select 'Disabled' to disable geocode lookups.
+
+### Google Map Settings - Creates a combined family map and adds radius bubbles on the 'Region' 'Add/Edit/Delete' page maps
+Creates a Google map with all members' thumbnails shown as well as region radius' when adding/editing regions.
+	- Selecting a member will display an information window on their location and metrics.
+	- If battery saver is turned on, the battery percentage is displayed in red.
+	- If charging, the battery icon changes to a lightning bolt.
+	- If wifi is disabled, the wifi symbol will have a line through it, and the member name is displayed in red
+	- If the phone is using mobile data, the cellular signal icon is displayed in the top banner.  If using wifi data, a wifi symbol is displayed.
+	- Distance from home, location accuracy and speed will be displayed if enabled.
+	- The last location time will be displayed in red if it is stale.
+NOTE:  Requires member thumbnails to be enabled, and will only display users using a local dashboard.
+- Prevent generating maps once free quota has been exhausted.  Current usage: x/y per month.	
+	- Google maps as a free quota level.  This slider should be selected unless you are on a paid plan.
+	- The usage total indicates the current usage in the quota period.  Google resets the total at the first of every month.
+	- Click the 'Sign up for a Google API Key' link, and follow the directions to get the API key (this will be a string of random letters and numbers).
+	- 'Maps JavaScript API' must be enabled under 'API's & Services' (https://console.cloud.google.com/apis/dashboard)
+	- Once the quota has been exhausted for the period, the application will stop generating the map until the next quote period.
+- Google Maps API key for combined family location map:
+	- Paste the API key provided into the box.
+
+## Configure Regions - Add, Edit, Delete, Assign 'Home'
+NOTE:  If a Google Map API key is entered in the 'Configure Hubitat App -> Google map Settings', an interactive map will be displayed to allow regions to be added, edited, and deleted.  Regions will show radius bubbles and the home region can be directly assign to any pin.
 - Select the 'Region Map Instructions and Delete Behavior' for information on how to use the interactive map.
 - If a Google geocode API has been entered, an input box to allow direct address lookup will be displayed.
 - If no Google Map API key has been entered, or the lookup quota has been exceeded, then the app will change to use the direct approach, below.
 
 - Add Regions:
-    - If a geocode provider has been configured in 'Additional Hub Settings', a text box will be displayed to allow entering street addresses to be converted to latitude/longitude.
+    - If a geocode provider has been configured in 'Configure Hubitat App', a text box will be displayed to allow entering street addresses to be converted to latitude/longitude.
 		- NOTE: Google provides the best lookup accuracy.  If using other providers, confirm the map pin looks correct.
 		- Click 'View larger Map' on the map and then right click on the map to get the correct latitude/longitude.
 	- Enter the name, detection radius and coordinates.
@@ -133,21 +188,12 @@ NOTE: A region named '+follow' is automatically created to allow iOS phones to h
 	- Only the 'Home' region will be pushed to private members.
 	- Their Hubitat device will only display presence information.
 	- If using the secondary hub connection, you will need to select these members as private on that hub.
-	
-## Display Units
-- Select the slider to display all measurements in the Hubitat app in imperial units (mph, mi, ft) instead of metric units (kph, km, m)
-- All distances are stored in metric and may have minor rounding errors when converted to imperial for display.
-NOTE: The OwnTracks mobile app stores and displays all units in metric.
-		
-## Prefix to be added to each member's device name. 
-- By default, each member device will be created with a 'OwnTracks - ' prefix.
-- For example, member 'Bob' will have a device name of 'OwnTracks - Bob'. 
-- Enter a space to have no prefix in front of the member name.
 
-## Configure Region Arrived/Left Notifications
+## Configure Region Arrived/Departed Notifications
 - Global enable/disable of notification devices.
 	- Select notification devices that can be used to receive notifications.
 	- Disabling a device will stop ALL member notifications, without changing each member, below.
+	- Only devices that have been selected will appear in the per member notification settings, below.
 - Select family member to change notifications.
 	- Select a family member to change their notification settings.
 	- Select device(s) to get notifications when this member enters a region. (Only selected devices in the global settings, above are displayed.)
@@ -162,13 +208,43 @@ NOTE: The OwnTracks mobile app stores and displays all units in metric.
 		- REGION: place member name entered or left
 		- TIME: time that member name entered or left region	
 		
-## Additional Hubitat App Settings
-- Enter your 'Home' WiFi SSID(s), separated by commas (optional):
-	- This will prevent devices from being 'non-present' if currently connected to these WiFi access points.
-- SSID will only be used for presence detection when a member is within this radius from home
-	- Once the member exceeds this distance, SSID will no longer be used for 'present' and 'not present' detection.
 
-### Advanced Settings	
+### Dashboard Web Links
+Displays direct cloud and local web links for the family, member and recorder maps.
+
+
+# Optional Features - Thumbnails, Recorder, Secondary Hub
+## Enabling User Thumbnails:  
+- Directions to create thumbnails for the mobile app and recorder.
+- Display user thumbnails on the map.  Needs to have a 'user.jpg' image uploaded to the 'Settings->File Manager'
+	- Maximum resolution 192x192 pixels 
+	- Maximum file size of 45kB
+	- Sends back each user's thumbnail picture when the send their location report.		
+
+## Enable OwnTracks Recorder
+- The optional Owntracks recorder:  https://owntracks.org/booklet/clients/recorder/ can be installed for local tracking.
+- For the Recorder dashboard tiles and links to work outside the home network, the recorder must have a secure URL (https) and be secured with a public certificate.
+- HTTP URL of the OwnTracks Recorder will be in the format 'http://enter.your.recorder.ip:8083', assuming using the default port of 8083.
+- Follow the directions on the page 'Installing OwnTracks Recorder and Configuring User Card Instructions' to install OwnTrack Recorder and configure user cards.
+- When 'Enable location updates to be sent to the Recorder URL' is selected, incoming mobile locations are mirrored to the above URL. 
+- To view the OwnTracks recorder, open a web browser and navigate to 'http://enter.your.recorder.ip:8083'
+
+## Enable Optional OwnTracks Frontend
+- The optional Owntracks Fronend:  https://github.com/owntracks/frontend/ can be installed to provide a different user experience than the OwnTracks Recorder.
+- NOTE:  OwnTracks Recorder MUST be already installed and operational.
+- To view the OwnTracks frontend, open a web browser and navigate to 'http://enter.your.recorder.ip:8082'
+
+## Link Secondary Hub
+- Allows location updates to be sent to a secondary hub running the OwnTracks app.
+- Enter the host URL of the Seconday Hub from the OwnTracks app 'Mobile App Installation Instructions' page.
+- When 'Enable location updates to be sent to the secondary hub URL' is selected, incoming mobile locations are mirrored to the above URL. 
+
+
+# Advanced Settings - Hub and Mobile
+The default settings provide the best balance of accuracy/power.
+NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or 'cmd' (iOS) must be enabled in the mobile app.
+
+## Hub App Settings	
 The defaults for the rest of these settings should be sufficient for verifying operation.
 - Restore Defaults
 	- Resets the settings to the recommended defaults
@@ -186,77 +262,6 @@ The defaults for the rest of these settings should be sufficient for verifying o
 	- If selected, members reporting stale locations will be requested to send a high accuracy location on their next location report
 - Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (Android ONLY)
 	- If selected, members reporting a ping or manual location will be requested to send a high accuracy location on their next location report
-
-### Geocode Settings - Converts latitude/longitude to address
-- Select the optional geocode provider for address lookups. Allows location latitude/longitude to be displayed as physical address.	
-	- A geocode provider can be used to convert latitude/longitude into addresses and street addresses, as well as allow entering street address in the 'Add Region' section.
-	- Three providers are supported: Google, Geoapify, and Opencage.  When a provider is selected, the link to sign up for an API key will changes.
-	- Google provides the best accuracy in the forward and reverse lookups, but has the lowest quota.  NOTE: Google uses a monthly quota versus the daily quota of the other providers.
-- Prevent geocode lookups once free quota has been exhausted.  Current usage: x/y per z	
-	- Each provider has a free quota level.  This slider should be selected unless you are on a paid geocoder plan.
-	- The usage total indicates the current usage in the quota period.  Google resets the total at the first of every month, the other providers daily, at 00:00 GMT.
-	- Click the 'Sign up for a xxx API Key' link, and follow the directions to get the API key (this will be a string of random letters and numbers).
-	- Once the quota has been exhausted for the period, the application will stop converting locations until the next quote period.
-	- For Google, 'Geocoding API' must be enabled under 'API's & Services' (https://console.cloud.google.com/apis/dashboard)
-- Geocode API key for address lookups:
-	- Paste the API key provided into the box.
-- All three providers can be configured, but only the select on will be used for geocode look ups.
-- Select 'Disabled' to disable geocode lookups.
-
-### Google Map Settings - Creates a combined family map and adds radius bubbles on the 'Region' 'Add/Edit/Delete' page maps
-Creates a Google map with all members' thumbnails shown as well as region radius' when adding/editing regions.
-	- Selecting a member will display an information window on their location and metrics.
-	- If battery saver is turned on, the battery percentage is displayed in red.
-	- If charging, the battery icon changes to a lightning bolt.
-	- If wifi is disabled, the wifi symbol will have a line through it, and the member name is displayed in red
-	- If the phone is using mobile data, the cellular signal icon is displayed in the top banner.  If using wifi data, a wifi symbol is displayed.
-	- Distance from home, location accuracy and speed will be displayed if enabled.
-	- The last location time will be displayed in red if it is stale.
-NOTE:  Requires member thumbnails to be enabled, and will only display users using a local dashboard.
-- Prevent generating maps once free quota has been exhausted.  Current usage: x/y per month.	
-	- Google maps as a free quota level.  This slider should be selected unless you are on a paid plan.
-	- The usage total indicates the current usage in the quota period.  Google resets the total at the first of every month.
-	- Click the 'Sign up for a Google API Key' link, and follow the directions to get the API key (this will be a string of random letters and numbers).
-	- 'Maps JavaScript API' must be enabled under 'API's & Services' (https://console.cloud.google.com/apis/dashboard)
-	- Once the quota has been exhausted for the period, the application will stop generating the map until the next quote period.
-- Google Maps API key for combined family location map:
-	- Paste the API key provided into the box.
-
-### Map Web Links
-Displays direct cloud and local web links for the family, member and recorder maps.
-
-
-# Optional Features
-## Enabling User Thumbnails:  
-- Directions to create thumbnails for the mobile app and recorder.
-- Display user thumbnails on the map.  Needs to have a 'user.jpg' image uploaded to the 'Settings->File Manager'
-	- Maximum resolution 192x192 pixels 
-	- Maximum file size of 45kB
-	- Sends back each user's thumbnail picture when the send their location report.		
-## Enable OwnTracks Recorder
-- The optional Owntracks recorder:  https://owntracks.org/booklet/clients/recorder/ can be installed for local tracking.
-- For the Recorder dashboard tiles and links to work outside the home network, the recorder must have a secure URL (https) and be secured with a public certificate.
-- HTTP URL of the OwnTracks Recorder will be in the format 'http://enter.your.recorder.ip:8083', assuming using the default port of 8083.
-- Follow the directions on the page 'Installing OwnTracks Recorder and Configuring User Card Instructions' to install OwnTrack Recorder and configure user cards.
-- When 'Enable location updates to be sent to the Recorder URL' is selected, incoming mobile locations are mirrored to the above URL. 
-- To view the OwnTracks recorder, open a web browser and navigate to 'http://enter.your.recorder.ip:8083'
-## Enable Optional OwnTracks Frontend
-- The optional Owntracks Fronend:  https://github.com/owntracks/frontend/ can be installed to provide a different user experience than the OwnTracks Recorder.
-- NOTE:  OwnTracks Recorder MUST be already installed and operational.
-- To view the OwnTracks frontend, open a web browser and navigate to 'http://enter.your.recorder.ip:8082'
-## Link Secondary Hub
-- Allows location updates to be sent to a secondary hub running the OwnTracks app.
-- Enter the host URL of the Seconday Hub from the OwnTracks app 'Mobile App Installation Instructions' page.
-- When 'Enable location updates to be sent to the secondary hub URL' is selected, incoming mobile locations are mirrored to the above URL. 
-
-
-# Advanced Mobile App Settings
-The default mobile settings provide the best balance of accuracy/power.  To view or modify advanced settings, enable the 'Modify Default Settings' slider.	
-NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or 'cmd' (iOS) must be enabled in the mobile app.
-
-- Use GPS for higher accuracy/performance.  NOTE: This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (Android ONLY)
-- Modify Default Settings
-	- Display the 'Mobile App Location Settings' and 'Mobile App Display Settings'
 	
 ## Mobile App Location Settings	
 - Restore Defaults
@@ -295,14 +300,14 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 - Display Geocoder errors in the notification banner
 
 	
-# Maintenance
+# Maintenance - Sync Member Settings, Reset to Defaults, Delete Members
 - Select family member(s) to update location, display and region settings on the next location update:
 	- The user will be registered to receive this update once 'Done' is pressed.
 - Recommended Default Settings
 	NOTE:  Members, Regions, Recorder and Secondary Hub settings will not be deleted.
-	- Restore Defaults for All Settings - resets the 'Additional Hub Settings', 'Mobile App Location Settings', and 'Mobile App Display Settings' to the recommended defaults.
+	- Restore Defaults for All Settings - resets the 'Hub App Settings', 'Mobile App Location Settings', and 'Mobile App Display Settings' to the recommended defaults.
 
-	- Restore Defaults for 'Additional Hub Settings' to the recommended defaults.
+	- Restore Defaults for 'Hub App Settings' to the recommended defaults.
 	- Restore Defaults for 'Mobile App Location Settings' to the recommended defaults.
 	- Restore Defaults for 'Mobile App Display Settings' to the recommended defaults.
 - Delete Family Members:
@@ -335,10 +340,10 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 	- Enter the number of days the 'PastLocations' tile will start searching from the current date.
 - Create a notification if member enters a region
 	- Sends Hubitat app notifications when the member arrives
-	NOTE:  Requires a notification device to be selected in the 'Additional Hub App Settings' -> 'Select notification devices to get region enter/leave notifications."
+	NOTE:  Requires a notification device to be selected in the 'Configure Region Arrived/Departed Notifications' -> 'Select notification devices to get region enter/leave notifications."
 - Create a notification if member leaves a region
 	- Sends Hubitat app notifications when the member leaves
-	NOTE:  Requires a notification device to be selected in the 'Additional Hub App Settings' -> 'Select notification devices to get region enter/leave notifications."
+	NOTE:  Requires a notification device to be selected in the 'Configure Region Arrived/Departed Notifications' -> 'Select notification devices to get region enter/leave notifications."
 - Enable Description Text logging
 	- Displays general descriptive logs (arrived, departed, etc.)
 - Enable Debug Logging
@@ -365,15 +370,15 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 	- PresenceTile : HTML presence tile
 	- since : timestamp on the last location change - only updates if the location has moved
 	- sourceTopic : user/device information
-	- transitionRegion : region the user arrived/left
-	- transitionDirection : direction of travel from the region (arrived/left)
-	- transitionTime : time the user arrived/left the region
+	- transitionRegion : region the user arrived/departed
+	- transitionDirection : direction of travel from the region (arrived/departed)
+	- transitionTime : time the user arrived/departed the region
 	- triggerSource : Ping/Region/Report Location/Manual/Beacon/Timer/Monitoring/Location
 	- verticalAccuracy : vertical accuracy
 	- address : Full address of the location (if available) or lat,lon
 	- streetAddress : Street address of the location (if available) or lat,lon
 	- MemberLocation : HTML status tile
-- Additional Attribute Description for APK 2.4.16.  
+- Additional Attribute Description for APK 2.4.17.  
 	- wifi : on/off
 	- batterySaver : 0/1, 1 indicates the phone is in battery saver mode
 	- hiberateAllowed : 0/1, 1 indicates the OwnTracks app can pause if unused for a period of time
@@ -409,7 +414,7 @@ NOTE: For settings to be sent to the device, 'Remote configuration' (Android) or
 OwnTracks is an open source mobile presence application for the Android and iOS platforms.  Unlike other commercial presence apps, OwnTracks only sends location information to a location that you managed, such as this integration, and does not monetize your location information.
 
 ### Where do I get the Mobile application?
-You can get the official released version for Android and iOS here: https://owntracks.org/ .  A modified Android version with multiple improvements including background operation, remote region delete and keep alive can be found here:  https://github.com/wir3z/hubitat/blob/main/owntracks-android-apk/app-gms-debug_v2.4.16.apk
+You can get the official released version for Android and iOS here: https://owntracks.org/ .  A modified Android version with multiple improvements including background operation, remote region delete and keep alive can be found here:  https://github.com/wir3z/hubitat/blob/main/owntracks-android-apk/app-gms-debug_v2.4.17.apk
 
 ### How do I set up Hubitat to support this integration?
 View the README.MD found here: https://github.com/wir3z/hubitat/tree/main/owntracks-hubitat
@@ -434,7 +439,7 @@ The Hubitat app processes all the distances and speeds in metric.  They are conv
 ### What are regions?  Why do I want these?
 Regions are 'location bubbles' that are bound by a radius around it.  If the mobile enters or leaves one of these radius', the Hubitat app can display the status of this transition.
 
-They are handy for giving more meaningful locations of 'Arrived at Work' or 'Left Home'.  You need to create at least one region to define your home location for presence detection to work.
+They are handy for giving more meaningful locations of 'Arrived at Work' or 'Departed from Home'.  You need to create at least one region to define your home location for presence detection to work.
 
 ### I've added, edited or deleted a region, and the mobile app isn't showing the changes
 The mobile will retrieve the update on its next location report.  You an trigger a manual location update from the mobile app by tapping the up arrow in the top right of the map to force this to occur instantly.
@@ -448,11 +453,14 @@ iOS devices use the 'Region Name' as a unique identifier.  If the name was chang
 iOS devices use the 'Region Name' as a unique identifier.  Changing the name creates a 'new region' and the old one would need to be manually deleted from each mobile device.
 
 ### I see a region called '+60follow' or some other '+follow' name.  What do these do?
-In order to ensure iOS devices have better performance and stop sleeping the OwnTracks app, one of these regions must exist on the phone.  If you have an Android phone, it will get pushed to your device, but will never be used and can be ignored.
+In order to ensure iOS devices have better performance and stop sleeping the OwnTracks app, one of these regions must exist on the phone.
 
 The number after the + sign is the 'locater interval' value from the Hubitat 'Advanced Mobile App Settings'.  By default it is '60' seconds.  If you change the 'locater interval' value in 'Advanced Mobile App Settings', your iOS device will receive a new +follow region.  Delete the old one otherwise performance will be impacted.
 
 ## Presence Detection
+### My phone isn't reporting to the Hubitat App
+Make sure that the app has location permissions enabled.  Without location permissions, the app is not allowed to report locations.
+
 ### My iOS phone is slow to update
 Check the regions on the impacted device.  There should be only one +follow named region.  If there are multiple, delete all of the ones that do not match the 'locater interval' number from the Hubitat 'Advanced Mobile App Settings'.  By default, you should have a '+60follow' region.
 
@@ -478,3 +486,8 @@ Recorder captures all the locations send to the Hubitat app to allow a breadcrum
 ## OwnTracks Frontend
 ### What is Frontend, and why do I want this?
 Frontend requires the Recorder to be installed an configured.  It offers a different user experience for browsing past breadcrumb trails to be viewed on a map.	
+
+## Map and Geocode API Keys
+The app supports using a Google Maps API key to generate dynamic member and region configuration maps.  For the best experience, sign up for a free Google Map API key using the directions on the 'Configure Hubitat App' page.
+
+The app supports using a Google Map, Geoapify and Opencage API keys for converting latitude and longitude to street addresses.  Directions to sign up for free API keys are found on the 'Configure Hubitat App' page.
