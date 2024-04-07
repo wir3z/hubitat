@@ -4,7 +4,9 @@ OwnTracks app connects your OwnTracks mobile app to Hubitat Elevation for virtua
 For discussion and more information, visit the Hubitat Community <a href="https://community.hubitat.com/t/release-owntracks/130821" target="_blank">[RELEASE] OwnTracks for Hubitat Presence Detection</a>.
 
 The goal of the integration was to create a central management application for the OwnTracks app.  Mobile app settings and regions can be modified in the Hubitat app and then sent to the mobile app once they report a location.
-The main app page contains a 'Member Status' table that displays location health of each member.  The best experience, it is recommended to sign up for a free Google Maps API key to allow for dynamic region configuration and member maps.
+The main app page contains a 'Member Status' table that displays location health of each member.  
+
+The best experience, it is recommended to sign up for a free Google Maps API key to allow for dynamic region configuration and member maps.
 
 ## Hubitat Installation
 ### Automatic Install
@@ -209,7 +211,7 @@ NOTE: A region named '+follow' is automatically created to allow iOS phones to h
 		- TIME: time that member name entered or left region	
 		
 
-### Dashboard Web Links
+## Dashboard Web Links
 Displays direct cloud and local web links for the family, member and recorder maps.
 
 
@@ -488,6 +490,7 @@ Recorder captures all the locations send to the Hubitat app to allow a breadcrum
 Frontend requires the Recorder to be installed an configured.  It offers a different user experience for browsing past breadcrumb trails to be viewed on a map.	
 
 ## Map and Geocode API Keys
+### What are these keys for, and why do I want this?
 The app supports using a Google Maps API key to generate dynamic member and region configuration maps.  For the best experience, sign up for a free Google Map API key using the directions on the 'Configure Hubitat App' page.
 
 The app supports using a Google Map, Geoapify and Opencage API keys for converting latitude and longitude to street addresses.  Directions to sign up for free API keys are found on the 'Configure Hubitat App' page.
