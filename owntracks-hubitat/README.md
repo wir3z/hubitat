@@ -461,7 +461,8 @@ The number after the + sign is the 'locater interval' value from the Hubitat 'Ad
 
 ## Presence Detection
 ### My phone isn't reporting to the Hubitat App
-Make sure that the app has location permissions enabled.  Without location permissions, the app is not allowed to report locations.
+1. Make sure that the app has location permissions enabled.  Without location permissions, the app is not allowed to report locations.
+2. If thumbnails are enabled, ensure the size is not too large.  Thumbnails can be up to 192x192 pixels, but high DPI images will result in large file sizes.  For optimal performance, create a thumbnail of 96x96 pixels and 96 DPI.  This will create a final file size of ~5kB.
 
 ### My iOS phone is slow to update
 Check the regions on the impacted device.  There should be only one +follow named region.  If there are multiple, delete all of the ones that do not match the 'locater interval' number from the Hubitat 'Advanced Mobile App Settings'.  By default, you should have a '+60follow' region.

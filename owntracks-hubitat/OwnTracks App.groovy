@@ -416,8 +416,8 @@ def thumbnailCreation() {
         section(getFormat("box", "Enabling User Thumbnails")) {
             paragraph ("Creating User Thumbnails for the OwnTracks Mobile App and optional OwnTracks Recorder.\r\n\r\n" +
                        "     1. Create a thumbnail for the user at a maximum resolution 192x192 pixels in JPG format using your computer.\r" +
-                       "          a. Ensure the final file size is less than 20kB to ensure location timeouts do not occur.\r" +
-                       "          b. Smaller sizes (~5KB) are optimal.\r" +
+                       "          a. 96x96 pixels at 96 DPI create a file size of ~5kB which is optimal.\r" +
+                       "          b. Large file sizes can cause location timeouts from the mobile device.\r" +
                        "     2. Name the thumbnail 'MyUser.jpg' where 'MyUser' is the same name as the user name (case sensitive) entered in the mobile app.\r" +
                        "     3. In Hubitat:\r" +
                        "          a. Navigate to the <a href='http://${location.hubs[0].getDataValue("localIP")}/hub/fileManager' target='_blank'>Hubitat File Manager</a> ('Settings->File Manager').\r" +
@@ -1737,9 +1737,6 @@ def updateMemberAttributes(headers, data, member) {
     member.loc              = data?.loc
     member.conn             = data?.conn
     member.appVersion       = headers.'User-agent'.toString()
-    
-    //TODO:  Remove in future release - cleanup from the 1.7.41 release
-    member.remove("android")
 }
 
 def updateDevicePresence(member, data) {
