@@ -93,7 +93,7 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
     - For example, member 'Bob' will have a device name of 'OwnTracks - Bob'. 
     - Enter a space to have no prefix in front of the member name.
 	
-### Geocode Settings - Converts latitude/longitude to address
+### Geocode API Settings - Converts latitude/longitude to address
 - Select the optional geocode provider for address lookups. Allows location latitude/longitude to be displayed as physical address.	
 	- A geocode provider can be used to convert latitude/longitude into addresses and street addresses, as well as allow entering street address in the 'Add Region' section.
 	- Three providers are supported: Google, Geoapify, and Opencage.  When a provider is selected, the link to sign up for an API key will changes.
@@ -109,7 +109,7 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 - All three providers can be configured, but only the select on will be used for geocode look ups.
 - Select 'Disabled' to disable geocode lookups.
 
-### Google Map Settings - Creates a combined family map and adds radius bubbles on the 'Region' 'Add/Edit/Delete' page maps
+### Google Map API Settings - Creates a combined family map and adds radius bubbles on the 'Region' 'Add/Edit/Delete' page maps
 Creates a Google map with all members' thumbnails shown as well as region radius' when adding/editing regions.
 	- Selecting a member will display an information window on their location and metrics.
 	- If battery saver is turned on, the battery percentage is displayed in red.

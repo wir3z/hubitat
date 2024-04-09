@@ -94,6 +94,7 @@
  *  1.7.41     2024-04-06      - Detect the incoming phone OS and prevent +follow regions from being sent to Android.
  *  1.7.42     2024-04-07      - Refactored layout and section labels to group recommend vs optional configurations.
  *  1.7.43     2024-04-07      - Changed cloud/local URL sourcing.  Fixed Google Family map local URL not displaying members.
+ *  1.7.44     2024-04-09      - Changed collapsible sections to retain past state.
  */
 
 import groovy.transform.Field
@@ -102,7 +103,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.43"}
+def appVersion() { return "1.7.44"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -254,74 +255,82 @@ def mainPage() {
                 displayMissingHomePlace()
                 displayRegionsPendingDelete()
             }
-            section(hideable: true, hidden: false, getFormat("box", "Installation and Configuration")) {
-                href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
-                href(title: "Configure Hubitat App - WiFi Settings, Units, Location Performance, Geocode and Map API keys", description: "", style: "page", page: "configureHubApp")
-                href(title: "Configure Regions - Add, Edit, Delete, Assign 'Home'", description: "", style: "page", page: "configureRegions")
-                input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + "Select family member(s) to monitor.  Member device will be created and configured once 'Done' is pressed, below.</div>", options: (state.members ? state.members.name.sort() : []), submitOnChange: true
-                input "privateMembers", "enum", multiple: true, title:(privateMembers ? '<div style="color:#ff0000">' : '<div>') + 'Select family member(s) to remain private.  Locations and regions will <B>NOT</b> be shared with other members or the Recorder.  Their Hubitat device will only display presence information.</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
-                href(title: "Configure Region Arrived/Departed Notifications", description: "", style: "page", page: "configureNotifications")
-            }
-            section(hideable: true, hidden: true, getFormat("box", "Dashboard Web Links")) {
-                URL_SOURCE.each{ source->
-                    paragraph ((source == URL_SOURCE[0] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>"))
-                    if (googleMapsAPIKey) {
-                        paragraph ("<b>Google family map:</b></br>&emsp;<a href='${getAttributeURL(source, "googlemap")}'>${getAttributeURL(source, "googlemap")}</a></br>")
-                        paragraph ("<b>Region configuration map:</b></br>&emsp;<a href='${getAttributeURL(source, "configmap")}'>${getAttributeURL(source, "configmap")}</a></br>")
-                    }
-                    if (state.members) {
-                        urlList = ""
-                        state.members.each { member->
-                            urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source, "membermap/${member.name.toLowerCase()}")}'>${getAttributeURL(source, "membermap/${member.name.toLowerCase()}")}</a></br>"
+            section() {
+                input name: "sectionInstall", type: "button", title: getSectionTitle(state.show.install, "Installation and Configuration"), submitOnChange: true, style: getSectionStyle()
+                if (state.show.install) {
+                    href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
+                    href(title: "Configure Hubitat App - WiFi Settings, Units, Location Performance, Device Prefix, Geocode and Map API keys", description: "", style: "page", page: "configureHubApp")
+                    href(title: "Configure Regions - Add, Edit, Delete, Assign 'Home'", description: "", style: "page", page: "configureRegions")
+                    input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + "Select family member(s) to monitor.  Member device will be created and configured once 'Done' is pressed, below.</div>", options: (state.members ? state.members.name.sort() : []), submitOnChange: true
+                    input "privateMembers", "enum", multiple: true, title:(privateMembers ? '<div style="color:#ff0000">' : '<div>') + 'Select family member(s) to remain private.  Locations and regions will <B>NOT</b> be shared with other members or the Recorder.  Their Hubitat device will only display presence information.</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
+                    href(title: "Configure Region Arrived/Departed Notifications", description: "", style: "page", page: "configureNotifications")
+                }
+                input name: "sectionLinks", type: "button", title: getSectionTitle(state.show.links, "Dashboard Web Links"), submitOnChange: true, style: getSectionStyle()
+                if (state.show.links) {
+                    URL_SOURCE.each{ source->
+                        paragraph ((source == URL_SOURCE[0] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>"))
+                        if (googleMapsAPIKey) {
+                            paragraph ("<b>Google family map:</b></br>&emsp;<a href='${getAttributeURL(source, "googlemap")}'>${getAttributeURL(source, "googlemap")}</a></br>")
+                            paragraph ("<b>Region configuration map:</b></br>&emsp;<a href='${getAttributeURL(source, "configmap")}'>${getAttributeURL(source, "configmap")}</a></br>")
                         }
-                        paragraph ("<b>Member location map:</b></br>${urlList}")
-                    }
-                    if (state.members) {
-                        urlList = ""
-                        state.members.each { member->
-                            urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source, "memberpresence/${member.name.toLowerCase()}")}'>${getAttributeURL(source, "memberpresence/${member.name.toLowerCase()}")}</a></br>"
+                        if (state.members) {
+                            urlList = ""
+                            state.members.each { member->
+                                urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source, "membermap/${member.name.toLowerCase()}")}'>${getAttributeURL(source, "membermap/${member.name.toLowerCase()}")}</a></br>"
+                            }
+                            paragraph ("<b>Member location map:</b></br>${urlList}")
                         }
-                        paragraph ("<b>Member Presence:</b></br>${urlList}")
-                    }
-                    if (recorderURL) {
-                        // only display the recorder links if it's a local URL or if it's https (required for the cloud link)
-                        if ((source.value != URL_SOURCE[0]) || isHTTPsURL(getRecorderURL())) {
-                            paragraph ("<b>OwnTracks Recorder family map:</b></br>&emsp;<a href='${getAttributeURL(source, "recordermap")}'>${getAttributeURL(source, "recordermap")}</a>")
+                        if (state.members) {
+                            urlList = ""
+                            state.members.each { member->
+                                urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source, "memberpresence/${member.name.toLowerCase()}")}'>${getAttributeURL(source, "memberpresence/${member.name.toLowerCase()}")}</a></br>"
+                            }
+                            paragraph ("<b>Member Presence:</b></br>${urlList}")
+                        }
+                        if (recorderURL) {
+                            // only display the recorder links if it's a local URL or if it's https (required for the cloud link)
+                            if ((source.value != URL_SOURCE[0]) || isHTTPsURL(getRecorderURL())) {
+                                paragraph ("<b>OwnTracks Recorder family map:</b></br>&emsp;<a href='${getAttributeURL(source, "recordermap")}'>${getAttributeURL(source, "recordermap")}</a>")
 
-                            if (state.members) {
-                                urlList = ""
-                                state.members.each { member->
-                                    urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}'>${getAttributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}</a></br>"
+                                if (state.members) {
+                                    urlList = ""
+                                    state.members.each { member->
+                                        urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}'>${getAttributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}</a></br>"
+                                    }
+                                    paragraph ("<b>OwnTracks Recorder member past locations:</b></br>${urlList}")
                                 }
-                                paragraph ("<b>OwnTracks Recorder member past locations:</b></br>${urlList}")
                             }
                         }
                     }
                 }
-            }
-            section(hideable: true, hidden: true, getFormat("box", "Optional Features - Thumbnails, Recorder, Secondary Hub")) {
-                href(title: "Enabling User Thumbnails", description: "", style: "page", page: "thumbnailCreation")
-                href(title: "Enable OwnTracks Recorder", description: "", style: "page", page: "configureRecorder")
-                href(title: "Link Secondary Hub", description: "", style: "page", page: "configureSecondaryHub")
-            }
-            section(hideable: true, hidden: true, getFormat("box", "Advanced Settings - Hub and Mobile")) {
-                paragraph("The default settings provide the best balance of accuracy/power.  To view or modify advanced settings, select the items below.")
-                checkLocatorPriority()
-                href(title: "Hub App Settings", description: "", style: "page", page: "advancedHub")
-                href(title: "Mobile App Location Settings", description: "", style: "page", page: "advancedLocation")
-                href(title: "Mobile App Display Settings", description: "", style: "page", page: "advancedDisplay")
+                input name: "sectionOptional", type: "button", title: getSectionTitle(state.show.optional, "Optional Features - Thumbnails, Recorder, Secondary Hub"), submitOnChange: true, style: getSectionStyle()
+                if (state.show.optional) {
+                    href(title: "Enabling User Thumbnails", description: "", style: "page", page: "thumbnailCreation")
+                    href(title: "Enable OwnTracks Recorder", description: "", style: "page", page: "configureRecorder")
+                    href(title: "Link Secondary Hub", description: "", style: "page", page: "configureSecondaryHub")
+                }
+                input name: "sectionAdvanced", type: "button", title: getSectionTitle(state.show.advanced, "Advanced Settings - Hub and Mobile"), submitOnChange: true, style: getSectionStyle()
+                if (state.show.advanced) {
+                    paragraph("The default settings provide the best balance of accuracy/power.  To view or modify advanced settings, select the items below.")
+                    checkLocatorPriority()
+                    href(title: "Hub App Settings", description: "", style: "page", page: "advancedHub")
+                    href(title: "Mobile App Location Settings", description: "", style: "page", page: "advancedLocation")
+                    href(title: "Mobile App Display Settings", description: "", style: "page", page: "advancedDisplay")
 // Restart is only applicable to Android.  Current Android 2.4.x will restart the app, but fails to restart the ping service
-//                input "restartMobileApp", "enum", multiple: true, title:"Select family member(s) to restart their mobile app on next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
-            }
-            section(hideable: true, hidden: true, getFormat("box", "Maintenance - Sync Member Settings, Reset to Defaults, Delete Members")) {
-                input "syncMobileSettings", "enum", multiple: true, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
-                href(title: "Recommended Default Settings", description: "", style: "page", page: "resetDefaults")
-                href(title: "Delete Family Members", description: "", style: "page", page: "deleteMembers")
-            }
-            section(hideable: true, hidden: true, getFormat("box", "Logging")) {
-                input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: DEFAULT_descriptionTextOutput
-                input name: "debugOutput", type: "bool", title: "Enable Debug Logging", defaultValue: DEFAULT_debugOutput
-                input name: "debugResetHours", type: "number", title: "Turn off debug logging after this many hours (1..24)", range: "1..24", defaultValue: DEFAULT_debugResetHours
+//                  input "restartMobileApp", "enum", multiple: true, title:"Select family member(s) to restart their mobile app on next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
+                }
+                input name: "sectionMaintenance", type: "button", title: getSectionTitle(state.show.maintenance, "Maintenance - Sync Member Settings, Reset to Defaults, Delete Members"), submitOnChange: true, style: getSectionStyle()
+                if (state.show.maintenance) {
+                    input "syncMobileSettings", "enum", multiple: true, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
+                    href(title: "Recommended Default Settings", description: "", style: "page", page: "resetDefaults")
+                    href(title: "Delete Family Members", description: "", style: "page", page: "deleteMembers")
+                }
+                input name: "sectionLogging", type: "button", title: getSectionTitle(state.show.logging, "Logging"), submitOnChange: true, style: getSectionStyle()
+                if (state.show.logging) {
+                    input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: DEFAULT_descriptionTextOutput
+                    input name: "debugOutput", type: "bool", title: "Enable Debug Logging", defaultValue: DEFAULT_debugOutput
+                    input name: "debugResetHours", type: "number", title: "Turn off debug logging after this many hours (1..24)", range: "1..24", defaultValue: DEFAULT_debugResetHours
+                }
             }
         }
     }
@@ -349,32 +358,37 @@ def configureHubApp() {
     return dynamicPage(name: "configureHubApp", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Configure Hubitat App")) {
         }
-        section(hideable: true, hidden: false, "Hubitat Settings - WiFi, Units, Device Prefix") {
-            input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas.  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point(s).", defaultValue: ""
-            input name: "wifiPresenceKeepRadius", type: "enum", title: "SSID will only be used for presence detection when a member is within this radius from home, Recommended=${displayMFtVal(DEFAULT_wifiPresenceKeepRadius)}", defaultValue: "${DEFAULT_wifiPresenceKeepRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',2000:'1.2 mi',5000:'3.1 mi',10000:'6.2 mi'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',2000:'2 km',5000:'5 km',10000:'10 km'])
-            if (getAndroidMembers()) {
-                input name: "highPowerMode", type: "bool", title: "Use GPS for higher accuracy/performance.  <b>NOTE:</b> This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (<b>Android ONLY</b>)", defaultValue: DEFAULT_highPowerMode
+        section() {
+            input name: "sectionHubsettings", type: "button", title: getSectionTitle(state.show.hubsettings, "Hubitat Settings - WiFi Settings, Location Performance, Units, Device Prefix"), submitOnChange: true, style: getSectionStyle()
+            if (state.show.hubsettings) {
+                input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas.  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point(s).", defaultValue: ""
+                input name: "wifiPresenceKeepRadius", type: "enum", title: "SSID will only be used for presence detection when a member is within this radius from home, Recommended=${displayMFtVal(DEFAULT_wifiPresenceKeepRadius)}", defaultValue: "${DEFAULT_wifiPresenceKeepRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',2000:'1.2 mi',5000:'3.1 mi',10000:'6.2 mi'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',2000:'2 km',5000:'5 km',10000:'10 km'])
+                if (getAndroidMembers()) {
+                    input name: "highPowerMode", type: "bool", title: "Use GPS for higher accuracy/performance.  <b>NOTE:</b> This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (<b>Android ONLY</b>)", defaultValue: DEFAULT_highPowerMode
+                }
+                input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: DEFAULT_imperialUnits, submitOnChange: true
+                input name: "deviceNamePrefix", type: "string", title: "Prefix to be added to each member's device name.  For example, member '<b>Bob</b>' with a prefix of '<b>${DEFAULT_CHILDPREFIX}</b>' will have a device name of '<b>${DEFAULT_CHILDPREFIX}Bob</b>'. Member device name will be updated once the Hubibit app is exited. Enter a space to have no prefix in front of the member name.", defaultValue: DEFAULT_CHILDPREFIX, submitOnChange: true, required: true
             }
-            input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: DEFAULT_imperialUnits, submitOnChange: true
-            input name: "deviceNamePrefix", type: "string", title: "Prefix to be added to each member's device name.  For example, member '<b>Bob</b>' with a prefix of '<b>${DEFAULT_CHILDPREFIX}</b>' will have a device name of '<b>${DEFAULT_CHILDPREFIX}Bob</b>'. Member device name will be updated once the Hubibit app is exited. Enter a space to have no prefix in front of the member name.", defaultValue: DEFAULT_CHILDPREFIX, submitOnChange: true, required: true
-        }
-        section(hideable: true, hidden: false, "Geocode Settings - Converts latitude/longitude to address") {
-            input name: "geocodeProvider", type: "enum", title: "Select the optional geocode provider for address lookups.  Allows location latitude/longitude to be displayed as physical address.", description: "Enter", defaultValue: DEFAULT_geocodeProvider, options: GEOCODE_PROVIDERS, submitOnChange: true
-            if (geocodeProvider != "0") {
-                paragraph ("<b><i>Google provides the best accuracy, but offers the least amount of free locations - Google usage quota is reset MONTHLY vs DAILY for the other providers.</i></b>")
-                String provider = GEOCODE_USAGE_COUNTER[geocodeProvider?.toInteger()]
-                usageCounter = state."$provider"
-                input name: "geocodeFreeOnly", type: "bool", title: "Prevent geocode lookups once free quota has been exhausted.  Current usage: <b>${usageCounter}/${GEOCODE_QUOTA[geocodeProvider?.toInteger()]} per ${(GEOCODE_QUOTA_INTERVAL_DAILY[geocodeProvider?.toInteger()] ? "day" : "month")}</b>.", defaultValue: DEFAULT_geocodeFreeOnly
-                paragraph (GEOCODE_API_KEY_LINK[geocodeProvider?.toInteger()] + (geocodeProvider?.toInteger() == 1 ? " -- <i><b>'Geocoding API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Geocoding API</b>.</i>" : ""))
-                input name: "geocodeAPIKey_$geocodeProvider", type: "string", title: "Geocode API key for address lookups:"
+            input name: "sectionGeocode", type: "button", title: getSectionTitle(state.show.geocode, "Geocode API Settings - Converts latitude/longitude to address"), submitOnChange: true, style: getSectionStyle()
+            if (state.show.geocode) {
+                input name: "geocodeProvider", type: "enum", title: "Select the optional geocode provider for address lookups.  Allows location latitude/longitude to be displayed as physical address.", description: "Enter", defaultValue: DEFAULT_geocodeProvider, options: GEOCODE_PROVIDERS, submitOnChange: true
+                if (geocodeProvider != "0") {
+                    paragraph ("<b><i>Google provides the best accuracy, but offers the least amount of free locations - Google usage quota is reset MONTHLY vs DAILY for the other providers.</i></b>")
+                    String provider = GEOCODE_USAGE_COUNTER[geocodeProvider?.toInteger()]
+                    usageCounter = state."$provider"
+                    input name: "geocodeFreeOnly", type: "bool", title: "Prevent geocode lookups once free quota has been exhausted.  Current usage: <b>${usageCounter}/${GEOCODE_QUOTA[geocodeProvider?.toInteger()]} per ${(GEOCODE_QUOTA_INTERVAL_DAILY[geocodeProvider?.toInteger()] ? "day" : "month")}</b>.", defaultValue: DEFAULT_geocodeFreeOnly
+                    paragraph (GEOCODE_API_KEY_LINK[geocodeProvider?.toInteger()] + (geocodeProvider?.toInteger() == 1 ? " -- <i><b>'Geocoding API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Geocoding API</b>.</i>" : ""))
+                    input name: "geocodeAPIKey_$geocodeProvider", type: "string", title: "Geocode API key for address lookups:"
+                }
             }
-        }
-        section(hideable: true, hidden: false, "Google Map Settings - Creates a combined family map and adds radius bubbles on the 'Region' 'Add/Edit/Delete' page maps") {
-            paragraph ("If user thumbnails have not been added to Hubitat, follow the instructions for 'Enabling User Thumbnail Instructions' to allow images to be displayed on map pins:")
-            href(title: "Enabling User Thumbnails", description: "", style: "page", page: "thumbnailCreation")
-            input name: "mapFreeOnly", type: "bool", title: "Prevent generating maps once free quota has been exhausted.  Current usage: <b>${state.mapApiUsage}/${GOOGLE_MAP_API_QUOTA} per month</b>.", defaultValue: DEFAULT_mapFreeOnly
-            paragraph (GOOGLE_MAP_API_KEY_LINK + " -- <i><b>'Maps JavaScript API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Maps JavaScript API</b>.</i>")
-            input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:"
+            input name: "sectionMap", type: "button", title: getSectionTitle(state.show.map, "Google Map API Settings - Creates a combined family map and adds radius bubbles on the 'Region' 'Add/Edit/Delete' page maps"), submitOnChange: true, style: getSectionStyle()
+            if (state.show.map) {
+                paragraph ("If user thumbnails have not been added to Hubitat, follow the instructions for 'Enabling User Thumbnail Instructions' to allow images to be displayed on map pins:")
+                href(title: "Enabling User Thumbnails", description: "", style: "page", page: "thumbnailCreation")
+                input name: "mapFreeOnly", type: "bool", title: "Prevent generating maps once free quota has been exhausted.  Current usage: <b>${state.mapApiUsage}/${GOOGLE_MAP_API_QUOTA} per month</b>.", defaultValue: DEFAULT_mapFreeOnly
+                paragraph (GOOGLE_MAP_API_KEY_LINK + " -- <i><b>'Maps JavaScript API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Maps JavaScript API</b>.</i>")
+                input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:"
+            }
         }
     }
 }
@@ -457,9 +471,9 @@ def recorderInstallationInstructions() {
                        "                 OTR_SERVERLABEL=\"OwnTracks\"\r\n\r\n" +
                        "                 <b>NOTE:</b> Recorder defaults to OpenStreet Maps.  To use Google maps, add a Google Maps API key between the quotes for OTR_BROWSERAPIKEY.\r" +
                        "                              For reverse Geocode address lookups, add a Google Maps API key between the quotes for OTR_GEOKEY.\r" +
-                       "                              Select <b>'Additional Hubitat App Settings'</b> for directons to get API keys: \n"
+                       "                              Select <b>'Configure Hubitat App'</b> for directons to get API keys: \n"
                        )
-                      href(title: "Additional Hubitat App Settings - Geocode and Map API keys, WiFi Settings, Advanced Hub Settings", description: "", style: "page", page: "configureHubApp")
+                      href(title: "Configure Hubitat App", description: "", style: "page", page: "configureHubApp")
             paragraph ("          d. docker run -d --restart always --name=owntracks -p 8083:8083 -v recorder_store:/store -v config:/config owntracks/recorder\r\n\r\n" +
                        "     3. The above 'recorder_store' (STORAGEDIR) and 'config' is found here in Docker:\r" +
                        "          a. /<b>[HOME_PATH]</b>/docker/volumes/recorder_store/_data\r" +
@@ -536,7 +550,7 @@ def configureSecondaryHub() {
 
 def advancedHub() {
     return dynamicPage(name: "advancedHub", title: "", nextPage: "mainPage") {
-        section(hideable: true, hidden: false, "Hub App Configuration") {
+        section(getFormat("box", "Hub App Configuration")) {
             if (state.submit) {
                 appButtonHandler(state.submit)
 	            state.submit = ""
@@ -625,47 +639,50 @@ def configureRegions() {
             if (deviceWrapper) {
                 deviceWrapper.generateConfigMapTile()
             }
-            section(hideable: true, hidden: true, "Region Map Instructions and Delete Behavior") {
-                paragraph ("<h2>Add a Region</h2>" +
-                           "1. Click the map to drop a pin at a desired location.\r" +
-                           "2. Add the region name and radius information.\r" +
-                           "3. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" +
-                           "4. Clicking on the map or another region without saving will remove this pin.\r" +
-                           "5. The pin will remain red until it is saved.\r" +
-                           "<b>NOTE:</b> If a Google geocode API has been entered, an input box to allow direct address lookup will be displayed."
-                )
-                iOSmembers = getiOSMembers()
-                paragraph ("<h2>Edit a Region</h2>" +
-                           "1. Select the pin to be edited or a region from the selection box.\r" +
-                           "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" +
-                           (iOSmembers ? "<b>NOTE:</b> Changing the 'Region Name' will create a new region on iOS devices $iOSmembers.  The previous named region will need to be manually delete from each device.\r" : "")
-                )
-                paragraph ("<h2>Assign a Home Region</h2>" +
-                           "1. Select a pin to be 'Home'.\r" +
-                           "2. Select the 'Set Home' button to assign the region.\r" +
-                           "3. New pins must be saved before the 'Set Home' button is visible.\r" +
-                           "4. The 'Home' pin will be larger with a green glyph.\r"
-                )
-                paragraph ("<h2>Delete a Region</h2>" +
-                           "1. Select the pin to be deleted.\r" +
-                           "2. Select the 'Delete' button to remove the region from the map.\r" +
-                           "3. <b>NOTE:</b> The actual delete behavior will be based on the operation described below.\r"
-                )
-                input name: "manualDeleteBehavior", type: "bool", title: "Manual Delete", defaultValue: DEFAULT_manualDeleteBehavior, submitOnChange: true
-                legacyApps = getLegacyAndroidMembers()
-                if (legacyApps) {
-                    paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile devices of $legacyApps.</b></div>")
-                }
-                paragraph("<h3><b>Manual Delete: Region Deleted from Hub Only.  Requires Region to be Manually Deleted from Mobile</b></h3>" +
-                          "1. Deleted regions will be deleted from the Hubitat <b>ONLY</b>.\r" +
-                          "2. On each mobile phone, find and remove the region that was deleted.\r"
-                         )
+            section() {
+                input name: "sectionRegion", type: "button", title: getSectionTitle(state.show.region, "Region Map Instructions and Delete Behavior"), submitOnChange: true, style: getSectionStyle()
+                if (state.show.region) {
+                    paragraph ("<h2>Add a Region</h2>" +
+                               "1. Click the map to drop a pin at a desired location.\r" +
+                               "2. Add the region name and radius information.\r" +
+                               "3. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" +
+                               "4. Clicking on the map or another region without saving will remove this pin.\r" +
+                               "5. The pin will remain red until it is saved.\r" +
+                               "<b>NOTE:</b> If a Google geocode API has been entered, an input box to allow direct address lookup will be displayed."
+                    )
+                    iOSmembers = getiOSMembers()
+                    paragraph ("<h2>Edit a Region</h2>" +
+                               "1. Select the pin to be edited or a region from the selection box.\r" +
+                               "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" +
+                               (iOSmembers ? "<b>NOTE:</b> Changing the 'Region Name' will create a new region on iOS devices $iOSmembers.  The previous named region will need to be manually delete from each device.\r" : "")
+                    )
+                    paragraph ("<h2>Assign a Home Region</h2>" +
+                               "1. Select a pin to be 'Home'.\r" +
+                               "2. Select the 'Set Home' button to assign the region.\r" +
+                               "3. New pins must be saved before the 'Set Home' button is visible.\r" +
+                               "4. The 'Home' pin will be larger with a green glyph.\r"
+                    )
+                    paragraph ("<h2>Delete a Region</h2>" +
+                               "1. Select the pin to be deleted.\r" +
+                               "2. Select the 'Delete' button to remove the region from the map.\r" +
+                               "3. <b>NOTE:</b> The actual delete behavior will be based on the operation described below.\r"
+                    )
+                    input name: "manualDeleteBehavior", type: "bool", title: "Manual Delete", defaultValue: DEFAULT_manualDeleteBehavior, submitOnChange: true
+                    legacyApps = getLegacyAndroidMembers()
+                    if (legacyApps) {
+                        paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile devices of $legacyApps.</b></div>")
+                    }
+                    paragraph("<h3><b>Manual Delete: Region Deleted from Hub Only.  Requires Region to be Manually Deleted from Mobile</b></h3>" +
+                              "1. Deleted regions will be deleted from the Hubitat <b>ONLY</b>.\r" +
+                              "2. On each mobile phone, find and remove the region that was deleted.\r"
+                             )
 
-                paragraph ("<h3><b>Automatic Delete: Region Deleted from Hub and Mobile after Location Update</b></h3>" +
-                           "1. The deleted region will be assigned an invalid lat/lon, but will not be immediately removed.\r" +
-                           "2. The region will remain in the Hubitat until <b>ALL</b> enabled users have sent a location report.\r" +
-                           "3. Once the last user has sent a location report, the region will be deleted from Hubitat.\r"
-                          )
+                    paragraph ("<h3><b>Automatic Delete: Region Deleted from Hub and Mobile after Location Update</b></h3>" +
+                               "1. The deleted region will be assigned an invalid lat/lon, but will not be immediately removed.\r" +
+                               "2. The region will remain in the Hubitat until <b>ALL</b> enabled users have sent a location report.\r" +
+                               "3. Once the last user has sent a location report, the region will be deleted from Hubitat.\r"
+                              )
+                }
             }
         }
         section() {
@@ -777,7 +794,7 @@ def getNonFollowRegions(collectRegions) {
             break
         }
     }
-    
+
     // entire map or blank map
     return (allowedRegions)
 }
@@ -789,7 +806,7 @@ def getHomeRegion() {
 def getAttributeURL(urlSource, path) {
     // remove the []
     urlSource = urlSource.substring(1, (urlSource.length()-1))
-    
+
     // get the cloud or local URL
     if (fullApiServerUrl().indexOf(urlSource, 0) >= 0) {
         return(fullApiServerUrl().replaceAll("null","${path}?access_token=${state.accessToken}"))
@@ -1089,6 +1106,36 @@ String appButtonHandler(btn) {
             result = "Mobile display settings reset to recommended defaults."
             logWarn(result)
         break
+        case "sectionInstall":
+            state.show.install = state.show.install ? false : true
+        break
+        case "sectionLinks":
+            state.show.links = state.show.links ? false : true
+        break
+        case "sectionOptional":
+            state.show.optional = state.show.optional ? false : true
+        break
+        case "sectionAdvanced":
+            state.show.advanced = state.show.advanced ? false : true
+        break
+        case "sectionMaintenance":
+            state.show.maintenance = state.show.maintenance ? false : true
+        break
+        case "sectionLogging":
+            state.show.logging = state.show.logging ? false : true
+        break
+        case "sectionHubsettings":
+            state.show.hubsettings = state.show.hubsettings ? false : true
+        break
+        case "sectionGeocode":
+            state.show.geocode = state.show.geocode ? false : true
+        break
+        case "sectionMap":
+            state.show.map = state.show.map ? false : true
+        break
+        case "sectionRegion":
+            state.show.region = state.show.region ? false : true
+        break
         default:
             result = ""
             logWarn ("Unhandled button: $btn")
@@ -1133,6 +1180,7 @@ def uninstalled() {
 
 def initialize(forceDefaults) {
     // initialize the system states if undefined
+    if (state.show == null) state.show = [ install: true, links: false, optional: false, advanced: false, maintenance: false, logging: false, hubsettings: false, geocode: false, map: false, region: false ]
     if (state.accessToken == null) state.accessToken = ""
     if (state.members == null) state.members = []
     if (state.places == null) state.places = []
@@ -2234,7 +2282,7 @@ def getLegacyAndroidMembers() {
             members << member.name
         }
     }
-    
+
     return(members)
 }
 
@@ -2247,7 +2295,7 @@ def getAndroidMembers() {
             members << member.name
         }
     }
-  
+
     return(members)
 }
 
@@ -2260,7 +2308,7 @@ def getiOSMembers() {
             members << member.name
         }
     }
-    
+
     return(members)
 }
 
@@ -3664,7 +3712,7 @@ def recorderURLType() {
     // default to local source
     source = URL_SOURCE[1]
     if (recorderURL) {
-        if (isHTTPsURL(getRecorderURL())) {
+        if (isHTTPsURL(recorderURL)) {
             // cloud source
             source = URL_SOURCE[0]
         }
@@ -3859,11 +3907,21 @@ private def syncHttpGet(url) {
     }
 }
 
+private def getSectionTitle(sectionState, sectionTitle) {
+    // black up/down triangles
+    //return((sectionState ? "&#9650;" : "&#9660;") + " " + sectionTitle)
+    // +/-
+    return((sectionState ? "&#10134;" : "&#10133;") + " " + sectionTitle)
+}
+
+private def getSectionStyle() {
+    return("width:100%;font-size:1.0em;text-align:left;color:#ffffff;background-color:${DEFAULT_APP_THEME_COLOR};padding-left:10px;padding-right:10px;margin-top:10px;margin-bottom:10px;border:1px solid #000000;box-shadow:3px 4px #575757;border-radius:1px")
+}
+
 private def getFormat(type, myText="", myError="") {
-    if (type == "box") return "<div style='color:#ffffff;font-weight: normal;background-color:${DEFAULT_APP_THEME_COLOR};padding:5px;padding-left:10px;margin-right:20px;border:1px solid #000000;box-shadow: 3px 4px #575757;border-radius: 1px'>${myText}<span style='color:red;padding-left:5px;font-weight:bold'>${myError}</span></div>"
-    if (type == "line") return "<hr style='background-color:${DEFAULT_APP_THEME_COLOR}; height: 1px; border: 0;'/>"
+    if (type == "box") return "<div style='color:#ffffff;font-weight:normal;background-color:${DEFAULT_APP_THEME_COLOR};padding:5px;padding-left:10px;margin-right:20px;border:1px solid #000000;box-shadow:3px 4px #575757;border-radius:1px'>${myText}<span style='color:red;padding-left:5px;font-weight:bold'>${myError}</span></div>"
+    if (type == "line") return "<hr style='background-color:${DEFAULT_APP_THEME_COLOR}; height:1px;border:0;'/>"
     if (type == "title") return "<h2 style='color:${DEFAULT_APP_THEME_COLOR};font-weight: bold'>${myText}</h2>"
-    if (type == "button") return "<a style='color:white;text-align:center;font-size:20px;font-weight:bold;background-color:${DEFAULT_APP_THEME_COLOR};border:1px solid #000000;box-shadow:3px 4px #575757;border-radius:10px' href='${page}'>${myText}</a>"
     if (type == "redText") return "<div style='color:#ff0000'>${myText}</div>"
 }
 
