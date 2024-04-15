@@ -121,12 +121,13 @@
  *  1.7.24     2024-03-31      - Presence and member tiles get regenerated automatically on change.
  *  1.7.25     2024-04-01      - Missed a transition phrase on the presence check.
  *  1.7.26     2024-04-07      - Changed cloud/local URL sourcing.
+ *  1.7.27     2024-04-14      - Fixed blocked notification if a member leaves home but is still connected to wifi.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.26" }
+def driverVersion() { return "1.7.27" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -223,6 +224,9 @@ def installed() {
     log.info "${device.name}: Location Tracker User Driver Installed"
     state.sinceTime = now()
     state.driverVersion = driverVersion()
+    state.memberPresence = ""
+    state.memberName = ""
+    state.homeName = ""
     updated()
 }
 
@@ -264,25 +268,31 @@ def deleteExtendedAttributes(makePrivate) {
 }
 
 def arrived() {
-    descriptionText = device.displayName +  " has arrived at " + state.homeName
-    sendEvent (name: "presence", value: "present", descriptionText: descriptionText)
-    sendEvent( name: "transitionRegion", value: state.homeName )
-    sendEvent( name: "transitionTime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )
-    sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION["enter"] )
-    logDescriptionText("$descriptionText")
-    parent.generateTransitionNotification(device.displayName, device.currentValue('transitionDirection',true), device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
-    generateTiles()
+    updatePresenceEvent("enter", "present")
 }
 
 def departed() {
-    descriptionText = device.displayName +  " has departed from " + state.homeName
-    sendEvent (name: "presence", value: "not present", descriptionText: descriptionText)
-    sendEvent( name: "transitionRegion", value: state.homeName )
-    sendEvent( name: "transitionTime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )
-    sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION["leave"] )
-    logDescriptionText("$descriptionText")
-    parent.generateTransitionNotification(device.displayName, device.currentValue('transitionDirection',true), device.currentValue('transitionRegion',true), device.currentValue('transitionTime',true))
+    updatePresenceEvent("leave", "not present")
+}
+
+def updatePresenceEvent(dataEvent, presenceState) {
+    createNotificationEvent(state.homeName, dataEvent, new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()), presenceState)
     generateTiles()
+}
+
+def createNotificationEvent(dataRegion, dataEvent, dataTime, presenceState) {
+    sendEvent( name: "transitionRegion", value: dataRegion )
+    sendEvent( name: "transitionTime", value: dataTime )
+    sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION[dataEvent] )
+    descriptionText = device.displayName +  " has ${TRANSITION_PHRASES[dataEvent]} " + dataRegion
+    logDescriptionText("$descriptionText")
+    parent.generateTransitionNotification(device.displayName, TRANSITION_PHRASES[dataEvent], dataRegion, dataTime)
+    // create a presence event if a state was passed
+    if (presenceState) {
+        descriptionText = device.displayName + " is " + presenceState
+        sendEvent (name: "presence", value: presenceState, descriptionText: descriptionText)
+        logDescriptionText("$descriptionText")
+    }
 }
 
 def createMemberTile() {
@@ -401,13 +411,6 @@ Boolean generatePresenceEvent(member, homeName, data) {
 
     // if we get a blank timestamp, then the phone has no location or this is a ping with high inaccuracy, so do not update any location fields
     if (data.tst != 0) {
-        // only update the presence for 'home'
-        if (data.memberAtHome) {
-            memberPresence = "present"
-        } else {
-            memberPresence = "not present"
-        }
-
         // update the coordinates so the member tile can populate correctly
         if (data?.lat) sendEvent (name: "lat", value: data.lat)
         if (data?.lon) sendEvent (name: "lon", value: data.lon)
@@ -417,20 +420,14 @@ Boolean generatePresenceEvent(member, homeName, data) {
             // if we have a tranistion event
             if (data._type == "transition") {
                 currentLocation = data.desc
-                // only allow the transition event if not connected to home wifi
-                if (!data.memberWiFiHome) {
-                    parent.generateTransitionNotification(state.memberName, TRANSITION_PHRASES[data.event], data.desc, locationTime)
-                    descriptionText = device.displayName +  " has ${TRANSITION_PHRASES[data.event]} " + data.desc
-                    logDescriptionText("$descriptionText")
-
+                // only allow the transition event / notifications for non-home regions.  Home will be addressed in the presence check below
+                if (state.homeName != data.desc) {
                     // only update the time if there was a state change
                     if ((device.currentValue('transitionDirection') != data.event) || (device.currentValue('transitionRegion') != data.desc)) {
                         state.sinceTime = data.tst
                     }
-                    // update the transition
-                    sendEvent( name: "transitionRegion", value: data.desc )
-                    sendEvent( name: "transitionTime", value: locationTime )
-                    sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION[data.event] )
+                    // create the notification event, update the transition and log the message
+                    createNotificationEvent(data.desc, data.event, locationTime, "")
                 }
             } else {
                 // if we are in a region stored in the app
@@ -473,18 +470,12 @@ Boolean generatePresenceEvent(member, homeName, data) {
         }
 
         // allowed all the time
-        if (device.currentValue("presence") != memberPresence) {
-            logDescriptionText "$device.displayName is $memberPresence"
+        memberPresence = (data.memberAtHome ? "present" : "not present")
+        if (state.memberPresence != memberPresence) {
             // in case we missed the transition event, update the attributes to align to the presence
-            sendEvent( name: "transitionRegion", value: state.homeName )
-            sendEvent( name: "transitionTime", value: locationTime )
-            if (data.memberAtHome) {
-                sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION["enter"] )
-            } else {
-                sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION["leave"] )
-            }
+            createNotificationEvent(state.homeName, (data.memberAtHome ? "enter" : "leave"), locationTime, memberPresence)
         }
-        sendEvent( name: "presence", value: memberPresence, descriptionText: descriptionText)
+        state.memberPresence = memberPresence
         sendEvent( name: "location", value: currentLocation )
         generatePresenceTile()
     }
@@ -652,7 +643,7 @@ def generatePastLocations() {
 def generatePresence(urlSource) {
     long sinceTimeMilliSeconds = state.sinceTime
     sinceDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
-    
+
     String htmlData = """
     <div style="width:100%;height:100%;margin:4px;background:${((device.currentValue('presence') == "present") ? "green" : "#b40000")}">
         <table style="height:100%;width:100%;color:white;font-size:0.8em;font-family:arial">
@@ -683,7 +674,7 @@ def generateScriptData(urlSource) {
 			const postData = {};
 			postData["action"] = "update";
 			postData["payload"] = "${state.memberName}";
-			sendDataToHub(postData)	
+			sendDataToHub(postData)
 		};
 
 		function sendDataToHub(postData) {
@@ -710,7 +701,7 @@ def generateScriptData(urlSource) {
 			updateTile();
 		}, 5000);
 	</script>"""
-    
+
     return (htmlData)
 }
 
