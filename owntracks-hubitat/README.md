@@ -197,11 +197,19 @@ NOTE: A region named '+follow' is automatically created to allow iOS phones to h
 	- Disabling a device will stop ALL member notifications, without changing each member, below.
 	- Only devices that have been selected will appear in the per member notification settings, below.
 - Select family member to change notifications.
-	- Select a family member to change their notification settings.
-	- Select device(s) to get notifications when this member enters a region. (Only selected devices in the global settings, above are displayed.)
-	- Select device(s) to get notifications when this member leaves a region. (Only selected devices in the global settings, above are displayed.)
-	- Click 'Save' to store the notification settings for the user.
-	NOTE: The notifications can be checked by clicking the 'Arrviced' and 'Departed' buttons in that member's Hubitat device.
+	- 'Clear Settings' button
+		- Removes all notification settings from the selected member.
+	- Select device(s) to get notifications when this member enters a region.
+		- (Only selected devices in the global settings, above are displayed.)
+	- Trigger notifications when this member enters these region(s).
+		- Selected regions trigger a notification when the member enters these region(s).
+	- Select device(s) to get notifications when this member leaves a region.
+		- (Only selected devices in the global settings, above are displayed.)
+	- Trigger notifications when this member leaves these region(s).
+		- Selected regions trigger a notification when the member leaves these region(s).
+	- 'Save Settings' button
+		- Saves all notification settings for the selected member.
+	NOTE: The notifications can be checked by clicking the 'Arrived' and 'Departed' buttons in that member's Hubitat device.
 - Use a custom notification message
 	- By default, the push notification is in the format 'NAME EVENT REGION at TIME'.  Enabled the slider to change the push notification.
 	- The upper case variables are case sensitive:

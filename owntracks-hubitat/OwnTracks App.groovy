@@ -95,7 +95,8 @@
  *  1.7.42     2024-04-07      - Refactored layout and section labels to group recommend vs optional configurations.
  *  1.7.43     2024-04-07      - Changed cloud/local URL sourcing.  Fixed Google Family map local URL not displaying members.
  *  1.7.44     2024-04-09      - Changed collapsible sections to retain past state.
- */
+ *  1.7.45     2024-04-15      - Added per region notification granularity.  Fixed issue where notifications were only sent if they were set for leave.
+*/
 
 import groovy.transform.Field
 import groovy.json.JsonSlurper
@@ -103,7 +104,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.44"}
+def appVersion() { return "1.7.45"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -723,18 +724,32 @@ def configureNotifications() {
     return dynamicPage(name: "configureNotifications", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Configure Region Arrived/Departed Notifications")) {
             input "notificationList", "capability.notification", title: "Global enable/disable of notification devices.  Select per member enter/leave notifications below for these devices.", multiple: true, required: false, submitOnChange: true
+        }
+        section(getFormat("line", "")) {
             if (state.submit) {
                 paragraph "<b>${appButtonHandler(state.submit)}</b>"
                 state.submit = ""
             }
-            app.removeSetting("notificationEnter")
-            app.removeSetting("notificationLeave")
             input "selectFamilyMembers", "enum", multiple: false, title:"Select family member to change arrived/departed notifications.", options: state.members.name.sort(), submitOnChange: true
-            if (selectFamilyMembers) {
-                input "notificationEnter", "enum", title: "Select device(s) to get notifications when this member <b>enters</b> a region.", multiple: true, required: false, options: notificationList.collect{entry -> entry.displayName}, defaultValue: state.members.find {it.name==selectFamilyMembers}?.enterDevices
-                input "notificationLeave", "enum", title: "Select device(s) to get notifications when this member <b>leaves</b> a region.", multiple: true, required: false, options: notificationList.collect{entry -> entry.displayName}, defaultValue: state.members.find {it.name==selectFamilyMembers}?.leaveDevices
+            // only clear on a change of selected member
+            if (state.selectFamilyMembers != selectFamilyMembers) {
+                app.removeSetting("notificationEnter")
+                app.removeSetting("notificationEnterRegions")
+                app.removeSetting("notificationLeave")
+                app.removeSetting("notificationLeaveRegions")
             }
-            input name: "saveNotificationsButton", type: "button", title: "Save", state: "submit"
+            if (selectFamilyMembers) {
+                input name: "clearNotificationsButton", type: "button", title: "Clear Settings", state: "submit"
+                state.selectFamilyMembers = selectFamilyMembers
+                input "notificationEnter", "enum", title: "Select device(s) to get notifications when this member <b>enters</b> selected region(s).", multiple: true, required: false, options: notificationList.collect{entry -> entry.displayName}, defaultValue: state.members.find {it.name==selectFamilyMembers}?.enterDevices
+                input "notificationEnterRegions", "enum", multiple: true, title: "Trigger notifications when this member <b>enters</b> these region(s).", options: getNonFollowRegions(COLLECT_PLACES["desc_tst"]), defaultValue: state.members.find {it.name==selectFamilyMembers}?.enterRegions
+
+                input "notificationLeave", "enum", title: "Select device(s) to get notifications when this member <b>leaves</b> selected region(s).", multiple: true, required: false, options: notificationList.collect{entry -> entry.displayName}, defaultValue: state.members.find {it.name==selectFamilyMembers}?.leaveDevices
+                input "notificationLeaveRegions", "enum", multiple: true, title: "Trigger notifications when this member <b>leaves</b> these region(s).", options: getNonFollowRegions(COLLECT_PLACES["desc_tst"]), defaultValue: state.members.find {it.name==selectFamilyMembers}?.leaveRegions
+                input name: "saveNotificationsButton", type: "button", title: "Save Settings", state: "submit"
+            }
+        }
+        section(getFormat("line", "")) {
             input name: "useCustomNotificationMessage", type: "bool", title: "Use a custom notification message.  The default message format is '<b>$DEFAULT_notificationMessage</b>'", defaultValue: DEFAULT_useCustomNotificationMessage, submitOnChange: true
             if (useCustomNotificationMessage) {
                 input name: "notificationMessage", type: "textarea", title: "Enter notification message.  Variables are case sensitive.", defaultValue: DEFAULT_notificationMessage, submitOnChange: true
@@ -1078,11 +1093,24 @@ String appButtonHandler(btn) {
                 app.removeSetting("selectFamilyMembers")
             }
         break
+        case "clearNotificationsButton":
+            if (selectFamilyMembers) {
+                member = state.members.find {it.name==selectFamilyMembers}
+                member.enterDevices = null
+                member.enterRegions = null
+                member.leaveDevices = null
+                member.leaveRegions = null
+                state.selectFamilyMembers = null
+                result = "Cleared notification settings for family member '${selectFamilyMembers}'"
+            }
+        break
         case "saveNotificationsButton":
             if (selectFamilyMembers) {
                 member = state.members.find {it.name==selectFamilyMembers}
                 member.enterDevices = notificationEnter
+                member.enterRegions = notificationEnterRegions
                 member.leaveDevices = notificationLeave
+                member.leaveRegions = notificationLeaveRegions
                 result = "Updated notification settings for family member '${selectFamilyMembers}'"
             }
         break
@@ -1163,7 +1191,9 @@ def clearSettingFields() {
     state.previousRegionName = ""
     app.removeSetting("selectFamilyMembers")
     app.removeSetting("notificationEnter")
+    app.removeSetting("notificationEnterRegions")
     app.removeSetting("notificationLeave")
+    app.removeSetting("notificationLeaveRegions")
 }
 
 def installed() {
@@ -1386,6 +1416,7 @@ def updated() {
     // refresh the maps nightly
     schedule("0 0 0 * * ? *", refreshMaps)
     refreshMaps()
+    removePlaces()
 }
 
 def refresh() {
@@ -1426,10 +1457,14 @@ def formatRecorderURL() {
 }
 
 def generateTransitionNotification(memberName, transitionEvent, transitionRegion, transitionTime) {
-    if (transitionEvent == "arrived") {
-        notificationDevices = state.members.find {it.name==memberName}?.enterDevices
+    member = state.members.find {it.name==memberName}
+    place = state.places.find {it.desc==transitionRegion}
+    if (transitionEvent == "arrived at") {
+        notificationDevices = member?.enterDevices
+        notificationDeviceRegion = member?.enterRegions.find {it==place.tst}
     } else {
-        notificationDevices = state.members.find {it.name==memberName}?.leaveDevices
+        notificationDevices = member?.leaveDevices
+        notificationDeviceRegion = member?.leaveRegions.find {it==place.tst}
     }
 
     if (useCustomNotificationMessage) {
@@ -1445,7 +1480,7 @@ def generateTransitionNotification(memberName, transitionEvent, transitionRegion
     messageToSend = messageToSend.replace("TIME",   "${transitionTime}")
 
     // send notification to mobile if selected
-    if (notificationDevices) {
+    if (notificationDevices && notificationDeviceRegion) {
         notificationList.each { val ->
             if (notificationDevices.find {it==val.displayName}) {
                 val.deviceNotification(messageToSend)
@@ -1571,8 +1606,9 @@ def refreshMaps() {
     // runs at midnight to refresh the map contents
     createRecorderFriendsLocationTile()
     createGoogleFriendsLocationTile()
-    // loop through all the members
-    state.members.each { member->
+    // loop through all the enabled members
+    settings?.enabledMembers.each { enabledMember->
+        member = state.members.find {it.name==enabledMember}
         deviceWrapper = getChildDevice(member.id)
         deviceWrapper.generatePastLocationsTile()
     }
@@ -1974,6 +2010,28 @@ def removePlaces() {
             state.places.remove(deleteIndex)
         }
     }
+
+    // remove regions from each member's notification list if they no longer exist
+    state?.members.each { member->
+        if (member.enterRegions) {
+            member.enterRegions -= removeDeletedPlaces(member.enterRegions)
+        }
+        if (member.leaveRegions) {
+            member.leaveRegions -= removeDeletedPlaces(member.leaveRegions)
+        }
+    }
+}
+
+def removeDeletedPlaces(regionList) {
+    removeList = []
+    regionList.each { entry ->
+        if (state.places.find {it.tst==entry} == null) {
+            // add to the list to be removed
+            removeList += entry
+        }
+    }
+
+    return(removeList)
 }
 
 def updatePlaces(findMember, data) {
