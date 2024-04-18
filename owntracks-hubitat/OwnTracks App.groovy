@@ -96,6 +96,7 @@
  *  1.7.43     2024-04-07      - Changed cloud/local URL sourcing.  Fixed Google Family map local URL not displaying members.
  *  1.7.44     2024-04-09      - Changed collapsible sections to retain past state.
  *  1.7.45     2024-04-15      - Added per region notification granularity.  Fixed issue where notifications were only sent if they were set for leave.
+ *  1.7.46     2024-04-17      - Fixed notifications not working if the device prefix was not blank.
 */
 
 import groovy.transform.Field
@@ -104,7 +105,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.45"}
+def appVersion() { return "1.7.46"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -1457,7 +1458,7 @@ def formatRecorderURL() {
 }
 
 def generateTransitionNotification(memberName, transitionEvent, transitionRegion, transitionTime) {
-    member = state.members.find {it.name==memberName}
+    member = state.members.find {it.name==memberName.minus("${deviceNamePrefix}")}
     place = state.places.find {it.desc==transitionRegion}
     if (transitionEvent == "arrived at") {
         notificationDevices = member?.enterDevices
@@ -1729,6 +1730,10 @@ def parseMessage(headers, data, member) {
                 break
             }
         break
+        case "status":
+            // update the member status from the payload
+            updateStatus(member, data)
+        break
         case "card":
         break
         default:
@@ -1818,11 +1823,14 @@ def updateMemberAttributes(headers, data, member) {
     member.speed            = data?.vel
     member.trackerID        = data?.tid
     member.bs               = data?.bs
+//***********************************    
+// TODO: REMOVE THIS IN FUTURE RELEASE
     member.wifi             = data?.wifi
     member.hib              = data?.hib
     member.ps               = data?.ps
     member.bo               = data?.bo
     member.loc              = data?.loc
+//***********************************    
     member.conn             = data?.conn
     member.appVersion       = headers.'User-agent'.toString()
 }
@@ -2082,6 +2090,20 @@ def addPlace(findMember, data, verboseAdd) {
     }
 }
 
+def updateStatus(findMember, data) {
+    // only add status from non-private members
+    if (!(settings?.privateMembers.find {it==findMember.name})) {
+        findMember.wifi = data?.wifi
+        findMember.hib  = data?.hib
+        findMember.ps   = data?.ps
+        findMember.bo   = data?.bo
+        findMember.loc  = data?.loc        
+        logDebug("Updating status: ${findMember.name}")
+    } else {
+        logDebug("Ignoring status due to private member.")
+    }
+}
+
 private def setUpdateFlag(currentMember, newSetting, newValue) {
     // loop through all the enabled members
     settings?.enabledMembers.each { enabledMember->
@@ -2112,6 +2134,13 @@ private def sendReportWaypointsRequest(currentMember) {
     // Requests the waypoints list from the device
 
     return ([ "_type":"cmd","action":"waypoints" ])
+}
+
+private def sendReportStatusRequest(currentMember) {
+    logDescriptionText("Request status for user ${currentMember.name}")
+    // Requests the status from the device
+
+    return ([ "_type":"cmd","action":"status" ])
 }
 
 private def sendMemberPositions(currentMember, data) {
@@ -2317,6 +2346,10 @@ private def sendUpdate(currentMember, data) {
         currentMember.getRegions = false
         update += sendReportWaypointsRequest(currentMember)
     }
+
+// TODO: ADD THIS IN FUTURE RELEASE    
+    // request a status update
+//    update += sendReportStatusRequest(currentMember)
 
     logDebug("Updating user: ${currentMember.name} with data: ${update}")
     return (update)
