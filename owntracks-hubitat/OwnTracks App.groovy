@@ -97,6 +97,7 @@
  *  1.7.44     2024-04-09      - Changed collapsible sections to retain past state.
  *  1.7.45     2024-04-15      - Added per region notification granularity.  Fixed issue where notifications were only sent if they were set for leave.
  *  1.7.46     2024-04-17      - Fixed notifications not working if the device prefix was not blank.
+ *  1.7.47     2024-04-20      - Changed name displayed in notificaitons.
 */
 
 import groovy.transform.Field
@@ -105,7 +106,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.46"}
+def appVersion() { return "1.7.47"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
@@ -1458,7 +1459,7 @@ def formatRecorderURL() {
 }
 
 def generateTransitionNotification(memberName, transitionEvent, transitionRegion, transitionTime) {
-    member = state.members.find {it.name==memberName.minus("${deviceNamePrefix}")}
+    member = state.members.find {it.name==memberName}
     place = state.places.find {it.desc==transitionRegion}
     if (transitionEvent == "arrived at") {
         notificationDevices = member?.enterDevices
@@ -2093,11 +2094,11 @@ def addPlace(findMember, data, verboseAdd) {
 def updateStatus(findMember, data) {
     // only add status from non-private members
     if (!(settings?.privateMembers.find {it==findMember.name})) {
-        findMember.wifi = data?.wifi
-        findMember.hib  = data?.hib
-        findMember.ps   = data?.ps
-        findMember.bo   = data?.bo
-        findMember.loc  = data?.loc        
+        findMember.wifi = data?.android?.wifi
+        findMember.hib  = data?.android?.hib
+        findMember.ps   = data?.android?.ps
+        findMember.bo   = data?.android?.bo
+        findMember.loc  = data?.android?.loc        
         logDebug("Updating status: ${findMember.name}")
     } else {
         logDebug("Ignoring status due to private member.")
@@ -2347,9 +2348,13 @@ private def sendUpdate(currentMember, data) {
         update += sendReportWaypointsRequest(currentMember)
     }
 
-// TODO: ADD THIS IN FUTURE RELEASE    
+//***********************************    
+// TODO: REMOVE THE VERSION CHECKS IN FUTURE RELEASE
     // request a status update
-//    update += sendReportStatusRequest(currentMember)
+    if (currentMember?.appVersion?.toString()?.indexOf("Owntracks-Android/gms/4205",0) >= 0) {
+    update += sendReportStatusRequest(currentMember)
+    }
+//***********************************    
 
     logDebug("Updating user: ${currentMember.name} with data: ${update}")
     return (update)

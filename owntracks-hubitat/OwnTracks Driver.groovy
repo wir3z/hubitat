@@ -122,12 +122,13 @@
  *  1.7.25     2024-04-01      - Missed a transition phrase on the presence check.
  *  1.7.26     2024-04-07      - Changed cloud/local URL sourcing.
  *  1.7.27     2024-04-14      - Fixed blocked notification if a member leaves home but is still connected to wifi.
+ *  1.7.28     2024-04-20      - Change the member name being passed to the notification handler.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.27" }
+def driverVersion() { return "1.7.28" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -286,7 +287,7 @@ def createNotificationEvent(dataRegion, dataEvent, dataTime, presenceState) {
     sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION[dataEvent] )
     descriptionText = device.displayName +  " has ${TRANSITION_PHRASES[dataEvent]} " + dataRegion
     logDescriptionText("$descriptionText")
-    parent.generateTransitionNotification(device.displayName, TRANSITION_PHRASES[dataEvent], dataRegion, dataTime)
+    parent.generateTransitionNotification(state.memberName, TRANSITION_PHRASES[dataEvent], dataRegion, dataTime)
     // create a presence event if a state was passed
     if (presenceState) {
         descriptionText = device.displayName + " is " + presenceState
@@ -357,7 +358,7 @@ def updateAttributes(data, locationType) {
             } else {
                 device.deleteCurrentState('hiberateAllowed')
             }
-            if (data?.loc > 0) {
+            if (data?.loc < 0) {
                 sendEvent( name: "locationPermissions", value: LOCATION_PERMISION["${data?.loc}"])
                 logNonOptimalSettings("Location permissions currently set to '${LOCATION_PERMISION["${data?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
             } else {
