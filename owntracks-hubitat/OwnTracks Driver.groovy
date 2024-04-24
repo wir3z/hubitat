@@ -123,16 +123,17 @@
  *  1.7.26     2024-04-07      - Changed cloud/local URL sourcing.
  *  1.7.27     2024-04-14      - Fixed blocked notification if a member leaves home but is still connected to wifi.
  *  1.7.28     2024-04-20      - Change the member name being passed to the notification handler.
+ *  1.7.29     2024-04-22      - Added offline data connection.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.28" }
+def driverVersion() { return "1.7.29" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
-@Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
+@Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
 @Field static final Map TRIGGER_TYPE = [ "p": "Ping", "c": "Region", "r": "Report Location", "u": "Manual", "b": "Beacon", "t": "Timer", "v": "Monitoring", "l": "Location" ]
 @Field static final Map PRESENCE_TILE_BATTERY_FIELD = [ 0: "Battery %", 1: "Current Location and Since Time", 2: "Distance from Home", 3: "Last Speed", 4: "Battery Status (Unplugged/Charging/Full)", 5: "Data Connection (WiFi/Mobile)", 6: "Update Trigger (Ping/Region/Report Location/Manual)", 7: "Distance from Home and Since Time" ]
 @Field static final Map LOCATION_PERMISION = [ "0": "Background - Fine", "-1": "Background - Coarse", "-2": "Foreground - Fine", "-3": "Foreground - Coarse", "-4": "Disabled" ]
@@ -358,7 +359,7 @@ def updateAttributes(data, locationType) {
             } else {
                 device.deleteCurrentState('hiberateAllowed')
             }
-            if (data?.loc < 0) {
+            if ((data?.loc != null) && (data?.loc < 0)) {
                 sendEvent( name: "locationPermissions", value: LOCATION_PERMISION["${data?.loc}"])
                 logNonOptimalSettings("Location permissions currently set to '${LOCATION_PERMISION["${data?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
             } else {

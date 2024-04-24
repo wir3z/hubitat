@@ -97,7 +97,8 @@
  *  1.7.44     2024-04-09      - Changed collapsible sections to retain past state.
  *  1.7.45     2024-04-15      - Added per region notification granularity.  Fixed issue where notifications were only sent if they were set for leave.
  *  1.7.46     2024-04-17      - Fixed notifications not working if the device prefix was not blank.
- *  1.7.47     2024-04-20      - Changed name displayed in notificaitons.
+ *  1.7.47     2024-04-20      - Changed name displayed in notifications.
+ *  1.7.48     2024-04-22      - Fixed lat/lon rounding when adding a place.  Added support for Android 2.5.x.  Fixed issues with region types that was preventing iOS from updating regions.
 */
 
 import groovy.transform.Field
@@ -106,10 +107,10 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.47"}
+def appVersion() { return "1.7.48"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
-@Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile" ]
+@Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
 @Field static final Map TRIGGER_TYPE = [ "p": "Ping", "c": "Region", "r": "Report Location", "u": "Manual", "b": "Beacon", "t": "Timer", "v": "Monitoring", "l": "Location" ]
 @Field static final Map TOPIC_FORMAT = [ 0: "topicSource", 1: "userName", 2: "deviceID", 3: "eventType" ]
 @Field static final Map LOCATOR_PRIORITY = [ 0: "NO_POWER (best accuracy with zero power consumption)", 1: "LOW_POWER (city level accuracy)", 2: "BALANCED_POWER (block level accuracy based on Wifi/Cell)", 3: "HIGH_POWER (most accurate accuracy based on GPS)" ]
@@ -152,6 +153,7 @@ def appVersion() { return "1.7.47"}
 @Field Number  DEFAULT_warnOnNoUpdateHours = 12
 @Field Number  DEFAULT_staleLocationWatchdogInterval = 900
 @Field Boolean DEFAULT_highAccuracyOnPing = true
+@Field String  DEFAULT_highAccuracyOnPingCommand = "locationPingUsesHighAccuracyLocationRequest"
 @Field Boolean DEFAULT_autoRequestLocation = true
 @Field Boolean DEFAULT_highPowerMode = false
 @Field Number  DEFAULT_googleMapsZoom = 0
@@ -181,7 +183,7 @@ def appVersion() { return "1.7.47"}
 @Field Boolean DEFAULT_imageCards = false
 @Field Boolean DEFAULT_replaceTIDwithUsername = true
 @Field Boolean DEFAULT_notificationEvents = true
-@Field Boolean DEFAULT_pubExtendedData = true
+@Field Boolean DEFAULT_extendedData = true
 @Field Boolean DEFAULT_enableMapRotation = true
 @Field Boolean DEFAULT_showRegionsOnMap = true
 @Field Boolean DEFAULT_notificationLocation = false
@@ -623,7 +625,7 @@ def advancedDisplay() {
             input name: "resetDisplayDefaultsButton", type: "button", title: "Restore Defaults", state: "submit"
             input name: "replaceTIDwithUsername", type: "bool", title: "Replace the 'TID' (tracker ID) with 'username' for displaying a name on the map and recorder", defaultValue: DEFAULT_replaceTIDwithUsername
             input name: "notificationEvents", type: "bool", title: "Notify about received events", defaultValue: DEFAULT_notificationEvents
-            input name: "pubExtendedData", type: "bool", title: "Include extended data in location reports", defaultValue: DEFAULT_pubExtendedData
+            input name: "extendedData", type: "bool", title: "Include extended data in location reports", defaultValue: DEFAULT_extendedData
             input name: "enableMapRotation", type: "bool", title: "Allow the map to be rotated", defaultValue: DEFAULT_enableMapRotation
             input name: "showRegionsOnMap", type: "bool", title: "Display the region pins/bubbles on the map", defaultValue: DEFAULT_showRegionsOnMap
             input name: "notificationLocation", type: "bool", title: "Show last reported location in ongoing notification banner", defaultValue: DEFAULT_notificationLocation
@@ -725,7 +727,7 @@ def configureRegions() {
 def configureNotifications() {
     return dynamicPage(name: "configureNotifications", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Configure Region Arrived/Departed Notifications")) {
-            input "notificationList", "capability.notification", title: "Global enable/disable of notification devices.  Select per member enter/leave notifications below for these devices.", multiple: true, required: false, submitOnChange: true
+            input "notificationList", "capability.notification", title: "Global enable/disable of notification devices.  Select per member enter/leave notifications below for these devices.", multiple: true, required: false, offerAll: true, submitOnChange: true
         }
         section(getFormat("line", "")) {
             if (state.submit) {
@@ -743,11 +745,11 @@ def configureNotifications() {
             if (selectFamilyMembers) {
                 input name: "clearNotificationsButton", type: "button", title: "Clear Settings", state: "submit"
                 state.selectFamilyMembers = selectFamilyMembers
-                input "notificationEnter", "enum", title: "Select device(s) to get notifications when this member <b>enters</b> selected region(s).", multiple: true, required: false, options: notificationList.collect{entry -> entry.displayName}, defaultValue: state.members.find {it.name==selectFamilyMembers}?.enterDevices
-                input "notificationEnterRegions", "enum", multiple: true, title: "Trigger notifications when this member <b>enters</b> these region(s).", options: getNonFollowRegions(COLLECT_PLACES["desc_tst"]), defaultValue: state.members.find {it.name==selectFamilyMembers}?.enterRegions
+                input "notificationEnter", "enum", title: "Select device(s) to get notifications when this member <b>enters</b> selected region(s).", multiple: true, offerAll: true, required: false, options: notificationList.collect{entry -> entry.displayName}, defaultValue: state.members.find {it.name==selectFamilyMembers}?.enterDevices
+                input "notificationEnterRegions", "enum", multiple: true, offerAll: true, title: "Trigger notifications when this member <b>enters</b> these region(s).", options: getNonFollowRegions(COLLECT_PLACES["desc_tst"]), defaultValue: state.members.find {it.name==selectFamilyMembers}?.enterRegions
 
-                input "notificationLeave", "enum", title: "Select device(s) to get notifications when this member <b>leaves</b> selected region(s).", multiple: true, required: false, options: notificationList.collect{entry -> entry.displayName}, defaultValue: state.members.find {it.name==selectFamilyMembers}?.leaveDevices
-                input "notificationLeaveRegions", "enum", multiple: true, title: "Trigger notifications when this member <b>leaves</b> these region(s).", options: getNonFollowRegions(COLLECT_PLACES["desc_tst"]), defaultValue: state.members.find {it.name==selectFamilyMembers}?.leaveRegions
+                input "notificationLeave", "enum", title: "Select device(s) to get notifications when this member <b>leaves</b> selected region(s).", multiple: true, offerAll: true, required: false, options: notificationList.collect{entry -> entry.displayName}, defaultValue: state.members.find {it.name==selectFamilyMembers}?.leaveDevices
+                input "notificationLeaveRegions", "enum", multiple: true, offerAll: true, title: "Trigger notifications when this member <b>leaves</b> these region(s).", options: getNonFollowRegions(COLLECT_PLACES["desc_tst"]), defaultValue: state.members.find {it.name==selectFamilyMembers}?.leaveRegions
                 input name: "saveNotificationsButton", type: "button", title: "Save Settings", state: "submit"
             }
         }
@@ -1109,10 +1111,10 @@ String appButtonHandler(btn) {
         case "saveNotificationsButton":
             if (selectFamilyMembers) {
                 member = state.members.find {it.name==selectFamilyMembers}
-                member.enterDevices = notificationEnter
-                member.enterRegions = notificationEnterRegions
-                member.leaveDevices = notificationLeave
-                member.leaveRegions = notificationLeaveRegions
+                member.enterDevices = notificationEnter - "Toggle All On/Off"
+                member.enterRegions = notificationEnterRegions - "Toggle All On/Off"
+                member.leaveDevices = notificationLeave - "Toggle All On/Off"
+                member.leaveRegions = notificationLeaveRegions - "Toggle All On/Off"
                 result = "Updated notification settings for family member '${selectFamilyMembers}'"
             }
         break
@@ -1308,7 +1310,7 @@ def initializeMobileLocation(forceDefaults) {
 def initializeMobileDisplay(forceDefaults) {
     if (forceDefaults || (replaceTIDwithUsername == null)) app.updateSetting("replaceTIDwithUsername", [value: DEFAULT_replaceTIDwithUsername, type: "bool"])
     if (forceDefaults || (notificationEvents == null)) app.updateSetting("notificationEvents", [value: DEFAULT_notificationEvents, type: "bool"])
-    if (forceDefaults || (pubExtendedData == null)) app.updateSetting("pubExtendedData", [value: DEFAULT_pubExtendedData, type: "bool"])
+    if (forceDefaults || (extendedData == null)) app.updateSetting("extendedData", [value: DEFAULT_extendedData, type: "bool"])
     if (forceDefaults || (enableMapRotation == null)) app.updateSetting("enableMapRotation", [value: DEFAULT_enableMapRotation, type: "bool"])
     if (forceDefaults || (showRegionsOnMap == null)) app.updateSetting("showRegionsOnMap", [value: DEFAULT_showRegionsOnMap, type: "bool"])
     if (forceDefaults || (notificationLocation == null)) app.updateSetting("notificationLocation", [value: DEFAULT_notificationLocation, type: "bool"])
@@ -1824,14 +1826,14 @@ def updateMemberAttributes(headers, data, member) {
     member.speed            = data?.vel
     member.trackerID        = data?.tid
     member.bs               = data?.bs
-//***********************************    
-// TODO: REMOVE THIS IN FUTURE RELEASE
+//***********************************
+// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
     member.wifi             = data?.wifi
     member.hib              = data?.hib
     member.ps               = data?.ps
     member.bo               = data?.bo
     member.loc              = data?.loc
-//***********************************    
+//***********************************
     member.conn             = data?.conn
     member.appVersion       = headers.'User-agent'.toString()
 }
@@ -2062,13 +2064,13 @@ def addPlace(findMember, data, verboseAdd) {
     // only add places from non-private members
     if (!(settings?.privateMembers.find {it==findMember.name})) {
         // create a new map removing the MQTT topic
-        def newPlace = [ "_type": "${data._type}", "desc": "${data.desc}", "lat": "${data.lat}", "lon": "${data.lon}", "rad": "${data.rad}", "tst": "${data.tst}" ]
+        def newPlace = [ "_type": "${data._type}", "desc": "${data.desc}", "lat": data.lat.toDouble().round(6), "lon": data.lon.toDouble().round(6), "rad": data.rad, "tst": data.tst ]
 
         // check if we have an existing place with the same timestamp
         place = state.places.find {it.tst==newPlace.tst}
 
         // no changes to existing place, or a member is returing the +follow region
-        if ((place == newPlace) || (findMember.name && (data.desc[0] == "+"))) {
+        if ((place == newPlace) || (findMember.name && (data?.desc[0] == "+"))) {
             if (verboseAdd) {
                 logDescriptionText("Skipping, no change to place: ${newPlace}")
             }
@@ -2098,7 +2100,7 @@ def updateStatus(findMember, data) {
         findMember.hib  = data?.android?.hib
         findMember.ps   = data?.android?.ps
         findMember.bo   = data?.android?.bo
-        findMember.loc  = data?.android?.loc        
+        findMember.loc  = data?.android?.loc
         logDebug("Updating status: ${findMember.name}")
     } else {
         logDebug("Ignoring status due to private member.")
@@ -2137,6 +2139,13 @@ private def sendReportWaypointsRequest(currentMember) {
     return ([ "_type":"cmd","action":"waypoints" ])
 }
 
+private def sendClearWaypointsRequest(currentMember) {
+    logDescriptionText("Clear waypoints for user ${currentMember.name}")
+    // Clears the waypoints list from the device
+
+    return ([ "_type":"cmd","action":"clearWaypoints" ])
+}
+
 private def sendReportStatusRequest(currentMember) {
     logDescriptionText("Request status for user ${currentMember.name}")
     // Requests the status from the device
@@ -2167,12 +2176,15 @@ private def sendMemberPositions(currentMember, data) {
                 if (member.speed != null)       memberLocation["vel"]  = member.speed
                 if (member.bs != null)          memberLocation["bs"]   = member.bs
 
+//***********************************
+// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
                 // populate the additional data fields if supported by the current member
                 if (currentMember.wifi != null) memberLocation["wifi"] = member.wifi
                 if (currentMember.hib  != null) memberLocation["hib"]  = member.hib
                 if (currentMember.ps   != null) memberLocation["ps"]   = member.ps
                 if (currentMember.bo   != null) memberLocation["bo"]   = member.bo
                 if (currentMember.loc  != null) memberLocation["loc"]  = member.loc
+//***********************************
 
                 positions << memberLocation
 
@@ -2190,6 +2202,10 @@ private def sendMemberPositions(currentMember, data) {
     }
 
     return (positions)
+}
+
+private def getRandomID() {
+    return((Math.random() * 0xFFFFFFFF).toInteger())
 }
 
 private def getMemberCard(member) {
@@ -2224,6 +2240,18 @@ private def logMemberCardJSON() {
 
 private def sendWaypoints(currentMember) {
     logDescriptionText("Updating waypoints for user ${currentMember.name}")
+
+//***********************************
+// TODO: REMOVE THIS IN A FUTURE VERSION FOR CLEANUP
+    // loop through all the waypoints, and migrate the numbers from strings
+    state.places.each { waypoint->
+        waypoint.lat = waypoint.lat.toDouble()
+        waypoint.lon = waypoint.lon.toDouble()
+        waypoint.rad = waypoint.rad.toInteger()
+        waypoint.tst = waypoint.tst.toInteger()
+    }
+//***********************************
+
     // If the member isn't public, then only send the home place
     if (settings?.privateMembers.find {it==currentMember.name}) {
         return ([ "_type":"cmd","action":"setWaypoints", "waypoints": [ "_type":"waypoints", "waypoints":getHomeRegion() ] ])
@@ -2250,7 +2278,7 @@ private def sendConfiguration(currentMember) {
                                 "connectionTimeoutSeconds" :            30,
                                 "debugLog" :                            false,
                                 "dontReuseHttpClient" :                 false,
-                                "experimentalFeatures" :                [ ],
+                                "experimentalFeatures" :                [],
                                 "fusedRegionDetection" :                true,
                                 "notificationHigherPriority" :          false,
                                 "opencageApiKey" :                      "",
@@ -2271,12 +2299,17 @@ private def sendConfiguration(currentMember) {
 
     def deviceDisplayList = [
                                 "notificationLocation" :                notificationLocation,                // Display last reported location and time in ongoing notification
-                                "pubExtendedData" :                     pubExtendedData,                     // Include extended data in location reports
+                                "extendedData" :                        extendedData,                        // Include extended data in location reports
                                 "notificationEvents" :                  notificationEvents,                  // Notify about received events
                                 "enableMapRotation" :                   enableMapRotation,                   // Allow the map to be rotated
                                 "showRegionsOnMap" :                    showRegionsOnMap,                    // Display the region pins/bubbles on the map
                                 "notificationGeocoderErrors" :          notificationGeocoderErrors,          // Display Geocoder errors in the notification banner
                             ]
+
+    // if we enabled a high accuracy location fix, then mark the user
+    if (highAccuracyOnPing) {
+        configurationList.experimentalFeatures << DEFAULT_highAccuracyOnPingCommand
+    }
 
     // append the extra app configurations if enabled
     if (currentMember.updateLocation) {
@@ -2300,16 +2333,17 @@ private def sendUpdate(currentMember, data) {
     // only send the position updates on a ping or manual update
     if (validLocationType(data.t)) {
         update += sendMemberPositions(currentMember, data)
-        // request a more precise GPS location by temporarily changing 'locatorPriority' to "HIGH POWER"
-        // we will do this for manual and ping updates if not already in high power mode
-        if (locatorPriority != "3") {
-            // currently not enabled in the 2.4.x mobile app for http
+            // currently not enabled in the 2.4.x mobile app for http - not needed for 2.5.x
 //            update += sendReportLocationRequest(currentMember)
-        }
+//***********************************
+// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED - now part of the configuration experimental features
         // if we enabled a high accuracy location fix, then mark the user
-        if (highAccuracyOnPing) {
-            currentMember.requestLocation = true
+        if (currentMember?.appVersion?.toString()?.indexOf("Owntracks-Android/gms/4205",0) < 0) {
+            if (highAccuracyOnPing) {
+                currentMember.requestLocation = true
+            }
         }
+//***********************************
     }
 
     if (currentMember?.updateWaypoints) {
@@ -2348,13 +2382,14 @@ private def sendUpdate(currentMember, data) {
         update += sendReportWaypointsRequest(currentMember)
     }
 
-//***********************************    
-// TODO: REMOVE THE VERSION CHECKS IN FUTURE RELEASE
+//***********************************
+// TODO: REMOVE THIS ONCE check around the command when 2.5.x IS RELEASED
     // request a status update
     if (currentMember?.appVersion?.toString()?.indexOf("Owntracks-Android/gms/4205",0) >= 0) {
-    update += sendReportStatusRequest(currentMember)
+        // manual location sends a status update
+        if (data.t != "u") update += sendReportStatusRequest(currentMember)
     }
-//***********************************    
+//***********************************
 
     logDebug("Updating user: ${currentMember.name} with data: ${update}")
     return (update)
@@ -3754,7 +3789,7 @@ def generateGoogleFriendsMap() {
                     const contentString =
                     "<table style='width:100%;font-size:1.0em'>" +
                         "<tr>" +
-                            "<td align='left'" + ((position.wifi == "0" || ((position.app != "null") && (position.app != "0"))) ? " style='color:red'>" : ">") + (position.wifi != "null" ? (position.wifi == "1" ? "&#128732;" : "<s>&#128732;</s>") : "") + ((location.data != "null" && location.data == "m") ? "&#128246;" : "") + "</td>" +
+                            "<td align='left'" + ((position.wifi == "0" || ((position.app != "null") && (position.app != "0"))) ? " style='color:red'>" : ">") + (position.wifi != "null" ? (position.wifi == "1" ? "&#128732;" : "<s>&#128732;</s>") : "") + ((location.data == "m") ? "&#128246;" : "") + "</td>" +
                             "<td align='right'" + (position.ps ? " style='color:red'>" : ">") + (position.bs == "2" ? "&#9889;" : "&#128267;") + (position.bat != "null" ? position.bat + "%" : "") + "</td>" +
                         "</tr>" +
                     "</table>" +
