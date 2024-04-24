@@ -99,6 +99,7 @@
  *  1.7.46     2024-04-17      - Fixed notifications not working if the device prefix was not blank.
  *  1.7.47     2024-04-20      - Changed name displayed in notifications.
  *  1.7.48     2024-04-22      - Fixed lat/lon rounding when adding a place.  Added support for Android 2.5.x.  Fixed issues with region types that was preventing iOS from updating regions.
+ *  1.7.49     2024-04-24      - Rolled back region migration.
 */
 
 import groovy.transform.Field
@@ -107,7 +108,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.48"}
+def appVersion() { return "1.7.49"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -1421,6 +1422,8 @@ def updated() {
     schedule("0 0 0 * * ? *", refreshMaps)
     refreshMaps()
     removePlaces()
+    
+    migratePlaces()
 }
 
 def refresh() {
@@ -1747,6 +1750,33 @@ def parseMessage(headers, data, member) {
     return (payload)
 }
 
+//***********************************
+// TODO: REMOVE THIS IN A FUTURE VERSION FOR CLEANUP
+def migratePlaces() {
+    // loop through all the waypoints, and migrate the numbers to strings
+    if (state.places) {
+        state.places.each { waypoint->
+            waypoint.lat = waypoint.lat.toString()
+            waypoint.lon = waypoint.lon.toString()
+            waypoint.rad = waypoint.rad.toString()
+            waypoint.tst = waypoint.tst.toString()
+        }
+    }
+/*    
+    // loop through all the waypoints, and migrate the numbers from strings
+    state.places.each { waypoint->
+        waypoint.lat = waypoint.lat.toDouble()
+        waypoint.lon = waypoint.lon.toDouble()
+        waypoint.rad = waypoint.rad.toInteger()
+        waypoint.tst = waypoint.tst.toInteger()
+    }
+    if (homePlace) {
+        app.updateSetting("homePlace", [value: homePlace.toInteger(), type: "number"])
+    }
+*/
+}
+//***********************************
+    
 def parsePostHeaders(postHeaders) {
     def newHeaders = [:]
 
@@ -2064,7 +2094,8 @@ def addPlace(findMember, data, verboseAdd) {
     // only add places from non-private members
     if (!(settings?.privateMembers.find {it==findMember.name})) {
         // create a new map removing the MQTT topic
-        def newPlace = [ "_type": "${data._type}", "desc": "${data.desc}", "lat": data.lat.toDouble().round(6), "lon": data.lon.toDouble().round(6), "rad": data.rad, "tst": data.tst ]
+//        def newPlace = [ "_type": "${data._type}", "desc": "${data.desc}", "lat": data.lat.toDouble().round(6), "lon": data.lon.toDouble().round(6), "rad": data.rad, "tst": data.tst ]
+        def newPlace = [ "_type": "${data._type}", "desc": "${data.desc}", "lat": "${data.lat.toDouble().round(6)}", "lon": "${data.lon.toDouble().round(6)}", "rad": "${data.rad}", "tst": "${data.tst}" ]
 
         // check if we have an existing place with the same timestamp
         place = state.places.find {it.tst==newPlace.tst}
@@ -2240,18 +2271,6 @@ private def logMemberCardJSON() {
 
 private def sendWaypoints(currentMember) {
     logDescriptionText("Updating waypoints for user ${currentMember.name}")
-
-//***********************************
-// TODO: REMOVE THIS IN A FUTURE VERSION FOR CLEANUP
-    // loop through all the waypoints, and migrate the numbers from strings
-    state.places.each { waypoint->
-        waypoint.lat = waypoint.lat.toDouble()
-        waypoint.lon = waypoint.lon.toDouble()
-        waypoint.rad = waypoint.rad.toInteger()
-        waypoint.tst = waypoint.tst.toInteger()
-    }
-//***********************************
-
     // If the member isn't public, then only send the home place
     if (settings?.privateMembers.find {it==currentMember.name}) {
         return ([ "_type":"cmd","action":"setWaypoints", "waypoints": [ "_type":"waypoints", "waypoints":getHomeRegion() ] ])
