@@ -100,6 +100,7 @@
  *  1.7.47     2024-04-20      - Changed name displayed in notifications.
  *  1.7.48     2024-04-22      - Fixed lat/lon rounding when adding a place.  Added support for Android 2.5.x.  Fixed issues with region types that was preventing iOS from updating regions.
  *  1.7.49     2024-04-24      - Rolled back region migration.
+ *  1.7.50     2024-04-24      - Fixed region migration.
 */
 
 import groovy.transform.Field
@@ -108,7 +109,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.49"}
+def appVersion() { return "1.7.50"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -177,7 +178,7 @@ def appVersion() { return "1.7.49"}
 @Field Number  DEFAULT_locatorDisplacement = 50
 @Field Number  DEFAULT_locatorInterval = 60
 @Field Number  DEFAULT_ignoreInaccurateLocations = 150
-@Field Number  DEFAULT_ignoreStaleLocations = 7.0
+@Field Number  DEFAULT_ignoreStaleLocations = 7
 @Field Number  DEFAULT_ping = 30
 @Field Boolean DEFAULT_pegLocatorFastestIntervalToInterval = true
 // Mobile app display defaults
@@ -587,7 +588,7 @@ def advancedLocation() {
             // This is replaced with high accuracy selection on the main page
 //            input name: "locatorPriority", type: "enum", title: "Source/power setting for location updates, Recommended=${LOCATOR_PRIORITY[DEFAULT_locatorPriority]}", required: true, options: LOCATOR_PRIORITY, defaultValue: DEFAULT_locatorPriority, submitOnChange: true
             input name: "ignoreInaccurateLocations", type: "number", title: "Do not send a location if the accuracy is greater than the given (${getSmallUnits()}) (0..${displayMFtVal(2000)}) Recommended=${displayMFtVal(DEFAULT_ignoreInaccurateLocations)}", required: true, range: "0..${displayMFtVal(2000)}", defaultValue: displayMFtVal(DEFAULT_ignoreInaccurateLocations)
-            input name: "ignoreStaleLocations", type: "decimal", title: "Number of days after which location updates from friends are assumed stale and removed (0.0..7.0), Recommended=${DEFAULT_ignoreStaleLocations}", required: true, range: "0.0..7.0", defaultValue: DEFAULT_ignoreStaleLocations
+            input name: "ignoreStaleLocations", type: "number", title: "Number of days after which location updates from friends are assumed stale and removed (0..7), Recommended=${DEFAULT_ignoreStaleLocations}", required: true, range: "0..7", defaultValue: DEFAULT_ignoreStaleLocations
             if (getAndroidMembers()) {
                 input name: "ping", type: "number", title: "Device will send a location interval at this heart beat interval (minutes) (15..360), Recommended=${DEFAULT_ping} (<b>Android ONLY</b>)", required: true, range: "15..60", defaultValue: DEFAULT_ping
             }
@@ -820,7 +821,7 @@ def getNonFollowRegions(collectRegions) {
 }
 
 def getHomeRegion() {
-    return ((homePlace ? state.places.find {it.tst==homePlace} : []))
+    return ((homePlace ? state.places.find {it.tst==homePlace.toInteger()} : []))
 }
 
 def getAttributeURL(urlSource, path) {
@@ -1022,7 +1023,7 @@ String appButtonHandler(btn) {
                         logWarn(result)
                     } else {
                         // create the waypoint map - NOTE: the app keys off the "tst" field as a unique identifier
-                        def newPlace = [ "_type": "waypoint", "desc": "${regionName}", "lat": "${regionLat}", "lon": "${regionLon}", "rad": "${convertToMeters(regionRadius)}", "tst": "${(now()/1000).toInteger()}" ]
+                        def newPlace = [ "_type": "waypoint", "desc": "${regionName}", "lat": regionLat.toDouble().round(6), "lon": regionLon.toDouble().round(6), "rad": convertToMeters(regionRadius), "tst": (now()/1000).toInteger() ]
                         // add the new place
                         state.places << newPlace
                         result = "Region '${regionName}' has been added."
@@ -1037,7 +1038,7 @@ String appButtonHandler(btn) {
             // find the existing place to update.
             def foundPlace = state.places.find {it.desc==state.previousRegionName}
             // create the updated waypoint map - NOTE: the app keys off the "tst" field as a unique identifier
-            def newPlace = [ "_type": "waypoint", "desc": "${regionName}", "lat": "${regionLat}", "lon": "${regionLon}", "rad": "${convertToMeters(regionRadius)}", "tst": "${foundPlace.tst}" ]
+            def newPlace = [ "_type": "waypoint", "desc": "${regionName}", "lat": regionLat.toDouble().round(6), "lon": regionLon.toDouble().round(6), "rad": convertToMeters(regionRadius), "tst": foundPlace.tst ]
             // overwrite the existing place
             foundPlace << newPlace
             result = "Updating region '${newPlace.desc}'"
@@ -1052,7 +1053,7 @@ String appButtonHandler(btn) {
                 // unvalidate all the places that need to be removed
                 place = state.places.find {it.desc==regionName}
                 // check if we are deleting our home location
-                if (homePlace == place.tst) {
+                if (homePlace?.toInteger() == place.tst) {
                     app.removeSetting("homePlace")
                 }
                 if (btn == "deleteRegionFromHubButton") {
@@ -1286,7 +1287,7 @@ def initializeMobileLocation(forceDefaults) {
     }
     if (forceDefaults || (monitoring == null)) app.updateSetting("monitoring", [value: DEFAULT_monitoring, type: "number"])
     if (forceDefaults || (ignoreInaccurateLocations == null)) app.updateSetting("ignoreInaccurateLocations", [value: DEFAULT_ignoreInaccurateLocations, type: "number"])
-    if (forceDefaults || (ignoreStaleLocations == null)) app.updateSetting("ignoreStaleLocations", [value: DEFAULT_ignoreStaleLocations, type: "decimal"])
+    if (forceDefaults || (ignoreStaleLocations == null)) app.updateSetting("ignoreStaleLocations", [value: DEFAULT_ignoreStaleLocations, type: "number"])
     if (forceDefaults || (ping == null)) app.updateSetting("ping", [value: DEFAULT_ping, type: "number"])
     if (forceDefaults || (pegLocatorFastestIntervalToInterval == null)) app.updateSetting("pegLocatorFastestIntervalToInterval", [value: DEFAULT_pegLocatorFastestIntervalToInterval, type: "bool"])
     if (forceDefaults || (locatorDisplacement == null)) app.updateSetting("locatorDisplacement", [value: DEFAULT_locatorDisplacement, type: "number"])
@@ -1422,7 +1423,7 @@ def updated() {
     schedule("0 0 0 * * ? *", refreshMaps)
     refreshMaps()
     removePlaces()
-    
+    // needed to convert region lat/lon/rad/tst from string to number
     migratePlaces()
 }
 
@@ -1468,10 +1469,10 @@ def generateTransitionNotification(memberName, transitionEvent, transitionRegion
     place = state.places.find {it.desc==transitionRegion}
     if (transitionEvent == "arrived at") {
         notificationDevices = member?.enterDevices
-        notificationDeviceRegion = member?.enterRegions.find {it==place.tst}
+        notificationDeviceRegion = member?.enterRegions.find {it.toInteger()==place.tst}
     } else {
         notificationDevices = member?.leaveDevices
-        notificationDeviceRegion = member?.leaveRegions.find {it==place.tst}
+        notificationDeviceRegion = member?.leaveRegions.find {it.toInteger()==place.tst}
     }
 
     if (useCustomNotificationMessage) {
@@ -1752,17 +1753,8 @@ def parseMessage(headers, data, member) {
 
 //***********************************
 // TODO: REMOVE THIS IN A FUTURE VERSION FOR CLEANUP
+// Added to fix 1.7.49 2024-04-24
 def migratePlaces() {
-    // loop through all the waypoints, and migrate the numbers to strings
-    if (state.places) {
-        state.places.each { waypoint->
-            waypoint.lat = waypoint.lat.toString()
-            waypoint.lon = waypoint.lon.toString()
-            waypoint.rad = waypoint.rad.toString()
-            waypoint.tst = waypoint.tst.toString()
-        }
-    }
-/*    
     // loop through all the waypoints, and migrate the numbers from strings
     state.places.each { waypoint->
         waypoint.lat = waypoint.lat.toDouble()
@@ -1770,13 +1762,9 @@ def migratePlaces() {
         waypoint.rad = waypoint.rad.toInteger()
         waypoint.tst = waypoint.tst.toInteger()
     }
-    if (homePlace) {
-        app.updateSetting("homePlace", [value: homePlace.toInteger(), type: "number"])
-    }
-*/
 }
 //***********************************
-    
+
 def parsePostHeaders(postHeaders) {
     def newHeaders = [:]
 
@@ -2066,7 +2054,7 @@ def removePlaces() {
 def removeDeletedPlaces(regionList) {
     removeList = []
     regionList.each { entry ->
-        if (state.places.find {it.tst==entry} == null) {
+        if (state.places.find {it.tst==entry.toInteger()} == null) {
             // add to the list to be removed
             removeList += entry
         }
@@ -2094,8 +2082,7 @@ def addPlace(findMember, data, verboseAdd) {
     // only add places from non-private members
     if (!(settings?.privateMembers.find {it==findMember.name})) {
         // create a new map removing the MQTT topic
-//        def newPlace = [ "_type": "${data._type}", "desc": "${data.desc}", "lat": data.lat.toDouble().round(6), "lon": data.lon.toDouble().round(6), "rad": data.rad, "tst": data.tst ]
-        def newPlace = [ "_type": "${data._type}", "desc": "${data.desc}", "lat": "${data.lat.toDouble().round(6)}", "lon": "${data.lon.toDouble().round(6)}", "rad": "${data.rad}", "tst": "${data.tst}" ]
+        def newPlace = [ "_type": "${data._type}", "desc": "${data.desc}", "lat": data.lat.toDouble().round(6), "lon": data.lon.toDouble().round(6), "rad": data.rad, "tst": data.tst ]
 
         // check if we have an existing place with the same timestamp
         place = state.places.find {it.tst==newPlace.tst}
@@ -2327,7 +2314,8 @@ private def sendConfiguration(currentMember) {
 
     // if we enabled a high accuracy location fix, then mark the user
     if (highAccuracyOnPing) {
-        configurationList.experimentalFeatures << DEFAULT_highAccuracyOnPingCommand
+//        configurationList.experimentalFeatures = "showExperimentalPreferenceUI"
+        configurationList.experimentalFeatures = "${DEFAULT_highAccuracyOnPingCommand}"
     }
 
     // append the extra app configurations if enabled
@@ -2357,7 +2345,7 @@ private def sendUpdate(currentMember, data) {
 //***********************************
 // TODO: REMOVE THIS ONCE 2.5.x IS RELEASED - now part of the configuration experimental features
         // if we enabled a high accuracy location fix, then mark the user
-        if (currentMember?.appVersion?.toString()?.indexOf("Owntracks-Android/gms/4205",0) < 0) {
+        if (currentMember?.appVersion?.toString()?.indexOf("Owntracks-Android/gms",0) < 0) {
             if (highAccuracyOnPing) {
                 currentMember.requestLocation = true
             }
@@ -2404,7 +2392,7 @@ private def sendUpdate(currentMember, data) {
 //***********************************
 // TODO: REMOVE THIS ONCE check around the command when 2.5.x IS RELEASED
     // request a status update
-    if (currentMember?.appVersion?.toString()?.indexOf("Owntracks-Android/gms/4205",0) >= 0) {
+    if (currentMember?.appVersion?.toString()?.indexOf("Owntracks-Android/gms",0) >= 0) {
         // manual location sends a status update
         if (data.t != "u") update += sendReportStatusRequest(currentMember)
     }
@@ -3407,7 +3395,7 @@ def processAPIData() {
             case "home":
                 // set home to the place matching the timestamp
                 app.removeSetting("homePlace")
-                app.updateSetting("homePlace", [value: data.payload.tst, type: "string"])
+                app.updateSetting("homePlace", [value: data.payload.tst, type: "number"])
             break;
             case "delete":
                 // delete region from hub/mobile or just hub depending on setting
@@ -3616,7 +3604,7 @@ def generateGoogleFriendsMap() {
                             }
                         )
                         // change the home pin glyph
-                        if (position.tst == "${getHomeRegion().tst}") {
+                        if (position.tst == "${getHomeRegion()?.tst}") {
                             i.glyphColor = "green"
                             i.scale = 2.0;
                         }

@@ -124,12 +124,13 @@
  *  1.7.27     2024-04-14      - Fixed blocked notification if a member leaves home but is still connected to wifi.
  *  1.7.28     2024-04-20      - Change the member name being passed to the notification handler.
  *  1.7.29     2024-04-22      - Added offline data connection.
+ *  1.7.30     2024-04-25      - Added virtual switch.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.29" }
+def driverVersion() { return "1.7.30" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -164,11 +165,14 @@ metadata {
         capability "Actuator"
         capability "Presence Sensor"
         capability "Battery"
+        capability "Switch"
 
         command    "arrived"
         command    "departed"
         command    "createMemberTile"
 
+        attribute  "switch", "string"
+      
         attribute  "location", "string"
         attribute  "transitionRegion", "string"
         attribute  "transitionTime", "string"
@@ -240,6 +244,14 @@ def updated() {
     if (!displayExtendedAttributes) {
         deleteExtendedAttributes(false)
     }
+}
+
+def on() {
+    sendEvent( name: "switch", value: "on" )
+}
+
+def off() {
+    sendEvent( name: "switch", value: "off" )
 }
 
 def deleteExtendedAttributes(makePrivate) {
