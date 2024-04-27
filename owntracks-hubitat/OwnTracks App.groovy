@@ -101,6 +101,7 @@
  *  1.7.48     2024-04-22      - Fixed lat/lon rounding when adding a place.  Added support for Android 2.5.x.  Fixed issues with region types that was preventing iOS from updating regions.
  *  1.7.49     2024-04-24      - Rolled back region migration.
  *  1.7.50     2024-04-24      - Fixed region migration.
+ *  1.7.51     2024-04-27      - Added API key validation to the setup screen.  Added Member command API links.
 */
 
 import groovy.transform.Field
@@ -109,7 +110,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.50"}
+def appVersion() { return "1.7.51"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -274,6 +275,7 @@ def mainPage() {
                 }
                 input name: "sectionLinks", type: "button", title: getSectionTitle(state.show.links, "Dashboard Web Links"), submitOnChange: true, style: getSectionStyle()
                 if (state.show.links) {
+                    paragraph ("<b>Direct dashboard links for use in a web browser.</b>")
                     URL_SOURCE.each{ source->
                         paragraph ((source == URL_SOURCE[0] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>"))
                         if (googleMapsAPIKey) {
@@ -307,6 +309,24 @@ def mainPage() {
                                     paragraph ("<b>OwnTracks Recorder member past locations:</b></br>${urlList}")
                                 }
                             }
+                        }
+                    }
+                }
+                input name: "sectionCommands", type: "button", title: getSectionTitle(state.show.links, "Member Command API Links"), submitOnChange: true, style: getSectionStyle()
+                if (state.show.commands) {
+                    paragraph ("<b>Member API command links for advanced integrations and virtual switch controls.</b>")
+                    URL_SOURCE.each{ source->
+                        paragraph ((source == URL_SOURCE[0] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>"))
+                        if (state.members) {
+                            urlList = ""
+                            state.members.each { member->
+                                urlList += "${member.name}</br>"
+                                urlList += "&emsp;'On':&emsp;<a href='${getAttributeURL(source, "membercmd/${member.name.toLowerCase()}/on")}'>${getAttributeURL(source, "membercmd/${member.name.toLowerCase()}/on")}</a></br>"
+                                urlList += "&emsp;'Off':&emsp;<a href='${getAttributeURL(source, "membercmd/${member.name.toLowerCase()}/off")}'>${getAttributeURL(source, "membercmd/${member.name.toLowerCase()}/off")}</a></br>"
+                                urlList += "&emsp;'Arrived':&emsp;<a href='${getAttributeURL(source, "membercmd/${member.name.toLowerCase()}/arrived")}'>${getAttributeURL(source, "membercmd/${member.name.toLowerCase()}/arrived")}</a></br>"
+                                urlList += "&emsp;'Departed':&emsp;<a href='${getAttributeURL(source, "membercmd/${member.name.toLowerCase()}/departed")}'>${getAttributeURL(source, "membercmd/${member.name.toLowerCase()}/departed")}</a></br>"
+                            }
+                            paragraph ("<b>Member On/Off/Arrived/Departed:</b></br>${urlList}")
                         }
                     }
                 }
@@ -385,7 +405,9 @@ def configureHubApp() {
                     usageCounter = state."$provider"
                     input name: "geocodeFreeOnly", type: "bool", title: "Prevent geocode lookups once free quota has been exhausted.  Current usage: <b>${usageCounter}/${GEOCODE_QUOTA[geocodeProvider?.toInteger()]} per ${(GEOCODE_QUOTA_INTERVAL_DAILY[geocodeProvider?.toInteger()] ? "day" : "month")}</b>.", defaultValue: DEFAULT_geocodeFreeOnly
                     paragraph (GEOCODE_API_KEY_LINK[geocodeProvider?.toInteger()] + (geocodeProvider?.toInteger() == 1 ? " -- <i><b>'Geocoding API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Geocoding API</b>.</i>" : ""))
-                    input name: "geocodeAPIKey_$geocodeProvider", type: "string", title: "Geocode API key for address lookups:"
+                    input name: "geocodeAPIKey_$geocodeProvider", type: "string", title: "Geocode API key for address lookups:", submitOnChange: true
+                    reverseGeocodeTest = reverseGeocode(37.422331,-122.0843455)
+                    paragraph ("Geocode API key check: ${(reverseGeocodeTest ? "<div><b>PASSED</b> - $reverseGeocodeTest</div>" : "<div style='color:#ff0000'>FAILED</div>")}")
                 }
             }
             input name: "sectionMap", type: "button", title: getSectionTitle(state.show.map, "Google Map API Settings - Creates a combined family map and adds radius bubbles on the 'Region' 'Add/Edit/Delete' page maps"), submitOnChange: true, style: getSectionStyle()
@@ -394,7 +416,8 @@ def configureHubApp() {
                 href(title: "Enabling User Thumbnails", description: "", style: "page", page: "thumbnailCreation")
                 input name: "mapFreeOnly", type: "bool", title: "Prevent generating maps once free quota has been exhausted.  Current usage: <b>${state.mapApiUsage}/${GOOGLE_MAP_API_QUOTA} per month</b>.", defaultValue: DEFAULT_mapFreeOnly
                 paragraph (GOOGLE_MAP_API_KEY_LINK + " -- <i><b>'Maps JavaScript API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Maps JavaScript API</b>.</i>")
-                input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:"
+                input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:", submitOnChange: true
+                paragraph ("<a href='${getAttributeURL("[cloud.hubitat.com]", "googlemap")}' target='_blank'>Test map API key</a>")
             }
         }
     }
@@ -1146,6 +1169,9 @@ String appButtonHandler(btn) {
         case "sectionLinks":
             state.show.links = state.show.links ? false : true
         break
+        case "sectionCommands":
+            state.show.commands = state.show.commands ? false : true
+        break
         case "sectionOptional":
             state.show.optional = state.show.optional ? false : true
         break
@@ -1216,7 +1242,7 @@ def uninstalled() {
 
 def initialize(forceDefaults) {
     // initialize the system states if undefined
-    if (state.show == null) state.show = [ install: true, links: false, optional: false, advanced: false, maintenance: false, logging: false, hubsettings: false, geocode: false, map: false, region: false ]
+    if (state.show == null) state.show = [ install: true, links: false, commands: false, optional: false, advanced: false, maintenance: false, logging: false, hubsettings: false, geocode: false, map: false, region: false ]
     if (state.accessToken == null) state.accessToken = ""
     if (state.members == null) state.members = []
     if (state.places == null) state.places = []
@@ -1544,7 +1570,7 @@ def checkStaleMembers() {
         }
 
         // if auto request location is enabled and the position fix is stale, flag the user
-        if (autoRequestLocation && member.staleFix) {
+        if (autoRequestLocation && member.staleFix && isAndroidMember(member)) {
             member.requestLocation = true
             logDebug("${member.name}'s position is stale.  Requesting a high accuracy location update.")
         }
@@ -2119,7 +2145,21 @@ def updateStatus(findMember, data) {
         findMember.ps   = data?.android?.ps
         findMember.bo   = data?.android?.bo
         findMember.loc  = data?.android?.loc
-        logDebug("Updating status: ${findMember.name}")
+        /*
+        log.debug (data?.iOS?.deviceSystemName)
+        log.debug (data?.iOS?.deviceUserInterfaceIdiom)
+        log.debug (data?.iOS?.localeUsesMetricSystem)
+        log.debug (data?.iOS?.backgroundRefreshStatus)
+        log.debug (data?.iOS?.deviceSystemVersion)
+        log.debug (data?.iOS?.altimeterAuthorizationStatus)
+        log.debug (data?.iOS?.deviceModel)
+        log.debug (data?.iOS?.locale)
+        log.debug (data?.iOS?.version)
+        log.debug (data?.iOS?.altimeterIsRelativeAltitudeAvailable)
+        log.debug (data?.iOS?.locationManagerAuthorizationStatus)
+        log.debug (data?.iOS?.deviceIdentifierForVendor)
+        */
+        logDebug("Updating status: ${findMember.name}")   
     } else {
         logDebug("Ignoring status due to private member.")
     }
@@ -2346,7 +2386,7 @@ private def sendUpdate(currentMember, data) {
 // TODO: REMOVE THIS ONCE 2.5.x IS RELEASED - now part of the configuration experimental features
         // if we enabled a high accuracy location fix, then mark the user
         if (currentMember?.appVersion?.toString()?.indexOf("Owntracks-Android/gms",0) < 0) {
-            if (highAccuracyOnPing) {
+            if (highAccuracyOnPing && isAndroidMember(currentMember)) {
                 currentMember.requestLocation = true
             }
         }
@@ -2429,7 +2469,7 @@ def getAndroidMembers() {
     members = []
     settings?.enabledMembers.each { enabledMember->
         member = state.members.find {it.name==enabledMember}
-        if (member?.appVersion?.toString()?.indexOf(ANDROID_USER_AGENT,0) >= 0) {
+        if (isAndroidMember(member)) {
             members << member.name
         }
     }
@@ -2448,6 +2488,14 @@ def getiOSMembers() {
     }
 
     return(members)
+}
+
+def isAndroidMember(member) {
+    if (member?.appVersion?.toString()?.indexOf(ANDROID_USER_AGENT,0) >= 0) {
+        return (true)
+    } else {
+        return (false)
+    }
 }
 
 def isAllAndroidMembers() {
@@ -3464,6 +3512,22 @@ def processAPIData() {
     return render(contentType: "text/html", data: (new JsonBuilder(response)).toPrettyString(), status: 200)
 }
 
+def processMemberAPICommand() {
+    try {
+        member = state.members.find {it.name.toLowerCase()==params.member.toLowerCase()}
+        def deviceWrapper = getChildDevice(member?.id)
+        deviceWrapper."${params.cmd}"()
+        response = "Command '${params.cmd}' successfully issued for member '${params.member}'."
+        status = 200
+    } catch (e) {
+        logError(e.message)
+        response = "Command '${params.cmd}' failed for member '${params.member}'.  Member, member device or command does not exist."
+        status = 404
+    }
+
+    return render(contentType: "text/html", data: (new JsonBuilder(response)).toPrettyString(), status: status)
+}
+
 def retrieveGoogleFriendsMapZoom() {
     return(state.googleMapsZoom)
 }
@@ -3973,6 +4037,11 @@ mappings {
 	path("/apidata") {
     	action: [
             POST:  "processAPIData",
+        ]
+    }
+	path("/membercmd/:member/:cmd") {
+    	action: [
+            GET:  "processMemberAPICommand",
         ]
     }
 	path("/googlemap") {

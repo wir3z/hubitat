@@ -125,12 +125,13 @@
  *  1.7.28     2024-04-20      - Change the member name being passed to the notification handler.
  *  1.7.29     2024-04-22      - Added offline data connection.
  *  1.7.30     2024-04-25      - Added virtual switch.
+ *  1.7.31     2024-04-27      - Added logging to virtual switch.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.30" }
+def driverVersion() { return "1.7.31" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -246,14 +247,6 @@ def updated() {
     }
 }
 
-def on() {
-    sendEvent( name: "switch", value: "on" )
-}
-
-def off() {
-    sendEvent( name: "switch", value: "off" )
-}
-
 def deleteExtendedAttributes(makePrivate) {
     device.deleteCurrentState('accuracy')
     device.deleteCurrentState('verticalAccuracy')
@@ -279,6 +272,16 @@ def deleteExtendedAttributes(makePrivate) {
         device.deleteCurrentState('address')
         device.deleteCurrentState('streetAddress')
     }
+}
+
+def on() {
+    sendEvent( name: "switch", value: "on" )
+    logDescriptionText("$device.displayName: switch on")
+}
+
+def off() {
+    sendEvent( name: "switch", value: "off" )
+    logDescriptionText("$device.displayName: switch off")
 }
 
 def arrived() {
