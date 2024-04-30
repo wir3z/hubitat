@@ -323,19 +323,22 @@ def updateAttributes(data, locationType) {
     }
     // display the extended attributes if they were received, but only allow them to be removed on non-tranisition eve
     if (!data.private) {
-        // requires a valid location report
-        if (data.tst != 0) {
-            if (data?.acc)     sendEvent (name: "accuracy", value: parent.displayMFtVal(data.acc))         else if (locationType) device.deleteCurrentState('accuracy')
-            if (data?.vac)     sendEvent (name: "verticalAccuracy", value: parent.displayMFtVal(data.vac)) else if (locationType) device.deleteCurrentState('verticalAccuracy')
-            if (data?.alt)     sendEvent (name: "altitude", value: parent.displayMFtVal(data.alt))         else if (locationType) device.deleteCurrentState('altitude')
-            if (data?.address) {
-                sendEvent (name: "address", value: data.address)
-                sendEvent (name: "streetAddress", value: data.streetAddress)
-            } else {
-                if (locationType) device.deleteCurrentState('address')
-                if (locationType) device.deleteCurrentState('streetAddress')
-            }
+//***********************************
+// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED        
+// requires a valid location report
+if (data.tst != 0) {
+//***********************************
+        if (data?.acc)     sendEvent (name: "accuracy", value: parent.displayMFtVal(data.acc))         else if (locationType) device.deleteCurrentState('accuracy')
+        if (data?.vac)     sendEvent (name: "verticalAccuracy", value: parent.displayMFtVal(data.vac)) else if (locationType) device.deleteCurrentState('verticalAccuracy')
+        if (data?.alt)     sendEvent (name: "altitude", value: parent.displayMFtVal(data.alt))         else if (locationType) device.deleteCurrentState('altitude')
+        if (data?.address) {
+            sendEvent (name: "address", value: data.address)
+            sendEvent (name: "streetAddress", value: data.streetAddress)
+        } else {
+            if (locationType) device.deleteCurrentState('address')
+            if (locationType) device.deleteCurrentState('streetAddress')
         }
+}
         // can be updated all the time
         if (data?.batt)    sendEvent (name: "battery", value: data.batt)                                   else if (locationType) device.deleteCurrentState('battery')
         if (data?.topic)   sendEvent (name: "sourceTopic", value: data.topic)                              else if (locationType) device.deleteCurrentState('sourceTopic')
@@ -415,7 +418,7 @@ Boolean generatePresenceEvent(member, homeName, data) {
                  "${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}" +
                  "accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }" +
                  (debugLogAddresses ? ", Location: [${data.lat},${data.lon}] ${(data?.address ? ", Address: [${data.address}]" : "")} ${(data?.streetAddress ? ", Street Address: [${data.streetAddress}]" : "")} " : "") +
-                 "${(data?.inregions ? ", Regions: ${data.inregions}" : "")} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")} ${(data.tst == 0 ? ", Ignoring Bad Location" : "")}" )
+                 "${(data?.inregions ? ", Regions: ${data.inregions}" : "")} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")}" )
     }
 
     // update the last location time
@@ -426,76 +429,79 @@ Boolean generatePresenceEvent(member, homeName, data) {
     // update the attributes - only allow attribute deletion on location updates
     updateAttributes(data, (data._type == "location"))
 
-    // if we get a blank timestamp, then the phone has no location or this is a ping with high inaccuracy, so do not update any location fields
-    if (data.tst != 0) {
-        // update the coordinates so the member tile can populate correctly
-        if (data?.lat) sendEvent (name: "lat", value: data.lat)
-        if (data?.lon) sendEvent (name: "lon", value: data.lon)
+//***********************************
+// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED        
+// if we get a blank timestamp, then the phone has no location or this is a ping with high inaccuracy, so do not update any location fields
+if (data.tst != 0) {
+//***********************************
+    // update the coordinates so the member tile can populate correctly
+    if (data?.lat) sendEvent (name: "lat", value: data.lat)
+    if (data?.lon) sendEvent (name: "lon", value: data.lon)
 
-        // only log additional data if the user is not marked as private
-        if (!data.private) {
-            // if we have a tranistion event
-            if (data._type == "transition") {
-                currentLocation = data.desc
-                // only allow the transition event / notifications for non-home regions.  Home will be addressed in the presence check below
-                if (state.homeName != data.desc) {
-                    // only update the time if there was a state change
-                    if ((device.currentValue('transitionDirection') != data.event) || (device.currentValue('transitionRegion') != data.desc)) {
-                        state.sinceTime = data.tst
-                    }
-                    // create the notification event, update the transition and log the message
-                    createNotificationEvent(data.desc, data.event, locationTime, "")
-                }
-            } else {
-                // if we are in a region stored in the app
-                if (data.inregions) {
-                    locationList = ""
-                    data.inregions.each { place->
-                        // filter off the +follow regions
-                        if (place[0] != "+") {
-                            locationList += "$place,"
-                        }
-                    }
-                    // remove the trailing comma
-                    currentLocation = locationList.substring(0, locationList.length() - 1)
-                } else {
-                    // display the street address if it was reported (or the default lat,lon if no geocodeing was sent from the app)
-                    currentLocation = data.streetAddress
-                }
-                descriptionText = device.displayName +  " is at " + currentLocation
-
-                // only log if there was a valid time, a location change and log changes is enabled
-                if (device.currentValue("location") != currentLocation) {
-                    if (logLocationChanges) log.info "$descriptionText"
+    // only log additional data if the user is not marked as private
+    if (!data.private) {
+        // if we have a tranistion event
+        if (data._type == "transition") {
+            currentLocation = data.desc
+            // only allow the transition event / notifications for non-home regions.  Home will be addressed in the presence check below
+            if (state.homeName != data.desc) {
+                // only update the time if there was a state change
+                if ((device.currentValue('transitionDirection') != data.event) || (device.currentValue('transitionRegion') != data.desc)) {
                     state.sinceTime = data.tst
                 }
+                // create the notification event, update the transition and log the message
+                createNotificationEvent(data.desc, data.event, locationTime, "")
             }
-
-            long sinceTimeMilliSeconds = state.sinceTime
-            sinceDate = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date(sinceTimeMilliSeconds * 1000))
-            tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
-
-            sendEvent( name: "since", value: sinceDate )
-            sendEvent( name: "distanceFromHome", value:  parent.displayKmMiVal(data.currentDistanceFromHome) )
-            if (data?.vel) {
-                sendEvent( name: "lastSpeed", value:  parent.displayKmMiVal(data.vel).toInteger() )
+        } else {
+            // if we are in a region stored in the app
+            if (data.inregions) {
+                locationList = ""
+                data.inregions.each { place->
+                    // filter off the +follow regions
+                    if (place[0] != "+") {
+                        locationList += "$place,"
+                    }
+                }
+                // remove the trailing comma
+                currentLocation = locationList.substring(0, locationList.length() - 1)
             } else {
-                sendEvent( name: "lastSpeed", value:  0 )
+                // display the street address if it was reported (or the default lat,lon if no geocodeing was sent from the app)
+                currentLocation = data.streetAddress
             }
+            descriptionText = device.displayName +  " is at " + currentLocation
 
-            generateMemberTile()
+            // only log if there was a valid time, a location change and log changes is enabled
+            if (device.currentValue("location") != currentLocation) {
+                if (logLocationChanges) log.info "$descriptionText"
+                state.sinceTime = data.tst
+            }
         }
 
-        // allowed all the time
-        memberPresence = (data.memberAtHome ? "present" : "not present")
-        if (state.memberPresence != memberPresence) {
-            // in case we missed the transition event, update the attributes to align to the presence
-            createNotificationEvent(state.homeName, (data.memberAtHome ? "enter" : "leave"), locationTime, memberPresence)
+        long sinceTimeMilliSeconds = state.sinceTime
+        sinceDate = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date(sinceTimeMilliSeconds * 1000))
+        tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
+
+        sendEvent( name: "since", value: sinceDate )
+        sendEvent( name: "distanceFromHome", value:  parent.displayKmMiVal(data.currentDistanceFromHome) )
+        if (data?.vel) {
+            sendEvent( name: "lastSpeed", value:  parent.displayKmMiVal(data.vel).toInteger() )
+        } else {
+            sendEvent( name: "lastSpeed", value:  0 )
         }
-        state.memberPresence = memberPresence
-        sendEvent( name: "location", value: currentLocation )
-        generatePresenceTile()
+
+        generateMemberTile()
     }
+
+    // allowed all the time
+    memberPresence = (data.memberAtHome ? "present" : "not present")
+    if (state.memberPresence != memberPresence) {
+        // in case we missed the transition event, update the attributes to align to the presence
+        createNotificationEvent(state.homeName, (data.memberAtHome ? "enter" : "leave"), locationTime, memberPresence)
+    }
+    state.memberPresence = memberPresence
+    sendEvent( name: "location", value: currentLocation )
+    generatePresenceTile()
+}
 
     return true
 }

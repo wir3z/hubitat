@@ -102,6 +102,7 @@
  *  1.7.49     2024-04-24      - Rolled back region migration.
  *  1.7.50     2024-04-24      - Fixed region migration.
  *  1.7.51     2024-04-27      - Added API key validation to the setup screen.  Added Member command API links.
+ *  1.7.52     2024-04-28      - Regions are now deleted from mobile before sending new ones to eliminate duplicate region names.
 */
 
 import groovy.transform.Field
@@ -110,7 +111,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.51"}
+def appVersion() { return "1.7.52"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -136,6 +137,8 @@ def appVersion() { return "1.7.51"}
 @Field static final Map COLLECT_PLACES = [ "desc": 0, "desc_tst": 1, "map" : 2 ]
 
 // Main defaults
+@Field String  ANDROID_LEGACY_VERSION = "Owntracks-Android/4204"    
+
 @Field String  DEFAULT_APP_THEME_COLOR = "#2a0085"
 @Field Number  GOOGLE_MAP_API_QUOTA = 28500
 @Field String  GOOGLE_MAP_API_KEY_LINK = "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>"
@@ -144,7 +147,6 @@ def appVersion() { return "1.7.51"}
 @Field Number  INVALID_COORDINATE = 999
 @Field String  COMMON_CHILDNAME = "OwnTracks"
 @Field String  ANDROID_USER_AGENT = "Owntracks-Android"
-@Field String  ANDROID_LEGACY_VERSION = "Owntracks-Android/420412000"    // PlayStore version that does not delete regions
 @Field String  DEFAULT_CHILDPREFIX = "OwnTracks - "
 @Field Number  DEFAULT_RADIUS = 75
 @Field Number  DEFAULT_regionHighAccuracyRadius = 750
@@ -156,8 +158,6 @@ def appVersion() { return "1.7.51"}
 @Field Number  DEFAULT_warnOnNoUpdateHours = 12
 @Field Number  DEFAULT_staleLocationWatchdogInterval = 900
 @Field Boolean DEFAULT_highAccuracyOnPing = true
-@Field String  DEFAULT_highAccuracyOnPingCommand = "locationPingUsesHighAccuracyLocationRequest"
-@Field Boolean DEFAULT_autoRequestLocation = true
 @Field Boolean DEFAULT_highPowerMode = false
 @Field Number  DEFAULT_googleMapsZoom = 0
 @Field String  DEFAULT_googleMapsMember = "null"
@@ -234,8 +234,6 @@ def mainPage() {
 
     // initialize all fields if they are undefined
     initialize(false)
-    // store the previous locator interval so we can flag a warning for iOS users
-    state.previousLocatorInterval = locatorInterval
     def oauthStatus = ""
     //enable OAuth in the app settings or this call will fail
     try{
@@ -343,8 +341,6 @@ def mainPage() {
                     href(title: "Hub App Settings", description: "", style: "page", page: "advancedHub")
                     href(title: "Mobile App Location Settings", description: "", style: "page", page: "advancedLocation")
                     href(title: "Mobile App Display Settings", description: "", style: "page", page: "advancedDisplay")
-// Restart is only applicable to Android.  Current Android 2.4.x will restart the app, but fails to restart the ping service
-//                  input "restartMobileApp", "enum", multiple: true, title:"Select family member(s) to restart their mobile app on next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
                 }
                 input name: "sectionMaintenance", type: "button", title: getSectionTitle(state.show.maintenance, "Maintenance - Sync Member Settings, Reset to Defaults, Delete Members"), submitOnChange: true, style: getSectionStyle()
                 if (state.show.maintenance) {
@@ -592,8 +588,7 @@ def advancedHub() {
             input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: DEFAULT_warnOnDisabledMember
             input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: DEFAULT_warnOnMemberSettings
             if (getAndroidMembers()) {
-                input name: "highAccuracyOnPing", type: "bool", title: "Request a high accuracy location from members on their next location report after a ping/manual update to keep location fresh (<b>Android ONLY</b>)", defaultValue: DEFAULT_highAccuracyOnPing
-                input name: "autoRequestLocation", type: "bool", title: "Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (<b>Android ONLY</b>)", defaultValue: DEFAULT_autoRequestLocation
+                input name: "highAccuracyOnPing", type: "bool", title: "Request a high accuracy location from members on their next location report after a ping update to keep location fresh (<b>Android ONLY</b>)", defaultValue: DEFAULT_highAccuracyOnPing
             }
         }
     }
@@ -608,8 +603,6 @@ def advancedLocation() {
             }
             input name: "resetLocationDefaultsButton", type: "button", title: "Restore Defaults", state: "submit"
             input name: "monitoring", type: "enum", title: "Location reporting mode, Recommended=${MONITORING_MODES[DEFAULT_monitoring]}", required: true, options: MONITORING_MODES, defaultValue: DEFAULT_monitoring, submitOnChange: true
-            // This is replaced with high accuracy selection on the main page
-//            input name: "locatorPriority", type: "enum", title: "Source/power setting for location updates, Recommended=${LOCATOR_PRIORITY[DEFAULT_locatorPriority]}", required: true, options: LOCATOR_PRIORITY, defaultValue: DEFAULT_locatorPriority, submitOnChange: true
             input name: "ignoreInaccurateLocations", type: "number", title: "Do not send a location if the accuracy is greater than the given (${getSmallUnits()}) (0..${displayMFtVal(2000)}) Recommended=${displayMFtVal(DEFAULT_ignoreInaccurateLocations)}", required: true, range: "0..${displayMFtVal(2000)}", defaultValue: displayMFtVal(DEFAULT_ignoreInaccurateLocations)
             input name: "ignoreStaleLocations", type: "number", title: "Number of days after which location updates from friends are assumed stale and removed (0..7), Recommended=${DEFAULT_ignoreStaleLocations}", required: true, range: "0..7", defaultValue: DEFAULT_ignoreStaleLocations
             if (getAndroidMembers()) {
@@ -621,9 +614,6 @@ def advancedLocation() {
                 input name: "locatorDisplacement", type: "number", title: "How far the device travels (${getSmallUnits()}) before receiving another location update, Recommended=${displayMFtVal(DEFAULT_locatorDisplacement)}  <i><b>This value needs to be less than the minimum configured region radius for automations to trigger.</b></i> (<b>Android ONLY</b>)", required: true, range: "0..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_locatorDisplacement)
             }
             input name: "locatorInterval", type: "number", title: "Device will not report location updates faster than this interval (seconds) unless moving.  When moving, Android uses this 'locaterInterval/6' or '5-seconds' (whichever is greater, unless 'locaterInterval' is less than 5-seconds, then 'locaterInterval' is used), Recommended=60  <i><b>Requires the device to move the above distance, otherwise no update is sent.</b></i>", required: true, range: "0..3600", defaultValue: DEFAULT_locatorInterval, submitOnChange: true
-            if ((state.previousLocatorInterval != locatorInterval) && getiOSMembers()) {
-                paragraph "<div style='color:#ff0000'>An additional +follow region will be created on iOS devices with this new locater interval.  Manually delete '<b>+${state.previousLocatorInterval}follow</b>' from each iOS device to ensure proper operation.</div>"
-            }
             // IE:  locatorInterval=0-seconds,   then locations every 0-seconds  if moved locatorDisplacement meters
             //      locatorInterval=5-seconds,   then locations every 5-seconds  if moved locatorDisplacement meters
             //      locatorInterval=10-seconds,  then locations every 5-seconds  if moved locatorDisplacement meters
@@ -680,11 +670,9 @@ def configureRegions() {
                                "5. The pin will remain red until it is saved.\r" +
                                "<b>NOTE:</b> If a Google geocode API has been entered, an input box to allow direct address lookup will be displayed."
                     )
-                    iOSmembers = getiOSMembers()
                     paragraph ("<h2>Edit a Region</h2>" +
                                "1. Select the pin to be edited or a region from the selection box.\r" +
-                               "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" +
-                               (iOSmembers ? "<b>NOTE:</b> Changing the 'Region Name' will create a new region on iOS devices $iOSmembers.  The previous named region will need to be manually delete from each device.\r" : "")
+                               "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r"
                     )
                     paragraph ("<h2>Assign a Home Region</h2>" +
                                "1. Select a pin to be 'Home'.\r" +
@@ -698,10 +686,10 @@ def configureRegions() {
                                "3. <b>NOTE:</b> The actual delete behavior will be based on the operation described below.\r"
                     )
                     input name: "manualDeleteBehavior", type: "bool", title: "Manual Delete", defaultValue: DEFAULT_manualDeleteBehavior, submitOnChange: true
-                    legacyApps = getLegacyAndroidMembers()
-                    if (legacyApps) {
-                        paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile devices of $legacyApps.</b></div>")
-                    }
+//***********************************
+// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
+                    paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile devices.</b></div>")
+//***********************************
                     paragraph("<h3><b>Manual Delete: Region Deleted from Hub Only.  Requires Region to be Manually Deleted from Mobile</b></h3>" +
                               "1. Deleted regions will be deleted from the Hubitat <b>ONLY</b>.\r" +
                               "2. On each mobile phone, find and remove the region that was deleted.\r"
@@ -922,10 +910,8 @@ def editRegions() {
                 paragraph "<b>${appButtonHandler(state.submit)}</b>"
                 state.submit = ""
             }
-            iOSmembers = getiOSMembers()
             paragraph ("1. Select the region to be edited.\r" +
-                       "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r" +
-                       (iOSmembers ? "3. <b>NOTE:</b> Changing the 'Region Name' will create a new region on iOS devices $iOSmembers.  The previous named region will need to be manually delete from each device.\r" : "")
+                       "2. Once 'Save' is selected, all enabled members will automatically receive the changes on their next location report.\r"
             )
             addRegionToEdit()
             if (regionToEdit) {
@@ -962,8 +948,10 @@ def deleteRegions() {
             if (regionName) {
                 deleteRegion = state.places.find {it.desc==regionName}
                 paragraph("<iframe src='${getRegionMapLink(createRegionMap(deleteRegion?.lat,deleteRegion?.lon,deleteRegion?.rad))}' style='height: 500px; width:100%; border: none;'></iframe>")
-
+//***********************************
+// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
                 paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.</b></div>")
+//***********************************
                 paragraph("<h3><b>Delete Region from Hub Only - Manually Delete Region from Mobile</b></h3>" +
                           "1. Click the 'Delete Region from Hubitat ONLY' button.\r" +
                           "2. On each mobile phone, find and delete the region selected above.\r"
@@ -1088,7 +1076,7 @@ String appButtonHandler(btn) {
                     updateMember = false
                     result = "Deleting region '${regionName}' from Hubitat <b>ONLY</b>.  Manually remove '${regionName}' from each mobile."
                 } else {
-                    // invalidate the coordinates to flag it for deletion.  iOS is checking the name as a key, Android the timestamp
+                    // invalidate the coordinates to flag it for deletion
                     place.lat = INVALID_COORDINATE
                     place.lon = INVALID_COORDINATE
                     updateMember = true
@@ -1281,7 +1269,7 @@ def initialize(forceDefaults) {
     initializeMobileLocation(forceDefaults)
     // assign the defaults to the mobile app display settings
     initializeMobileDisplay(forceDefaults)
-    // add the iOS +follow location to allow for tranistion updates
+    // add the iOS +follow location to allow for transition updates
     updatePlusFollow()
 }
 
@@ -1298,7 +1286,6 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (warnOnDisabledMember == null)) app.updateSetting("warnOnDisabledMember", [value: DEFAULT_warnOnDisabledMember, type: "bool"])
     if (forceDefaults || (warnOnMemberSettings == null)) app.updateSetting("warnOnMemberSettings", [value: DEFAULT_warnOnMemberSettings, type: "bool"])
     if (forceDefaults || (highAccuracyOnPing == null)) app.updateSetting("highAccuracyOnPing", [value: DEFAULT_highAccuracyOnPing, type: "bool"])
-    if (forceDefaults || (autoRequestLocation == null)) app.updateSetting("autoRequestLocation", [value: DEFAULT_autoRequestLocation, type: "bool"])
     if (forceDefaults || (geocodeProvider == null)) app.updateSetting("geocodeProvider", [value: DEFAULT_geocodeProvider, type: "number"])
     if (forceDefaults || (geocodeFreeOnly == null)) app.updateSetting("geocodeFreeOnly", [value: DEFAULT_geocodeFreeOnly, type: "bool"])
     if (forceDefaults || (useCustomNotificationMessage == null)) app.updateSetting("useCustomNotificationMessage", [value: DEFAULT_useCustomNotificationMessage, type: "bool"])
@@ -1400,10 +1387,6 @@ def updated() {
         if (settings?.syncMobileSettings.find {it==member.name}) {
             syncSettings = true
         }
-        // if we selected member(s) to restart their mobile app
-        if (settings?.restartMobileApp.find {it==member.name}) {
-            member.restartApp = true
-        }
         // if the configuration has changed, trigger the member update
         if (syncSettings) {
             member.updateLocation = true
@@ -1412,16 +1395,14 @@ def updated() {
         }
     }
     // clear the settings flags to prevent the configurations from being forced to the display on each entry
-    app.updateSetting("restartMobileApp",[value:"",type:"enum"])
     app.updateSetting("syncMobileSettings",[value:"",type:"enum"])
 
     // check to see if home was assigned
     checkForHome()
 
-    // if we have selected to automatically request a high accuracy location fix, schedule the watchdog
-    if (autoRequestLocation) {
-        locationFixWatchdog()
-    }
+    // schedule the watchdog to automatically request a high accuracy location fix for stale locations
+    locationFixWatchdog()
+
     // set the flag to indicate we installed the app
     state.installed = true
     // clear the debug logging if set
@@ -1449,8 +1430,29 @@ def updated() {
     schedule("0 0 0 * * ? *", refreshMaps)
     refreshMaps()
     removePlaces()
-    // needed to convert region lat/lon/rad/tst from string to number
-    migratePlaces()
+
+//***********************************
+// TODO: REMOVE THIS IN A FUTURE VERSION FOR CLEANUP
+// Added to fix 1.7.49 2024-04-24
+    // loop through all the waypoints, and migrate the numbers from strings
+    state.places.each { waypoint->
+        waypoint.lat = waypoint.lat.toDouble()
+        waypoint.lon = waypoint.lon.toDouble()
+        waypoint.rad = waypoint.rad.toInteger()
+        waypoint.tst = waypoint.tst.toInteger()
+    }
+    // cleanup removed data
+    state.remove("previousLocatorInterval")
+    state.members.each { member->
+        member.remove("restartApp")
+    }
+    app.removeSetting("advancedMode")
+    app.removeSetting("autoRequestLocation")
+    app.removeSetting("seeOwnImageCard")
+    app.removeSetting("useHubLocation")
+    app.removeSetting("deleteFromHubitatOnly")    
+    app.removeSetting("mapAutoRefresh")    
+//***********************************
 }
 
 def refresh() {
@@ -1570,7 +1572,7 @@ def checkStaleMembers() {
         }
 
         // if auto request location is enabled and the position fix is stale, flag the user
-        if (autoRequestLocation && member.staleFix && isAndroidMember(member)) {
+        if (member.staleFix) {
             member.requestLocation = true
             logDebug("${member.name}'s position is stale.  Requesting a high accuracy location update.")
         }
@@ -1594,7 +1596,6 @@ def displayMemberStatus() {
         tableData += '<th>Update Display</th>'
         tableData += '<th>Get Regions</th>'
         tableData += '<th>Request Location</th>'
-//        tableData += '<th>Restart App</th>'
         tableData += '</tr>'
 
         // update each member with their last report times
@@ -1615,7 +1616,6 @@ def displayMemberStatus() {
             tableData += (memberEnabled ? (member.updateDisplay ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
             tableData += (memberEnabled ? (member.getRegions ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
             tableData += (memberEnabled ? (member.requestLocation ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
-//            tableData += (memberEnabled ? (member.restartApp ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
             tableData += '</tr>'
         }
         tableData += '</table></font>'
@@ -1678,7 +1678,7 @@ def webhookEventHandler() {
         if (!findMember?.id) {
             // add the new user to the list if they don't exist yet.  We will use the current time since not all incoming packets have a timestamp
             if (findMember == null) {
-                state.members << [ name:sourceName, deviceID:sourceDeviceID, id:null, timeStamp:(now()/1000).toInteger(), updateWaypoints:true, updateLocation:true, updateDisplay:true, dynamicLocaterAccuracy:false, restartApp:false, getRegions:false, requestLocation:false ]
+                state.members << [ name:sourceName, deviceID:sourceDeviceID, id:null, timeStamp:(now()/1000).toInteger(), updateWaypoints:true, updateLocation:true, updateDisplay:true, dynamicLocaterAccuracy:false, getRegions:false, requestLocation:false ]
             }
             logWarn("User: '${sourceName}' not configured.  To enable this member, open the Hubitat OwnTracks app, select '${sourceName}' in 'Select family member(s) to monitor' box and then click 'Done'.")
         } else {
@@ -1731,7 +1731,11 @@ def parseMessage(headers, data, member) {
             // if the course over ground was not defined, replace distance from home
             if (!data.cog) { data.cog = data.currentDistanceFromHome }
             // if we have the OwnTracks recorder configured, and the timestamp is valid, and the user is not parked as private, pass the location data to it
+//***********************************
+// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED        
+//            if (recorderURL && enableRecorder && !data.private) {
             if (recorderURL && enableRecorder && (data.tst != 0) && !data.private) {
+//***********************************
                 def postParams = [ uri: recorderURL + RECORDER_PUBLISH_FOLDER, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(headers), body : (new JsonBuilder(data)).toPrettyString() ]
                 asynchttpPost("httpCallbackMethod", postParams)
             }
@@ -1776,20 +1780,6 @@ def parseMessage(headers, data, member) {
 
     return (payload)
 }
-
-//***********************************
-// TODO: REMOVE THIS IN A FUTURE VERSION FOR CLEANUP
-// Added to fix 1.7.49 2024-04-24
-def migratePlaces() {
-    // loop through all the waypoints, and migrate the numbers from strings
-    state.places.each { waypoint->
-        waypoint.lat = waypoint.lat.toDouble()
-        waypoint.lon = waypoint.lon.toDouble()
-        waypoint.rad = waypoint.rad.toInteger()
-        waypoint.tst = waypoint.tst.toInteger()
-    }
-}
-//***********************************
 
 def parsePostHeaders(postHeaders) {
     def newHeaders = [:]
@@ -1870,14 +1860,6 @@ def updateMemberAttributes(headers, data, member) {
     member.speed            = data?.vel
     member.trackerID        = data?.tid
     member.bs               = data?.bs
-//***********************************
-// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
-    member.wifi             = data?.wifi
-    member.hib              = data?.hib
-    member.ps               = data?.ps
-    member.bo               = data?.bo
-    member.loc              = data?.loc
-//***********************************
     member.conn             = data?.conn
     member.appVersion       = headers.'User-agent'.toString()
 }
@@ -2017,12 +1999,25 @@ def createConfiguration(member, useDynamicLocaterAccuracy) {
                             ]
     }
 
+//***********************************
+// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED - replace this line  
     // check if we had a change, and then update the device configuration
-    if (member.requestLocation || (member?.dynamicLocaterAccuracy != useDynamicLocaterAccuracy)) {
+    if (isLegacyAndroidMember(member)) {
+        if (member.requestLocation || (member?.dynamicLocaterAccuracy != useDynamicLocaterAccuracy)) {
+            // assign the new state
+            member.dynamicLocaterAccuracy = useDynamicLocaterAccuracy
+            // return with the dynamic configuration
+            return( [ "_type":"cmd","action":"setConfiguration", "configuration": configurationList ] )
+        } else {
+            // return nothing
+            return
+        }
+    }
+//***********************************
+    
+    if (member?.dynamicLocaterAccuracy != useDynamicLocaterAccuracy) {
         // assign the new state
         member.dynamicLocaterAccuracy = useDynamicLocaterAccuracy
-        // clear the flag since this is a high accuracy request
-        member.requestLocation = false
         // return with the dynamic configuration
         return( [ "_type":"cmd","action":"setConfiguration", "configuration": configurationList ] )
     } else {
@@ -2033,7 +2028,14 @@ def createConfiguration(member, useDynamicLocaterAccuracy) {
 
 private def getDistanceFromHome(data) {
     // return distance in kilometers, rounded to 3 decimal places (meters)
-    return (haversine(data.lat.toDouble(), data.lon.toDouble(), getHomeRegion()?.lat.toDouble(), getHomeRegion()?.lon.toDouble()).round(3))
+    distance = 0.0
+    try {
+        distance = haversine(data.lat.toDouble(), data.lon.toDouble(), getHomeRegion()?.lat.toDouble(), getHomeRegion()?.lon.toDouble()).round(3)
+    } catch (e) {
+        logError("Unable to get distance from home.  Confirm a 'Home' region is assigned. Error reported: $e")
+    }
+    
+    return (distance)
 }
 
 private def logDistanceTraveledAndElapsedTime(member, data) {
@@ -2159,7 +2161,7 @@ def updateStatus(findMember, data) {
         log.debug (data?.iOS?.locationManagerAuthorizationStatus)
         log.debug (data?.iOS?.deviceIdentifierForVendor)
         */
-        logDebug("Updating status: ${findMember.name}")   
+        logDebug("Updating status: ${findMember.name}")
     } else {
         logDebug("Ignoring status due to private member.")
     }
@@ -2175,12 +2177,6 @@ private def setUpdateFlag(currentMember, newSetting, newValue) {
             logDebug("${newSetting} for user ${member.name}: ${newValue}")
         }
     }
-}
-
-private def sendRestartRequest(currentMember) {
-    logDescriptionText("Request app restart for user ${currentMember.name}")
-
-    return ([ "_type":"cmd","action":"restart" ])
 }
 
 private def sendReportLocationRequest(currentMember) {
@@ -2233,16 +2229,6 @@ private def sendMemberPositions(currentMember, data) {
                 if (member.altitude != null)    memberLocation["alt"]  = member.altitude
                 if (member.speed != null)       memberLocation["vel"]  = member.speed
                 if (member.bs != null)          memberLocation["bs"]   = member.bs
-
-//***********************************
-// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
-                // populate the additional data fields if supported by the current member
-                if (currentMember.wifi != null) memberLocation["wifi"] = member.wifi
-                if (currentMember.hib  != null) memberLocation["hib"]  = member.hib
-                if (currentMember.ps   != null) memberLocation["ps"]   = member.ps
-                if (currentMember.bo   != null) memberLocation["bo"]   = member.bo
-                if (currentMember.loc  != null) memberLocation["loc"]  = member.loc
-//***********************************
 
                 positions << memberLocation
 
@@ -2319,6 +2305,7 @@ private def sendConfiguration(currentMember) {
                                 "autostartOnBoot" :                     true,                                // Autostart the app on device boot
                                 "cmd" :                                 true,                                // Respond to cmd messages
                                 "remoteConfiguration" :                 true,                                // Allow remote configuration
+                                "allowRemoteLocation" :                 true,                                // Allow remote location command
                                 "reverseGeocodeProvider" :              "Device",                            // Reverse Geocode provider -- use device (Google for Android)
                                 "allowRemoteLocation" :                 true,                                // required for 'reportLocation' to be processed
                                 "connectionTimeoutSeconds" :            30,
@@ -2354,8 +2341,8 @@ private def sendConfiguration(currentMember) {
 
     // if we enabled a high accuracy location fix, then mark the user
     if (highAccuracyOnPing) {
-//        configurationList.experimentalFeatures = "showExperimentalPreferenceUI"
-        configurationList.experimentalFeatures = "${DEFAULT_highAccuracyOnPingCommand}"
+//        configurationList.experimentalFeatures = "showExperimentalPreferenceUI,locationPingUsesHighAccuracyLocationRequest"
+        configurationList.experimentalFeatures = "locationPingUsesHighAccuracyLocationRequest"
     }
 
     // append the extra app configurations if enabled
@@ -2380,12 +2367,10 @@ private def sendUpdate(currentMember, data) {
     // only send the position updates on a ping or manual update
     if (validLocationType(data.t)) {
         update += sendMemberPositions(currentMember, data)
-            // currently not enabled in the 2.4.x mobile app for http - not needed for 2.5.x
-//            update += sendReportLocationRequest(currentMember)
 //***********************************
 // TODO: REMOVE THIS ONCE 2.5.x IS RELEASED - now part of the configuration experimental features
         // if we enabled a high accuracy location fix, then mark the user
-        if (currentMember?.appVersion?.toString()?.indexOf("Owntracks-Android/gms",0) < 0) {
+        if (isLegacyAndroidMember(currentMember)) {        
             if (highAccuracyOnPing && isAndroidMember(currentMember)) {
                 currentMember.requestLocation = true
             }
@@ -2395,6 +2380,7 @@ private def sendUpdate(currentMember, data) {
 
     if (currentMember?.updateWaypoints) {
         currentMember.updateWaypoints = false
+        update += sendClearWaypointsRequest(currentMember)
         update += sendWaypoints(currentMember)
     }
     // check if we have any places marked for removal, and clean up the list
@@ -2403,24 +2389,29 @@ private def sendUpdate(currentMember, data) {
     if ((currentMember?.updateLocation) || (currentMember?.updateDisplay)) {
         update += sendConfiguration(currentMember)
     } else {
-        // switch the phone to a high accuracy report for one location request
+//***********************************
+// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
+        if (isLegacyAndroidMember(currentMember)) {
+            if (currentMember?.requestLocation) {
+                logDescriptionText("Requesting a high accuracy location update for ${currentMember.name}")
+                // switch the phone to a high accuracy report for one location request
+                updateConfig = createConfiguration(currentMember, true)
+                currentMember.requestLocation = false
+            } else {
+                // dynamically change the configuration as necessary
+                updateConfig = checkRegionConfiguration(currentMember, data)
+            }
+            if (updateConfig) {
+                update += updateConfig
+            }
+        }
+//***********************************
+        // request a high accuracy report for one location request
         if (currentMember?.requestLocation) {
             logDescriptionText("Requesting a high accuracy location update for ${currentMember.name}")
-            updateConfig = createConfiguration(currentMember, true)
-        } else {
-            // dynamically change the configuration as necessary
-            updateConfig = checkRegionConfiguration(currentMember, data)
-        }
-        if (updateConfig) {
-            update += updateConfig
-        }
-    }
-
-    // trigger an app restart
-    if (currentMember?.restartApp) {
-        currentMember.restartApp = false
-        // Only supported on Android.  When this is sent, the app restarts, but the ping service does not
-//        update += sendRestartRequest(currentMember)
+            update += sendReportLocationRequest(currentMember)
+            currentMember.requestLocation = false
+        }            
     }
 
     // request the member's regions
@@ -2429,14 +2420,10 @@ private def sendUpdate(currentMember, data) {
         update += sendReportWaypointsRequest(currentMember)
     }
 
-//***********************************
-// TODO: REMOVE THIS ONCE check around the command when 2.5.x IS RELEASED
-    // request a status update
-    if (currentMember?.appVersion?.toString()?.indexOf("Owntracks-Android/gms",0) >= 0) {
-        // manual location sends a status update
-        if (data.t != "u") update += sendReportStatusRequest(currentMember)
+    // report status on ping message type -- user generated location already generates the status message
+    if (data.t == "p") {
+        update += sendReportStatusRequest(currentMember)
     }
-//***********************************
 
     logDebug("Updating user: ${currentMember.name} with data: ${update}")
     return (update)
@@ -2444,24 +2431,11 @@ private def sendUpdate(currentMember, data) {
 
 private def sendCmdToMember(currentMember) {
     // check if there are commands to send to the member
-    if ((currentMember?.updateWaypoints) || (currentMember?.updateLocation) || (currentMember?.updateDisplay) || (currentMember?.restartApp) || (currentMember?.getRegions)) {
+    if ((currentMember?.updateWaypoints) || (currentMember?.updateLocation) || (currentMember?.updateDisplay) || (currentMember?.getRegions)) {
         return (true)
     } else {
         return (false)
     }
-}
-
-def getLegacyAndroidMembers() {
-    // returns a list of legacy app members
-    members = []
-    settings?.enabledMembers.each { enabledMember->
-        member = state.members.find {it.name==enabledMember}
-        if (member?.appVersion?.toString()?.indexOf(ANDROID_LEGACY_VERSION,0) >= 0) {
-            members << member.name
-        }
-    }
-
-    return(members)
 }
 
 def getAndroidMembers() {
@@ -2492,6 +2466,14 @@ def getiOSMembers() {
 
 def isAndroidMember(member) {
     if (member?.appVersion?.toString()?.indexOf(ANDROID_USER_AGENT,0) >= 0) {
+        return (true)
+    } else {
+        return (false)
+    }
+}
+
+def isLegacyAndroidMember(member) {
+    if (member?.appVersion?.toString()?.indexOf(ANDROID_LEGACY_VERSION,0) >= 0) {
         return (true)
     } else {
         return (false)
@@ -2922,7 +2904,6 @@ def generateConfigMap() {
                     lastIndex = "";
                     lastPosition = "";
                     homeRegion = "${getHomeRegion()?.tst}";
-                    iOSmembers = "${getiOSMembers()}";
                     updateRegionSelector()
                     addRegionListener()
                     updateAddressInput()
@@ -3210,9 +3191,6 @@ def generateConfigMap() {
                                 // add a new marker
                                 if (markerIndex.value == places.length) {
                                     places[markerIndex.value] = {lat:0.0,lng:0.0,rad:0,desc:"",tst:0};
-                                }
-                                if ((markers[markerIndex.value].marker.title != "") && (markers[markerIndex.value].marker.title != nameBox.value) && (iOSmembers != "[]")) {
-                                    alert("Changing the 'Region Name' will create a new region on iOS devices " + iOSmembers + ".  The previous named region will need to be manually delete from each device.");
                                 }
                                 markers[markerIndex.value].marker.title = nameBox.value;
                                 markers[markerIndex.value].marker.rad = parseInt(radBox.value);
@@ -4115,9 +4093,6 @@ private def syncHttpGet(url) {
 }
 
 private def getSectionTitle(sectionState, sectionTitle) {
-    // black up/down triangles
-    //return((sectionState ? "&#9650;" : "&#9660;") + " " + sectionTitle)
-    // +/-
     return((sectionState ? "&#10134;" : "&#10133;") + " " + sectionTitle)
 }
 

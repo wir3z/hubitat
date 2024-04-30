@@ -270,8 +270,6 @@ The defaults for the rest of these settings should be sufficient for verifying o
 	- If enabled, a warning will be displayed each time a user reports a location with non-optimal phone settings.
 - Request a high accuracy location from members on their next location report after a ping/manual update to keep location fresh (Android ONLY):
 	- If selected, members reporting stale locations will be requested to send a high accuracy location on their next location report
-- Automatically request a high accuracy location from members on their next location report if their 'Last Location Fix' is stale (Android ONLY)
-	- If selected, members reporting a ping or manual location will be requested to send a high accuracy location on their next location report
 	
 ## Mobile App Location Settings	
 - Restore Defaults
