@@ -103,6 +103,7 @@
  *  1.7.50     2024-04-24      - Fixed region migration.
  *  1.7.51     2024-04-27      - Added API key validation to the setup screen.  Added Member command API links.
  *  1.7.52     2024-04-28      - Regions are now deleted from mobile before sending new ones to eliminate duplicate region names.
+ *  1.7.53     2024-05-02      - Fixed issue where transition messages was assigning null to speed.
 */
 
 import groovy.transform.Field
@@ -111,7 +112,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.52"}
+def appVersion() { return "1.7.53"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -137,7 +138,7 @@ def appVersion() { return "1.7.52"}
 @Field static final Map COLLECT_PLACES = [ "desc": 0, "desc_tst": 1, "map" : 2 ]
 
 // Main defaults
-@Field String  ANDROID_LEGACY_VERSION = "Owntracks-Android/4204"    
+@Field String  ANDROID_LEGACY_VERSION = "Owntracks-Android/4204"
 
 @Field String  DEFAULT_APP_THEME_COLOR = "#2a0085"
 @Field Number  GOOGLE_MAP_API_QUOTA = 28500
@@ -1450,8 +1451,8 @@ def updated() {
     app.removeSetting("autoRequestLocation")
     app.removeSetting("seeOwnImageCard")
     app.removeSetting("useHubLocation")
-    app.removeSetting("deleteFromHubitatOnly")    
-    app.removeSetting("mapAutoRefresh")    
+    app.removeSetting("deleteFromHubitatOnly")
+    app.removeSetting("mapAutoRefresh")
 //***********************************
 }
 
@@ -1732,7 +1733,7 @@ def parseMessage(headers, data, member) {
             if (!data.cog) { data.cog = data.currentDistanceFromHome }
             // if we have the OwnTracks recorder configured, and the timestamp is valid, and the user is not parked as private, pass the location data to it
 //***********************************
-// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED        
+// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
 //            if (recorderURL && enableRecorder && !data.private) {
             if (recorderURL && enableRecorder && (data.tst != 0) && !data.private) {
 //***********************************
@@ -1850,18 +1851,19 @@ def updateMemberAttributes(headers, data, member) {
     updateAddress(member, data)
 
     // save the position and timestamp so we can push to other users
-    member.lastReportTime   = now()
-    member.latitude         = data?.lat
-    member.longitude        = data?.lon
-    member.timeStamp        = data?.tst
-    member.battery          = data?.batt
-    member.accuracy         = data?.acc
-    member.altitude         = data?.alt
-    member.speed            = data?.vel
-    member.trackerID        = data?.tid
-    member.bs               = data?.bs
-    member.conn             = data?.conn
-    member.appVersion       = headers.'User-agent'.toString()
+    member.appVersion               = headers.'User-agent'.toString()
+    member.lastReportTime           = now()
+    member.latitude                 = data?.lat
+    member.longitude                = data?.lon
+    member.timeStamp                = data?.tst
+    member.accuracy                 = data?.acc
+    // these are not present in transition messages
+    if (data?.tid  != null)         member.trackerID = data.tid
+    if (data?.batt != null)         member.battery   = data.batt
+    if (data?.alt  != null)         member.altitude  = data.alt
+    if (data?.vel  != null)         member.speed     = data.vel
+    if (data?.bs   != null)         member.bs        = data.bs
+    if (data?.conn != null)         member.conn      = data.conn
 }
 
 def updateDevicePresence(member, data) {
@@ -2000,7 +2002,7 @@ def createConfiguration(member, useDynamicLocaterAccuracy) {
     }
 
 //***********************************
-// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED - replace this line  
+// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED - replace this line
     // check if we had a change, and then update the device configuration
     if (isLegacyAndroidMember(member)) {
         if (member.requestLocation || (member?.dynamicLocaterAccuracy != useDynamicLocaterAccuracy)) {
@@ -2014,7 +2016,7 @@ def createConfiguration(member, useDynamicLocaterAccuracy) {
         }
     }
 //***********************************
-    
+
     if (member?.dynamicLocaterAccuracy != useDynamicLocaterAccuracy) {
         // assign the new state
         member.dynamicLocaterAccuracy = useDynamicLocaterAccuracy
@@ -2034,7 +2036,7 @@ private def getDistanceFromHome(data) {
     } catch (e) {
         logError("Unable to get distance from home.  Confirm a 'Home' region is assigned. Error reported: $e")
     }
-    
+
     return (distance)
 }
 
@@ -2370,7 +2372,7 @@ private def sendUpdate(currentMember, data) {
 //***********************************
 // TODO: REMOVE THIS ONCE 2.5.x IS RELEASED - now part of the configuration experimental features
         // if we enabled a high accuracy location fix, then mark the user
-        if (isLegacyAndroidMember(currentMember)) {        
+        if (isLegacyAndroidMember(currentMember)) {
             if (highAccuracyOnPing && isAndroidMember(currentMember)) {
                 currentMember.requestLocation = true
             }
@@ -2411,7 +2413,7 @@ private def sendUpdate(currentMember, data) {
             logDescriptionText("Requesting a high accuracy location update for ${currentMember.name}")
             update += sendReportLocationRequest(currentMember)
             currentMember.requestLocation = false
-        }            
+        }
     }
 
     // request the member's regions

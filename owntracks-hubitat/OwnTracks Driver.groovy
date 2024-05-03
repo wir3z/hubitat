@@ -126,12 +126,13 @@
  *  1.7.29     2024-04-22      - Added offline data connection.
  *  1.7.30     2024-04-25      - Added virtual switch.
  *  1.7.31     2024-04-27      - Added logging to virtual switch.
+ *  1.7.32     2024-05-02      - Added additional status command logging/display.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.31" }
+def driverVersion() { return "1.7.32" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -173,7 +174,7 @@ metadata {
         command    "createMemberTile"
 
         attribute  "switch", "string"
-      
+
         attribute  "location", "string"
         attribute  "transitionRegion", "string"
         attribute  "transitionTime", "string"
@@ -316,7 +317,7 @@ def createMemberTile() {
     generateTiles()
 }
 
-def updateAttributes(data, locationType) {
+def updateAttributes(member, data, locationType) {
     // remove the attributes if not enabled or the member is private
     if (data.private || !displayExtendedAttributes) {
          deleteExtendedAttributes(true)
@@ -324,7 +325,7 @@ def updateAttributes(data, locationType) {
     // display the extended attributes if they were received, but only allow them to be removed on non-tranisition eve
     if (!data.private) {
 //***********************************
-// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED        
+// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
 // requires a valid location report
 if (data.tst != 0) {
 //***********************************
@@ -348,41 +349,39 @@ if (data.tst != 0) {
         if (data?.t)       sendEvent (name: "triggerSource", value: TRIGGER_TYPE[data.t])                  else if (locationType) device.deleteCurrentState('triggerSource')
         if (data?.m)       sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])              else if (locationType) device.deleteCurrentState('monitoringMode')
 
-        if (locationType) {
-            // process the additional setting information
-            if (data?.wifi) {
-                sendEvent( name: "wifi", value: (data?.wifi ? "on" : "off") )
-                if (data?.wifi == 0) {
-                    logDebug("Phone has WiFi turned off.  Please turn WiFi on.")
-                }
-            } else {
-                device.deleteCurrentState('wifi')
+        // process the additional status information
+        if (member?.wifi != null) {
+            sendEvent( name: "wifi", value: (member?.wifi ? "on" : "off") )
+            if (member?.wifi == 0) {
+                logDebug("Phone has WiFi turned off.  Please turn WiFi on.")
             }
-            // only display the extra phone fields if they are in a non-optimal state
-            if (data?.ps == 1) {
-                sendEvent( name: "batterySaver", value: "on" )
-                logDebug("Phone is currently in battery saver mode")
-            } else {
-                device.deleteCurrentState('batterySaver')
-            }
-            if (data?.bo == 1) {
-                sendEvent( name: "batteryOptimizations", value: "Optimized/Restricted" )
-                logNonOptimalSettings("App settting: 'App battery usage' is 'Optimized' or 'Restricted'.  Please change to 'Unrestricted'")
-            } else {
-                device.deleteCurrentState('batteryOptimizations')
-            }
-            if (data?.hib == 1) {
-                sendEvent( name: "hiberateAllowed", value: "App can pause" )
-                logNonOptimalSettings("App setting: 'Pause app activity if unused' is 'Enabled'.  Please change to 'Disabled'")
-            } else {
-                device.deleteCurrentState('hiberateAllowed')
-            }
-            if ((data?.loc != null) && (data?.loc < 0)) {
-                sendEvent( name: "locationPermissions", value: LOCATION_PERMISION["${data?.loc}"])
-                logNonOptimalSettings("Location permissions currently set to '${LOCATION_PERMISION["${data?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
-            } else {
-                device.deleteCurrentState('locationPermissions')
-            }
+        } else {
+            device.deleteCurrentState('wifi')
+        }
+        // only display the extra phone fields if they are in a non-optimal state
+        if (member?.ps == 1) {
+            sendEvent( name: "batterySaver", value: "on" )
+            logDebug("Phone is currently in battery saver mode")
+        } else {
+            device.deleteCurrentState('batterySaver')
+        }
+        if (member?.bo == 1) {
+            sendEvent( name: "batteryOptimizations", value: "Optimized/Restricted" )
+            logNonOptimalSettings("App setting: 'App battery usage' is 'Optimized' or 'Restricted'.  Please change to 'Unrestricted'")
+        } else {
+            device.deleteCurrentState('batteryOptimizations')
+        }
+        if (member?.hib == 1) {
+            sendEvent( name: "hiberateAllowed", value: "App can pause" )
+            logNonOptimalSettings("App setting: 'Pause app activity if unused' is 'Enabled'.  Please change to 'Disabled'")
+        } else {
+            device.deleteCurrentState('hiberateAllowed')
+        }
+        if ((member?.loc != null) && (member?.loc < 0)) {
+            sendEvent( name: "locationPermissions", value: LOCATION_PERMISION["${member?.loc}"])
+            logNonOptimalSettings("Location permissions currently set to '${LOCATION_PERMISION["${member?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
+        } else {
+            device.deleteCurrentState('locationPermissions')
         }
     }
 
@@ -418,7 +417,7 @@ Boolean generatePresenceEvent(member, homeName, data) {
                  "${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}" +
                  "accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }" +
                  (debugLogAddresses ? ", Location: [${data.lat},${data.lon}] ${(data?.address ? ", Address: [${data.address}]" : "")} ${(data?.streetAddress ? ", Street Address: [${data.streetAddress}]" : "")} " : "") +
-                 "${(data?.inregions ? ", Regions: ${data.inregions}" : "")} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")}" )
+                 "${(data?.inregions ? ", Regions: ${data.inregions}" : "")} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")} " )
     }
 
     // update the last location time
@@ -427,10 +426,10 @@ Boolean generatePresenceEvent(member, homeName, data) {
     sendEvent( name: "imperialUnits", value: parent.isimperialUnits() )
 
     // update the attributes - only allow attribute deletion on location updates
-    updateAttributes(data, (data._type == "location"))
+    updateAttributes(member, data, (data._type == "location"))
 
 //***********************************
-// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED        
+// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
 // if we get a blank timestamp, then the phone has no location or this is a ping with high inaccuracy, so do not update any location fields
 if (data.tst != 0) {
 //***********************************
