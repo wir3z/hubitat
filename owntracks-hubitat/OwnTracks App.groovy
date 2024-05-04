@@ -104,6 +104,7 @@
  *  1.7.51     2024-04-27      - Added API key validation to the setup screen.  Added Member command API links.
  *  1.7.52     2024-04-28      - Regions are now deleted from mobile before sending new ones to eliminate duplicate region names.
  *  1.7.53     2024-05-02      - Fixed issue where transition messages was assigning null to speed.
+ *  1.7.54     2024-05-03      - Prevent the clear waypoints command on 2.4.x.
 */
 
 import groovy.transform.Field
@@ -112,7 +113,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.53"}
+def appVersion() { return "1.7.54"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -2382,7 +2383,12 @@ private def sendUpdate(currentMember, data) {
 
     if (currentMember?.updateWaypoints) {
         currentMember.updateWaypoints = false
-        update += sendClearWaypointsRequest(currentMember)
+//***********************************
+// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
+        if (!isLegacyAndroidMember(currentMember)) {
+//***********************************
+            update += sendClearWaypointsRequest(currentMember)
+        }
         update += sendWaypoints(currentMember)
     }
     // check if we have any places marked for removal, and clean up the list
