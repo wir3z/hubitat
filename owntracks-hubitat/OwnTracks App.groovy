@@ -106,6 +106,7 @@
  *  1.7.53     2024-05-02      - Fixed issue where transition messages was assigning null to speed.
  *  1.7.54     2024-05-03      - Prevent the clear waypoints command on 2.4.x.
  *  1.7.55     2024-05-04      - Removed support for 2.4.17 forked version.
+ *  1.7.56     2024-05-04      - Cloud links for Recorder were being displayed when they should not have.
 */
 
 import groovy.transform.Field
@@ -114,7 +115,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.55"}
+def appVersion() { return "1.7.56"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -273,7 +274,7 @@ def mainPage() {
                     input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + "Select family member(s) to monitor.  Member device will be created and configured once 'Done' is pressed, below.</div>", options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                     input "privateMembers", "enum", multiple: true, title:(privateMembers ? '<div style="color:#ff0000">' : '<div>') + 'Select family member(s) to remain private.  Locations and regions will <B>NOT</b> be shared with other members or the Recorder.  Their Hubitat device will only display presence information.</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                     href(title: "Configure Region Arrived/Departed Notifications", description: "", style: "page", page: "configureNotifications")
-                }
+                }                   
                 input name: "sectionLinks", type: "button", title: getSectionTitle(state.show.links, "Dashboard Web Links"), submitOnChange: true, style: getSectionStyle()
                 if (state.show.links) {
                     paragraph ("<b>Direct dashboard links for use in a web browser.</b>")
@@ -299,7 +300,7 @@ def mainPage() {
                         }
                         if (recorderURL) {
                             // only display the recorder links if it's a local URL or if it's https (required for the cloud link)
-                            if ((source.value != URL_SOURCE[0]) || isHTTPsURL(getRecorderURL())) {
+                            if ((source != URL_SOURCE[0]) || isHTTPsURL(getRecorderURL())) {
                                 paragraph ("<b>OwnTracks Recorder family map:</b></br>&emsp;<a href='${getAttributeURL(source, "recordermap")}'>${getAttributeURL(source, "recordermap")}</a>")
 
                                 if (state.members) {
