@@ -127,12 +127,13 @@
  *  1.7.30     2024-04-25      - Added virtual switch.
  *  1.7.31     2024-04-27      - Added logging to virtual switch.
  *  1.7.32     2024-05-02      - Added additional status command logging/display.
+ *  1.7.33     2024-05-04      - Removed filtering for zero timestamp.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.32" }
+def driverVersion() { return "1.7.33" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -324,11 +325,6 @@ def updateAttributes(member, data, locationType) {
     }
     // display the extended attributes if they were received, but only allow them to be removed on non-tranisition eve
     if (!data.private) {
-//***********************************
-// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
-// requires a valid location report
-if (data.tst != 0) {
-//***********************************
         if (data?.acc)     sendEvent (name: "accuracy", value: parent.displayMFtVal(data.acc))         else if (locationType) device.deleteCurrentState('accuracy')
         if (data?.vac)     sendEvent (name: "verticalAccuracy", value: parent.displayMFtVal(data.vac)) else if (locationType) device.deleteCurrentState('verticalAccuracy')
         if (data?.alt)     sendEvent (name: "altitude", value: parent.displayMFtVal(data.alt))         else if (locationType) device.deleteCurrentState('altitude')
@@ -339,7 +335,7 @@ if (data.tst != 0) {
             if (locationType) device.deleteCurrentState('address')
             if (locationType) device.deleteCurrentState('streetAddress')
         }
-}
+
         // can be updated all the time
         if (data?.batt)    sendEvent (name: "battery", value: data.batt)                                   else if (locationType) device.deleteCurrentState('battery')
         if (data?.topic)   sendEvent (name: "sourceTopic", value: data.topic)                              else if (locationType) device.deleteCurrentState('sourceTopic')
@@ -428,11 +424,6 @@ Boolean generatePresenceEvent(member, homeName, data) {
     // update the attributes - only allow attribute deletion on location updates
     updateAttributes(member, data, (data._type == "location"))
 
-//***********************************
-// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
-// if we get a blank timestamp, then the phone has no location or this is a ping with high inaccuracy, so do not update any location fields
-if (data.tst != 0) {
-//***********************************
     // update the coordinates so the member tile can populate correctly
     if (data?.lat) sendEvent (name: "lat", value: data.lat)
     if (data?.lon) sendEvent (name: "lon", value: data.lon)
@@ -500,7 +491,6 @@ if (data.tst != 0) {
     state.memberPresence = memberPresence
     sendEvent( name: "location", value: currentLocation )
     generatePresenceTile()
-}
 
     return true
 }

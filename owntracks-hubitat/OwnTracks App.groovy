@@ -105,6 +105,7 @@
  *  1.7.52     2024-04-28      - Regions are now deleted from mobile before sending new ones to eliminate duplicate region names.
  *  1.7.53     2024-05-02      - Fixed issue where transition messages was assigning null to speed.
  *  1.7.54     2024-05-03      - Prevent the clear waypoints command on 2.4.x.
+ *  1.7.55     2024-05-04      - Removed support for 2.4.17 forked version.
 */
 
 import groovy.transform.Field
@@ -113,7 +114,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.54"}
+def appVersion() { return "1.7.55"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -689,7 +690,7 @@ def configureRegions() {
                     )
                     input name: "manualDeleteBehavior", type: "bool", title: "Manual Delete", defaultValue: DEFAULT_manualDeleteBehavior, submitOnChange: true
 //***********************************
-// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
+// TODO: REMOVE THIS COMMENT ONCE 2.5.x IS RELEASED
                     paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile devices.</b></div>")
 //***********************************
                     paragraph("<h3><b>Manual Delete: Region Deleted from Hub Only.  Requires Region to be Manually Deleted from Mobile</b></h3>" +
@@ -951,7 +952,7 @@ def deleteRegions() {
                 deleteRegion = state.places.find {it.desc==regionName}
                 paragraph("<iframe src='${getRegionMapLink(createRegionMap(deleteRegion?.lat,deleteRegion?.lon,deleteRegion?.rad))}' style='height: 500px; width:100%; border: none;'></iframe>")
 //***********************************
-// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
+// TODO: REMOVE THIS COMMENT ONCE 2.5.x IS RELEASED
                 paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.</b></div>")
 //***********************************
                 paragraph("<h3><b>Delete Region from Hub Only - Manually Delete Region from Mobile</b></h3>" +
@@ -1733,11 +1734,7 @@ def parseMessage(headers, data, member) {
             // if the course over ground was not defined, replace distance from home
             if (!data.cog) { data.cog = data.currentDistanceFromHome }
             // if we have the OwnTracks recorder configured, and the timestamp is valid, and the user is not parked as private, pass the location data to it
-//***********************************
-// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
-//            if (recorderURL && enableRecorder && !data.private) {
-            if (recorderURL && enableRecorder && (data.tst != 0) && !data.private) {
-//***********************************
+            if (recorderURL && enableRecorder && !data.private) {
                 def postParams = [ uri: recorderURL + RECORDER_PUBLISH_FOLDER, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(headers), body : (new JsonBuilder(data)).toPrettyString() ]
                 asynchttpPost("httpCallbackMethod", postParams)
             }
@@ -2003,7 +2000,7 @@ def createConfiguration(member, useDynamicLocaterAccuracy) {
     }
 
 //***********************************
-// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED - replace this line
+// TODO: REMOVE THIS BLOCK ONCE 2.5.x IS RELEASED
     // check if we had a change, and then update the device configuration
     if (isLegacyAndroidMember(member)) {
         if (member.requestLocation || (member?.dynamicLocaterAccuracy != useDynamicLocaterAccuracy)) {
@@ -2371,7 +2368,7 @@ private def sendUpdate(currentMember, data) {
     if (validLocationType(data.t)) {
         update += sendMemberPositions(currentMember, data)
 //***********************************
-// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED - now part of the configuration experimental features
+// TODO: REMOVE THIS BLOCK ONCE 2.5.x IS RELEASED - now part of the configuration experimental features
         // if we enabled a high accuracy location fix, then mark the user
         if (isLegacyAndroidMember(currentMember)) {
             if (highAccuracyOnPing && isAndroidMember(currentMember)) {
@@ -2384,7 +2381,7 @@ private def sendUpdate(currentMember, data) {
     if (currentMember?.updateWaypoints) {
         currentMember.updateWaypoints = false
 //***********************************
-// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
+// TODO: REMOVE THIS CONDITIONAL ONCE 2.5.x IS RELEASED
         if (!isLegacyAndroidMember(currentMember)) {
 //***********************************
             update += sendClearWaypointsRequest(currentMember)
@@ -2398,7 +2395,7 @@ private def sendUpdate(currentMember, data) {
         update += sendConfiguration(currentMember)
     } else {
 //***********************************
-// TODO: REMOVE THIS ONCE 2.5.x IS RELEASED
+// TODO: REMOVE THIS BLOCK ONCE 2.5.x IS RELEASED
         if (isLegacyAndroidMember(currentMember)) {
             if (currentMember?.requestLocation) {
                 logDescriptionText("Requesting a high accuracy location update for ${currentMember.name}")
@@ -2416,9 +2413,9 @@ private def sendUpdate(currentMember, data) {
 //***********************************
         // request a high accuracy report for one location request
         if (currentMember?.requestLocation) {
+            currentMember.requestLocation = false
             logDescriptionText("Requesting a high accuracy location update for ${currentMember.name}")
             update += sendReportLocationRequest(currentMember)
-            currentMember.requestLocation = false
         }
     }
 
