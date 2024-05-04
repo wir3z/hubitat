@@ -1,7 +1,7 @@
 # Hubitat
 # Applications
 - owntracks-hubitat - Connects OwnTracks push events to virtual presence drivers.
-- owntracks-android-2.5 - Fork from https://github.com/owntracks/android/tree/master at master with customizations
+- owntracks-android-2.5 - Fork from https://github.com/owntracks/android/tree/master at master with customizations.
 - owntracks-android-apk - Android APK.  NOTE:  No Google maps API key is installed.
 
 # License Notice
