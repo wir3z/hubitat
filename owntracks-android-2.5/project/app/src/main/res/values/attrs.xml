@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="Theme">
+        <attr name="colorRegion" format="color" />
+        <attr name="welcomeIconMargin" format="dimension" />
+        <attr name="welcomeHeadingMargin" format="dimension" />
+    </declare-styleable>
+    <declare-styleable name="ValidatingEditTextPreference">
+        <attr name="validationError" format="reference" />
+    </declare-styleable>
+</resources>

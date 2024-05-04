@@ -1,9 +1,0 @@
----
-codecov:
-  notify:
-    after_n_builds: 3 # Unit and 2 Espresso
-coverage:
-  status:
-    project:
-      status:
-        threshold: 1%

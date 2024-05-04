@@ -1,0 +1,101 @@
+<resources xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <style name="Theme.Owntracks" parent="@style/Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/OTPrimaryBlue</item>
+        <item name="colorPrimaryDark">@color/OTDarkerBlue</item>
+        <item name="colorOnPrimary">@color/md_white_1000</item>
+        <item name="colorSecondary">@color/OTPrimaryBlue</item>
+        <item name="colorOnSecondary">@color/md_white_1000</item>
+        <item name="colorAccent">@color/OTPrimaryBlue</item>
+        <item name="material_drawer_background">?android:windowBackground</item>
+        <item name="material_drawer_primary_text">?android:textColorSecondary</item>
+        <item name="material_drawer_primary_icon">?attr/material_drawer_primary_text</item>
+        <item name="material_drawer_secondary_text">?attr/material_drawer_primary_text</item>
+
+        <item name="preferenceTheme">@style/Theme.Owntracks.Preferences</item>
+        <item name="toolbarStyle">@style/Theme.Owntracks.Toolbar</item>
+        <item name="toolbarNavigationButtonStyle">
+            @style/Theme.Owntracks.ToolbarNavigationButton
+        </item>
+        <item name="drawerArrowStyle">@style/Theme.Owntracks.ToolbarDrawerArrowStyle</item>
+        <item name="actionOverflowButtonStyle">@style/Theme.Owntracks.Overflow</item>
+        <item name="materialAlertDialogTheme">@style/Theme.Owntracks.AlertDialog</item>
+        <item name="colorRegion">@color/MapRegion</item>
+        <item name="actionMenuTextColor">?attr/colorOnPrimary</item>
+        <item name="android:actionMenuTextColor">?attr/colorOnPrimary</item>
+    </style>
+
+    <!-- Hamburger theme -->
+    <style name="Theme.Owntracks.ToolbarDrawerArrowStyle" parent="Widget.AppCompat.DrawerArrowToggle">
+        <item name="color">?attr/colorOnPrimary</item>
+    </style>
+
+    <!-- Navigation Arrow Theme theme -->
+    <style name="Theme.Owntracks.ToolbarNavigationButton" parent="Widget.AppCompat.Toolbar.Button.Navigation">
+        <item name="tint">?attr/colorOnPrimary</item>
+    </style>
+
+    <!-- Toolbar Text -->
+    <style name="Theme.Owntracks.Toolbar" parent="@style/Widget.MaterialComponents.Toolbar.Primary">
+        <item name="titleTextColor">?attr/colorOnPrimary</item>
+    </style>
+
+    <!-- Overflow menu button -->
+    <style name="Theme.Owntracks.Overflow" parent="Widget.AppCompat.Light.ActionButton.Overflow">
+        <item name="tint">?attr/colorOnPrimary</item>
+    </style>
+
+
+    <style name="Theme.Owntracks.Welcome">
+        <item name="android:windowBackground">@color/OTPrimaryBlue</item>
+        <item name="android:textColor">@color/md_white_1000</item>
+        <item name="android:textViewStyle">@style/Theme.Owntracks.Welcome.TextView</item>
+        <item name="materialButtonStyle">@style/Theme.Owntracks.Welcome.Button</item>
+        <item name="materialButtonOutlinedStyle">@style/Theme.Owntracks.Welcome.Button.Outlined</item>
+        <item name="colorPrimary">@color/md_white_1000</item>
+        <item name="colorOnPrimary">@color/md_white_1000</item>
+        <item name="welcomeIconMargin">16dp</item>
+        <item name="welcomeHeadingMargin">12dp</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+
+    <style name="Theme.Owntracks.Welcome.Button" parent="Widget.MaterialComponents.Button">
+        <item name="android:backgroundTint">@color/OTAccent</item>
+    </style>
+
+    <style name="Theme.Owntracks.Welcome.Button.Outlined" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="android:backgroundTint">@android:color/transparent</item>
+        <item name="strokeColor">?attr/colorPrimary</item>
+    </style>
+
+    <style name="Theme.Owntracks.Welcome.TextView">
+        <item name="android:textSize">16sp</item>
+        <item name="android:lineSpacingMultiplier">1.2</item>
+    </style>
+    <style name="Theme.Owntracks.Welcome.TextView.Heading">
+        <item name="android:textSize">24sp</item>
+    </style>
+
+    <style name="Theme.Owntracks.Preferences" parent="@style/PreferenceThemeOverlay">
+        <item name="android:tint">?attr/colorPrimary</item>
+    </style>
+
+    <style name="ListItemPrimary" parent="@style/TextAppearance.AppCompat.Subhead">
+        <item name="android:textSize">16sp</item>
+    </style>
+
+    <style name="ListItemSecondary" parent="@style/TextAppearance.AppCompat.Caption">
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="DialogView">
+        <item name="android:paddingStart">24dp</item>
+        <item name="android:paddingEnd">24dp</item>
+        <item name="android:paddingTop">8dp</item>
+        <item name="android:paddingBottom">8dp</item>
+    </style>
+
+    <style name="Theme.Owntracks.AlertDialog" parent="@style/ThemeOverlay.MaterialComponents.MaterialAlertDialog">
+        <item name="android:tint">?attr/colorPrimary</item>
+    </style>
+</resources>

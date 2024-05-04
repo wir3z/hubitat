@@ -1,0 +1,5 @@
+codecov:
+  notify:
+    after_n_builds: 2
+    wait_for_ci: yes
+  max_report_age: off
