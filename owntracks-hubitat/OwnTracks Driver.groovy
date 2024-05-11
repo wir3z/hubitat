@@ -128,12 +128,13 @@
  *  1.7.31     2024-04-27      - Added logging to virtual switch.
  *  1.7.32     2024-05-02      - Added additional status command logging/display.
  *  1.7.33     2024-05-04      - Removed filtering for zero timestamp.
+ *  1.7.34     2024-05-06      - Fixed zero battery and zero speed not being debug logged.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.33" }
+def driverVersion() { return "1.7.34" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -410,7 +411,7 @@ Boolean generatePresenceEvent(member, homeName, data) {
         logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${(data.memberAtHome ? "'present'" : "'not present'")}, accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits()} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")}")
     } else {
         logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${(data.memberAtHome ? "'present'" : "'not present'")} (Home Wifi: ${data.memberWiFiHome}, High Accuracy: ${member.dynamicLocaterAccuracy}), " +
-                 "${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt ? "Battery: ${data.batt}%, ":"")}${(data.vel ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}" +
+                 "${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt != null ? "Battery: ${data.batt}%, ":"")}${(data.vel != null ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}" +
                  "accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }" +
                  (debugLogAddresses ? ", Location: [${data.lat},${data.lon}] ${(data?.address ? ", Address: [${data.address}]" : "")} ${(data?.streetAddress ? ", Street Address: [${data.streetAddress}]" : "")} " : "") +
                  "${(data?.inregions ? ", Regions: ${data.inregions}" : "")} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")} " )

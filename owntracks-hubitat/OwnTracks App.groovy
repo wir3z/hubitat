@@ -107,6 +107,7 @@
  *  1.7.54     2024-05-03      - Prevent the clear waypoints command on 2.4.x.
  *  1.7.55     2024-05-04      - Removed support for 2.4.17 forked version.
  *  1.7.56     2024-05-04      - Cloud links for Recorder were being displayed when they should not have.
+ *  1.7.57     2024-05-11      - Fixed higher accuracy reporting wasn't happening after the 2.5.x migration changes.  Fixed an error if a user notification was saved, with no selected regions.
 */
 
 import groovy.transform.Field
@@ -115,7 +116,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.56"}
+def appVersion() { return "1.7.57"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -274,7 +275,7 @@ def mainPage() {
                     input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + "Select family member(s) to monitor.  Member device will be created and configured once 'Done' is pressed, below.</div>", options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                     input "privateMembers", "enum", multiple: true, title:(privateMembers ? '<div style="color:#ff0000">' : '<div>') + 'Select family member(s) to remain private.  Locations and regions will <B>NOT</b> be shared with other members or the Recorder.  Their Hubitat device will only display presence information.</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                     href(title: "Configure Region Arrived/Departed Notifications", description: "", style: "page", page: "configureNotifications")
-                }                   
+                }
                 input name: "sectionLinks", type: "button", title: getSectionTitle(state.show.links, "Dashboard Web Links"), submitOnChange: true, style: getSectionStyle()
                 if (state.show.links) {
                     paragraph ("<b>Direct dashboard links for use in a web browser.</b>")
@@ -1128,10 +1129,10 @@ String appButtonHandler(btn) {
         case "saveNotificationsButton":
             if (selectFamilyMembers) {
                 member = state.members.find {it.name==selectFamilyMembers}
-                member.enterDevices = notificationEnter - "Toggle All On/Off"
-                member.enterRegions = notificationEnterRegions - "Toggle All On/Off"
-                member.leaveDevices = notificationLeave - "Toggle All On/Off"
-                member.leaveRegions = notificationLeaveRegions - "Toggle All On/Off"
+                if (notificationEnter)         member.enterDevices = notificationEnter - "Toggle All On/Off"
+                if (notificationEnterRegions)  member.enterRegions = notificationEnterRegions - "Toggle All On/Off"
+                if (notificationLeave)         member.leaveDevices = notificationLeave - "Toggle All On/Off"
+                if (notificationLeaveRegions)  member.leaveRegions = notificationLeaveRegions - "Toggle All On/Off"
                 result = "Updated notification settings for family member '${selectFamilyMembers}'"
             }
         break
@@ -2182,7 +2183,7 @@ private def setUpdateFlag(currentMember, newSetting, newValue) {
 
 private def sendReportLocationRequest(currentMember) {
     logDescriptionText("Request location for user ${currentMember.name}")
-    // Forces the device to get a GPS fix for higher accuracy (temporarily changes 'locatorPriority' to "HIGH POWER")
+    // Forces the device to get a GPS fix for higher accuracy
 
     return ([ "_type":"cmd","action":"reportLocation" ])
 }
@@ -2407,11 +2408,14 @@ private def sendUpdate(currentMember, data) {
                 // dynamically change the configuration as necessary
                 updateConfig = checkRegionConfiguration(currentMember, data)
             }
-            if (updateConfig) {
-                update += updateConfig
-            }
-        }
+        } else {
 //***********************************
+        // dynamically change the configuration as necessary
+        updateConfig = checkRegionConfiguration(currentMember, data)
+}
+        if (updateConfig) {
+            update += updateConfig
+        }
         // request a high accuracy report for one location request
         if (currentMember?.requestLocation) {
             currentMember.requestLocation = false
