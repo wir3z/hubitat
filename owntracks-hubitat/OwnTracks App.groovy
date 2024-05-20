@@ -108,6 +108,7 @@
  *  1.7.55     2024-05-04      - Removed support for 2.4.17 forked version.
  *  1.7.56     2024-05-04      - Cloud links for Recorder were being displayed when they should not have.
  *  1.7.57     2024-05-11      - Fixed higher accuracy reporting wasn't happening after the 2.5.x migration changes.  Fixed an error if a user notification was saved, with no selected regions.
+ *  1.7.58     2024-05-20      - When using the dynamic region config map, creating more than one region at a time would result in duplicates.  Testing the map API key with no members would result in an exception and not display the map.
 */
 
 import groovy.transform.Field
@@ -116,7 +117,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.57"}
+def appVersion() { return "1.7.58"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -2142,31 +2143,26 @@ def addPlace(findMember, data, verboseAdd) {
 }
 
 def updateStatus(findMember, data) {
-    // only add status from non-private members
-    if (!(settings?.privateMembers.find {it==findMember.name})) {
-        findMember.wifi = data?.android?.wifi
-        findMember.hib  = data?.android?.hib
-        findMember.ps   = data?.android?.ps
-        findMember.bo   = data?.android?.bo
-        findMember.loc  = data?.android?.loc
-        /*
-        log.debug (data?.iOS?.deviceSystemName)
-        log.debug (data?.iOS?.deviceUserInterfaceIdiom)
-        log.debug (data?.iOS?.localeUsesMetricSystem)
-        log.debug (data?.iOS?.backgroundRefreshStatus)
-        log.debug (data?.iOS?.deviceSystemVersion)
-        log.debug (data?.iOS?.altimeterAuthorizationStatus)
-        log.debug (data?.iOS?.deviceModel)
-        log.debug (data?.iOS?.locale)
-        log.debug (data?.iOS?.version)
-        log.debug (data?.iOS?.altimeterIsRelativeAltitudeAvailable)
-        log.debug (data?.iOS?.locationManagerAuthorizationStatus)
-        log.debug (data?.iOS?.deviceIdentifierForVendor)
-        */
-        logDebug("Updating status: ${findMember.name}")
-    } else {
-        logDebug("Ignoring status due to private member.")
-    }
+    findMember.wifi = data?.android?.wifi
+    findMember.hib  = data?.android?.hib
+    findMember.ps   = data?.android?.ps
+    findMember.bo   = data?.android?.bo
+    findMember.loc  = data?.android?.loc
+    /*
+    log.debug (data?.iOS?.deviceSystemName)
+    log.debug (data?.iOS?.deviceUserInterfaceIdiom)
+    log.debug (data?.iOS?.localeUsesMetricSystem)
+    log.debug (data?.iOS?.backgroundRefreshStatus)
+    log.debug (data?.iOS?.deviceSystemVersion)
+    log.debug (data?.iOS?.altimeterAuthorizationStatus)
+    log.debug (data?.iOS?.deviceModel)
+    log.debug (data?.iOS?.locale)
+    log.debug (data?.iOS?.version)
+    log.debug (data?.iOS?.altimeterIsRelativeAltitudeAvailable)
+    log.debug (data?.iOS?.locationManagerAuthorizationStatus)
+    log.debug (data?.iOS?.deviceIdentifierForVendor)
+    */
+    logDebug("Updating status: ${findMember.name}")
 }
 
 private def setUpdateFlag(currentMember, newSetting, newValue) {
@@ -2886,6 +2882,7 @@ def generateConfigMap() {
                 const paramLon = urlParams.get("lon");
                 mapLat = ${location.getLatitude()};
                 mapLon = ${location.getLongitude()};
+                homeRegion = "${getHomeRegion()?.tst}";
                 addNewPin = false;
                 mapStartingCoordinates();
 
@@ -2913,7 +2910,6 @@ def generateConfigMap() {
                     const markers = [];
                     lastIndex = "";
                     lastPosition = "";
-                    homeRegion = "${getHomeRegion()?.tst}";
                     updateRegionSelector()
                     addRegionListener()
                     updateAddressInput()
@@ -2953,7 +2949,7 @@ def generateConfigMap() {
                     });
 
                     function addMarker(region) {
-                        newMarker = { lat: region.lat, lng: region.lng, rad: ${DEFAULT_RADIUS}, desc: '', tst: ${(now()/1000).toInteger()} };
+                        newMarker = { lat: region.lat, lng: region.lng, rad: ${DEFAULT_RADIUS}, desc: '', tst: Math.trunc((new Date().getTime())/1000) };
                         createMarker(newMarker, places.length);
                         displayInfo(region, places.length, true);
                         infoWindow.open(map, markers[markers.length - 1].marker);
@@ -2968,7 +2964,6 @@ def generateConfigMap() {
                         );
                         // change the pin glyph if it is home or just a region
                         changePinGlyph(index, pin, (markerElement.tst == homeRegion));
-
                         const marker = new google.maps.marker.AdvancedMarkerElement(
                             {
                                 map,
@@ -3860,7 +3855,7 @@ def generateGoogleFriendsMap() {
                             "<td align='left'>" + position.location + "</td>" +
                         "</tr>" +
                         "<tr>" +
-                            "<td align='left'>" + position.since + "</td>" +
+                            "<td align='left'>" + "Since: " + position.since + "</td>" +
                         "</tr>" +
                     "</table>" +
                     "<hr>" +
@@ -3974,6 +3969,8 @@ private def calculateCenterAndZoom(members) {
     def minLat = null
     def maxLat = null
     def maxZoom = 18
+    def centerLat = 0
+    def centerLon = 0
 
     members.each { mem ->
         // assign to the first location
@@ -3990,26 +3987,30 @@ private def calculateCenterAndZoom(members) {
         if (mem.longitude < minLng) minLng = mem.longitude
     }
     // get the center point
-    centerLat = (maxLat + minLat) / 2
-    centerLon = (maxLng + minLng) / 2
+    if (maxLat && minLat && maxLng && minLng) {
+        centerLat = (maxLat + minLat) / 2
+        centerLon = (maxLng + minLng) / 2
 
-    // a constant in Google's map projection
-    GLOBE_WIDTH = 256
-    angle = maxLng - minLng
-    if (angle < 0) {
-        angle += 360
-    }
-    angle2 = maxLat - minLat
-    if (angle2 > angle) {
-        angle = angle2
-    }
-    if (angle == 0) {
-        zoomfactor = maxZoom
-    } else {
-        zoomfactor = Math.floor(Math.log(960 * 360 / angle / GLOBE_WIDTH) / 0.693147) - 2
-        if (zoomfactor > maxZoom) {
-            zoomfactor = maxZoom
+        // a constant in Google's map projection
+        GLOBE_WIDTH = 256
+        angle = maxLng - minLng
+        if (angle < 0) {
+            angle += 360
         }
+        angle2 = maxLat - minLat
+        if (angle2 > angle) {
+            angle = angle2
+        }
+        if (angle == 0) {
+            zoomfactor = maxZoom
+        } else {
+            zoomfactor = Math.floor(Math.log(960 * 360 / angle / GLOBE_WIDTH) / 0.693147) - 2
+            if (zoomfactor > maxZoom) {
+                zoomfactor = maxZoom
+            }
+        }
+    } else {
+        zoomfactor = 4
     }
 
     return [ lat: centerLat, lon: centerLon, zoom: zoomfactor ]

@@ -324,7 +324,7 @@ def updateAttributes(member, data, locationType) {
     if (data.private || !displayExtendedAttributes) {
          deleteExtendedAttributes(true)
     }
-    // display the extended attributes if they were received, but only allow them to be removed on non-tranisition eve
+    // display the extended attributes if they were received, but only allow them to be removed on non-transition event
     if (!data.private) {
         if (data?.acc)     sendEvent (name: "accuracy", value: parent.displayMFtVal(data.acc))         else if (locationType) device.deleteCurrentState('accuracy')
         if (data?.vac)     sendEvent (name: "verticalAccuracy", value: parent.displayMFtVal(data.vac)) else if (locationType) device.deleteCurrentState('verticalAccuracy')
