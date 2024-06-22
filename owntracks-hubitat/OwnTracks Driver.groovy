@@ -129,12 +129,13 @@
  *  1.7.32     2024-05-02      - Added additional status command logging/display.
  *  1.7.33     2024-05-04      - Removed filtering for zero timestamp.
  *  1.7.34     2024-05-06      - Fixed zero battery and zero speed not being debug logged.
+ *  1.7.35     2024-06-22      - Move sinceTime from state to attribute.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.34" }
+def driverVersion() { return "1.7.35" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -182,6 +183,7 @@ metadata {
         attribute  "transitionTime", "string"
         attribute  "transitionDirection", "string"
         attribute  "since", "string"
+        attribute  "sinceTime", "number"
         attribute  "battery", "number"
         attribute  "lastSpeed", "number"
         attribute  "distanceFromHome", "number"
@@ -232,7 +234,7 @@ preferences {
 
 def installed() {
     log.info "${device.name}: Location Tracker User Driver Installed"
-    state.sinceTime = now()
+    sendEvent( name: "sinceTime", value: now() )
     state.driverVersion = driverVersion()
     state.memberPresence = ""
     state.memberName = ""
@@ -386,9 +388,20 @@ def updateAttributes(member, data, locationType) {
     if ((data?.SSID) && ((data?.conn) == "w"))  sendEvent (name: "SSID", value: data.SSID) else if (locationType) device.deleteCurrentState('SSID')
 }
 
-Boolean generatePresenceEvent(member, homeName, data) {
-    // cleanup
+def migrationTasks() {
+    // *****************************************
+    // TODO:  REMOVE IN FUTURE RELEASE
     device.deleteCurrentState('imageURL')
+    if (!device.currentValue("sinceTime")) {
+        sendEvent( name: "sinceTime", value: state.sinceTime )
+    }
+    if (state.sinceTime) state.remove("sinceTime")
+    // *****************************************
+}    
+
+Boolean generatePresenceEvent(member, homeName, data) {
+    // TODO:  REMOVE IN FUTURE RELEASE
+    migrationTasks()
 
     // update the driver version if necessary
     if (state.driverVersion != driverVersion()) {
@@ -438,7 +451,7 @@ Boolean generatePresenceEvent(member, homeName, data) {
             if (state.homeName != data.desc) {
                 // only update the time if there was a state change
                 if ((device.currentValue('transitionDirection') != data.event) || (device.currentValue('transitionRegion') != data.desc)) {
-                    state.sinceTime = data.tst
+                    sendEvent( name: "sinceTime", value: data.tst )
                 }
                 // create the notification event, update the transition and log the message
                 createNotificationEvent(data.desc, data.event, locationTime, "")
@@ -464,11 +477,14 @@ Boolean generatePresenceEvent(member, homeName, data) {
             // only log if there was a valid time, a location change and log changes is enabled
             if (device.currentValue("location") != currentLocation) {
                 if (logLocationChanges) log.info "$descriptionText"
-                state.sinceTime = data.tst
+                sendEvent( name: "sinceTime", value: data.tst )
             }
         }
 
-        long sinceTimeMilliSeconds = state.sinceTime
+        // TODO:  REMOVE IN FUTURE RELEASE
+        migrationTasks()
+        
+        long sinceTimeMilliSeconds = device.currentValue("sinceTime")
         sinceDate = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date(sinceTimeMilliSeconds * 1000))
         tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
 
@@ -529,7 +545,10 @@ def generatePresenceTile() {
 def generateMember(urlSource) {
     String htmlData = ""
     if (device.currentValue('location') != DEFAULT_privateLocation) {
-        long sinceTimeMilliSeconds = state.sinceTime
+        // TODO:  REMOVE IN FUTURE RELEASE
+        migrationTasks()
+        
+        long sinceTimeMilliSeconds = device.currentValue("sinceTime")
         tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
 
         htmlData += """
@@ -654,7 +673,10 @@ def generatePastLocations() {
 }
 
 def generatePresence(urlSource) {
-    long sinceTimeMilliSeconds = state.sinceTime
+    // TODO:  REMOVE IN FUTURE RELEASE
+    migrationTasks()
+    
+    long sinceTimeMilliSeconds = device.currentValue("sinceTime")
     sinceDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
 
     String htmlData = """
