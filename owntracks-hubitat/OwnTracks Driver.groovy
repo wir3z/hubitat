@@ -130,12 +130,13 @@
  *  1.7.33     2024-05-04      - Removed filtering for zero timestamp.
  *  1.7.34     2024-05-06      - Fixed zero battery and zero speed not being debug logged.
  *  1.7.35     2024-06-22      - Move sinceTime from state to attribute.
+ *  1.7.36     2024-06-23      - Forced sinceTime attribute to be set to allow consumption by the tile generation.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.35" }
+def driverVersion() { return "1.7.36" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -234,7 +235,7 @@ preferences {
 
 def installed() {
     log.info "${device.name}: Location Tracker User Driver Installed"
-    sendEvent( name: "sinceTime", value: now() )
+    sendEvent( name: "sinceTime", value: now(), isStateChange: true )
     state.driverVersion = driverVersion()
     state.memberPresence = ""
     state.memberName = ""
@@ -393,7 +394,7 @@ def migrationTasks() {
     // TODO:  REMOVE IN FUTURE RELEASE
     device.deleteCurrentState('imageURL')
     if (!device.currentValue("sinceTime")) {
-        sendEvent( name: "sinceTime", value: state.sinceTime )
+        sendEvent( name: "sinceTime", value: state.sinceTime, isStateChange: true )
     }
     if (state.sinceTime) state.remove("sinceTime")
     // *****************************************
@@ -451,7 +452,7 @@ Boolean generatePresenceEvent(member, homeName, data) {
             if (state.homeName != data.desc) {
                 // only update the time if there was a state change
                 if ((device.currentValue('transitionDirection') != data.event) || (device.currentValue('transitionRegion') != data.desc)) {
-                    sendEvent( name: "sinceTime", value: data.tst )
+                    sendEvent( name: "sinceTime", value: data.tst, isStateChange: true )
                 }
                 // create the notification event, update the transition and log the message
                 createNotificationEvent(data.desc, data.event, locationTime, "")
@@ -477,7 +478,7 @@ Boolean generatePresenceEvent(member, homeName, data) {
             // only log if there was a valid time, a location change and log changes is enabled
             if (device.currentValue("location") != currentLocation) {
                 if (logLocationChanges) log.info "$descriptionText"
-                sendEvent( name: "sinceTime", value: data.tst )
+                sendEvent( name: "sinceTime", value: data.tst, isStateChange: true )
             }
         }
 
