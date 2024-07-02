@@ -80,9 +80,6 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 - SSID will only be used for presence detection when a member is within this radius from home
 	- Once the member exceeds this distance, SSID will no longer be used for 'present' and 'not present' detection.
 	
-- Mobile App Location Performance (Android Only)	
-    - Use GPS for higher accuracy/performance.  NOTE: This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (Android ONLY)
-	
 - Display Units
     - Select the slider to display all measurements in the Hubitat app in imperial units (mph, mi, ft) instead of metric units (kph, km, m)
     - All distances are stored in metric and may have minor rounding errors when converted to imperial for display.
@@ -279,12 +276,14 @@ The defaults for the rest of these settings should be sufficient for verifying o
 - Location reporting mode
 	- 'significant' - location updates are based on distance moved and time elapsed.  Best balance for battery consumption and performance.
 	- 'move' - Continuously reports locations based on the configured interval.  Will result in much higher battery consumption.
+- Mobile App Location Performance (Android Only)	
+    - Use GPS for higher accuracy/performance.  NOTE: This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (Android ONLY)
+- Device will send a location interval at this heart beat interval (minutes) (Android Only)
+	- The mobile will report a location on intervals of this many minutes, regardless if it is moving
 - Do not send a location if the accuracy is greater than the given distance
 	- Prevents the phone from returning locations if the accuracy is larger than the entered distance
 - Number of days after which location updates from friends are assumed stale and removed
 	- If a member stops reporting locations to your mobile phone, they will be marked as stale after this many days
-- Device will send a location interval at this heart beat interval (minutes) (Android Only)
-	- The mobile will report a location on intervals of this many minutes, regardless if it is moving
 - Request that the location provider deliver updates no faster than the requested locater interval
 	- Reduces mobile data communications and battery consumption by throttling updates to the locater interval time
 - How far the device travels before receiving another location update (Android Only)

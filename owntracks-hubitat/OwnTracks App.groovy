@@ -109,6 +109,7 @@
  *  1.7.56     2024-05-04      - Cloud links for Recorder were being displayed when they should not have.
  *  1.7.57     2024-05-11      - Fixed higher accuracy reporting wasn't happening after the 2.5.x migration changes.  Fixed an error if a user notification was saved, with no selected regions.
  *  1.7.58     2024-05-20      - When using the dynamic region config map, creating more than one region at a time would result in duplicates.  Testing the map API key with no members would result in an exception and not display the map.
+ *  1.7.59     2024-07-02      - Support locatorPriority in 2.5.x.
 */
 
 import groovy.transform.Field
@@ -117,14 +118,14 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.58"}
+def appVersion() { return "1.7.59"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
 @Field static final Map TRIGGER_TYPE = [ "p": "Ping", "c": "Region", "r": "Report Location", "u": "Manual", "b": "Beacon", "t": "Timer", "v": "Monitoring", "l": "Location" ]
 @Field static final Map TOPIC_FORMAT = [ 0: "topicSource", 1: "userName", 2: "deviceID", 3: "eventType" ]
-@Field static final Map LOCATOR_PRIORITY = [ 0: "NO_POWER (best accuracy with zero power consumption)", 1: "LOW_POWER (city level accuracy)", 2: "BALANCED_POWER (block level accuracy based on Wifi/Cell)", 3: "HIGH_POWER (most accurate accuracy based on GPS)" ]
-@Field static final Map DYNAMIC_INTERVALS = [ "pegLocatorFastestIntervalToInterval": false, "locatorPriority": 3 ]
+@Field static final Map LOCATOR_PRIORITY = [ "NoPower": "NO_POWER (best accuracy with zero power consumption)", "LowPower": "LOW_POWER (city level accuracy)", "BalancedPowerAccuracy": "BALANCED_POWER (block level accuracy based on Wifi/Cell)", "HighAccuracy": "HIGH_POWER (most accurate accuracy based on GPS)" ]
+@Field static final Map DYNAMIC_INTERVALS = [ "pegLocatorFastestIntervalToInterval": false, "locatorPriority": "HighAccuracy" ]
 //@Field static final Map MONITORING_MODES = [ 0: "Manual (user triggered events)", 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
 @Field static final Map MONITORING_MODES = [ 1: "Significant (standard tracking using Wifi/Cell)", 2: "Move (permanent tracking using GPS)" ]
 @Field static final Map IOS_PLUS_FOLLOW = [ "rad":50, "tst":1700000000, "_type":"waypoint", "lon":0.0, "lat":0.0, "desc":"+follow" ]
@@ -180,7 +181,7 @@ def appVersion() { return "1.7.58"}
 
 // Mobile app location defaults
 @Field Number  DEFAULT_monitoring = 1
-@Field Number  DEFAULT_locatorPriority = 2
+@Field String  DEFAULT_locatorPriority = "BalancedPowerAccuracy"
 @Field Number  DEFAULT_moveModeLocatorInterval = 30
 @Field Number  DEFAULT_locatorDisplacement = 50
 @Field Number  DEFAULT_locatorInterval = 60
@@ -373,13 +374,13 @@ def checkLocatorPriority() {
         app.removeSetting("locatorPriority")
         // change the setting
         if (highPowerMode) {
-            app.updateSetting("locatorPriority", [value: DYNAMIC_INTERVALS.locatorPriority, type: "number"])
+            app.updateSetting("locatorPriority", [value: DYNAMIC_INTERVALS.locatorPriority, type: "string"])
         } else {
-            app.updateSetting("locatorPriority", [value: DEFAULT_locatorPriority, type: "number"])
+            app.updateSetting("locatorPriority", [value: DEFAULT_locatorPriority, type: "string"])
         }
         // trigger the mobile location update
         setUpdateFlag([ "name":"" ], "updateLocation", true)
-        logWarn("Changing locator priority to ${LOCATOR_PRIORITY[locatorPriority.toInteger()]}")
+        logWarn("Changing locator priority to ${LOCATOR_PRIORITY[locatorPriority]}")
     }
 }
 
@@ -392,9 +393,6 @@ def configureHubApp() {
             if (state.show.hubsettings) {
                 input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas.  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point(s).", defaultValue: ""
                 input name: "wifiPresenceKeepRadius", type: "enum", title: "SSID will only be used for presence detection when a member is within this radius from home, Recommended=${displayMFtVal(DEFAULT_wifiPresenceKeepRadius)}", defaultValue: "${DEFAULT_wifiPresenceKeepRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',2000:'1.2 mi',5000:'3.1 mi',10000:'6.2 mi'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',2000:'2 km',5000:'5 km',10000:'10 km'])
-                if (getAndroidMembers()) {
-                    input name: "highPowerMode", type: "bool", title: "Use GPS for higher accuracy/performance.  <b>NOTE:</b> This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (<b>Android ONLY</b>)", defaultValue: DEFAULT_highPowerMode
-                }
                 input name: "imperialUnits", type: "bool", title: "Display imperial units instead of metric units", defaultValue: DEFAULT_imperialUnits, submitOnChange: true
                 input name: "deviceNamePrefix", type: "string", title: "Prefix to be added to each member's device name.  For example, member '<b>Bob</b>' with a prefix of '<b>${DEFAULT_CHILDPREFIX}</b>' will have a device name of '<b>${DEFAULT_CHILDPREFIX}Bob</b>'. Member device name will be updated once the Hubibit app is exited. Enter a space to have no prefix in front of the member name.", defaultValue: DEFAULT_CHILDPREFIX, submitOnChange: true, required: true
             }
@@ -609,11 +607,12 @@ def advancedLocation() {
             }
             input name: "resetLocationDefaultsButton", type: "button", title: "Restore Defaults", state: "submit"
             input name: "monitoring", type: "enum", title: "Location reporting mode, Recommended=${MONITORING_MODES[DEFAULT_monitoring]}", required: true, options: MONITORING_MODES, defaultValue: DEFAULT_monitoring, submitOnChange: true
-            input name: "ignoreInaccurateLocations", type: "number", title: "Do not send a location if the accuracy is greater than the given (${getSmallUnits()}) (0..${displayMFtVal(2000)}) Recommended=${displayMFtVal(DEFAULT_ignoreInaccurateLocations)}", required: true, range: "0..${displayMFtVal(2000)}", defaultValue: displayMFtVal(DEFAULT_ignoreInaccurateLocations)
-            input name: "ignoreStaleLocations", type: "number", title: "Number of days after which location updates from friends are assumed stale and removed (0..7), Recommended=${DEFAULT_ignoreStaleLocations}", required: true, range: "0..7", defaultValue: DEFAULT_ignoreStaleLocations
             if (getAndroidMembers()) {
+                input name: "highPowerMode", type: "bool", title: "Use GPS for higher accuracy/performance.  <b>NOTE:</b> This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (<b>Android ONLY</b>)", defaultValue: DEFAULT_highPowerMode
                 input name: "ping", type: "number", title: "Device will send a location interval at this heart beat interval (minutes) (15..360), Recommended=${DEFAULT_ping} (<b>Android ONLY</b>)", required: true, range: "15..60", defaultValue: DEFAULT_ping
             }
+            input name: "ignoreInaccurateLocations", type: "number", title: "Do not send a location if the accuracy is greater than the given (${getSmallUnits()}) (0..${displayMFtVal(2000)}) Recommended=${displayMFtVal(DEFAULT_ignoreInaccurateLocations)}", required: true, range: "0..${displayMFtVal(2000)}", defaultValue: displayMFtVal(DEFAULT_ignoreInaccurateLocations)
+            input name: "ignoreStaleLocations", type: "number", title: "Number of days after which location updates from friends are assumed stale and removed (0..7), Recommended=${DEFAULT_ignoreStaleLocations}", required: true, range: "0..7", defaultValue: DEFAULT_ignoreStaleLocations
             input name: "pegLocatorFastestIntervalToInterval", type: "bool", title: "Request that the location provider deliver updates no faster than the requested locater interval, Recommended '${DEFAULT_pegLocatorFastestIntervalToInterval}'", defaultValue: DEFAULT_pegLocatorFastestIntervalToInterval
             paragraph("<h3><b>Settings for Significant Monitoring Mode</b></h3>")
             if (getAndroidMembers()) {
@@ -1267,7 +1266,7 @@ def initialize(forceDefaults) {
     if (forceDefaults) {
         app.removeSetting("locatorPriority")
     }
-    if (locatorPriority == null) app.updateSetting("locatorPriority", [value: DEFAULT_locatorPriority, type: "number"])
+    if (locatorPriority == null) app.updateSetting("locatorPriority", [value: DEFAULT_locatorPriority, type: "string"])
 
     // assign the defaults to the hub settings
     initializeHub(forceDefaults)
@@ -1458,6 +1457,12 @@ def updated() {
     app.removeSetting("useHubLocation")
     app.removeSetting("deleteFromHubitatOnly")
     app.removeSetting("mapAutoRefresh")
+    try {
+        test = locatorPriority.toInteger()
+        app.removeSetting("locatorPriority")
+        app.updateSetting("locatorPriority", [value: DEFAULT_locatorPriority, type: "string"])
+    } catch (e) {
+    }
 //***********************************
 }
 
@@ -1998,7 +2003,7 @@ def createConfiguration(member, useDynamicLocaterAccuracy) {
         // switch to settings.  Recommended locatorPriority=balanced power and pegLocatorFastestIntervalToInterval=true (fixed interval)
         configurationList = [ "_type": "configuration",
                              "pegLocatorFastestIntervalToInterval": pegLocatorFastestIntervalToInterval,
-                             "locatorPriority": locatorPriority.toInteger(),
+                             "locatorPriority": locatorPriority,
                             ]
     }
 
@@ -2006,6 +2011,19 @@ def createConfiguration(member, useDynamicLocaterAccuracy) {
 // TODO: REMOVE THIS BLOCK ONCE 2.5.x IS RELEASED
     // check if we had a change, and then update the device configuration
     if (isLegacyAndroidMember(member)) {
+        if (useDynamicLocaterAccuracy) {
+            // switch to locatorPriority=high power and pegLocatorFastestIntervalToInterval=false (dynamic interval)
+            configurationList = [ "_type": "configuration",
+                                 "pegLocatorFastestIntervalToInterval": DYNAMIC_INTERVALS.pegLocatorFastestIntervalToInterval,
+                                 "locatorPriority": 3,
+                                ]
+        } else {
+            // switch to settings.  Recommended locatorPriority=balanced power and pegLocatorFastestIntervalToInterval=true (fixed interval)
+            configurationList = [ "_type": "configuration",
+                                 "pegLocatorFastestIntervalToInterval": pegLocatorFastestIntervalToInterval,
+                                 "locatorPriority": 2,
+                                ]
+        }
         if (member.requestLocation || (member?.dynamicLocaterAccuracy != useDynamicLocaterAccuracy)) {
             // assign the new state
             member.dynamicLocaterAccuracy = useDynamicLocaterAccuracy
@@ -2315,11 +2333,12 @@ private def sendConfiguration(currentMember) {
                                 "opencageApiKey" :                      "",
                             ]
 
+
     def deviceLocatorList = [
                                 // dynamic configurations
                                 "pegLocatorFastestIntervalToInterval" : pegLocatorFastestIntervalToInterval, // Request that the location provider deliver updates no faster than the requested locator interval
                                 "monitoring" :                          monitoring.toInteger(),              // Monitoring mode (quiet, manual, significant, move)
-                                "locatorPriority" :                     locatorPriority.toInteger(),         // source/power setting for location updates (no power, low power, balanced power, high power)
+                                "locatorPriority" :                     locatorPriority,                     // source/power setting for location updates (no power, low power, balanced power, high power)
                                 "locatorDisplacement" :                 state.locatorDisplacement,           // How far should the device travel (in metres) before receiving another location
                                 "locatorInterval" :                     locatorInterval,                     // How often should locations be requested from the device (seconds)
                                 "moveModeLocatorInterval" :             moveModeLocatorInterval,             // How often should locations be requested from the device whilst in Move mode (seconds)
@@ -2336,6 +2355,14 @@ private def sendConfiguration(currentMember) {
                                 "showRegionsOnMap" :                    showRegionsOnMap,                    // Display the region pins/bubbles on the map
                                 "notificationGeocoderErrors" :          notificationGeocoderErrors,          // Display Geocoder errors in the notification banner
                             ]
+
+//***********************************
+// TODO: REMOVE THIS BLOCK ONCE 2.5.x IS RELEASED
+    // legacy uses numbers, new uses enums
+    if (isLegacyAndroidMember(member)) {
+        deviceLocatorList.locatorPriority = 2
+    }
+//***********************************
 
     // if we enabled a high accuracy location fix, then mark the user
     if (highAccuracyOnPing) {
