@@ -111,6 +111,7 @@
  *  1.7.58     2024-05-20      - When using the dynamic region config map, creating more than one region at a time would result in duplicates.  Testing the map API key with no members would result in an exception and not display the map.
  *  1.7.59     2024-07-02      - Support locatorPriority in 2.5.x.
  *  1.7.60     2024-07-03      - When trackerID was changed to two characters, the thumbnail image was not displayed.  Fixed markers on Google Family Map.
+ *  1.7.61     2024-07-03      - If no thumbnails are configured, Google Family Map displays a random color on each members marker.
 */
 
 import groovy.transform.Field
@@ -119,7 +120,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.60"}
+def appVersion() { return "1.7.61"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -3586,6 +3587,7 @@ def generateGoogleFriendsMap() {
                 function initMap() {
                     const infoWindow = new google.maps.InfoWindow();
                     const markers = [];
+                    const glyphColors = ["yellow", "red", "orange", "purple", "pink", "cyan", "magenta", "brown", "blue", "white"]
                     infoWindowVisible = false;
 
                     // get the member data with thumbnail images
@@ -3698,11 +3700,15 @@ def generateGoogleFriendsMap() {
                             imagePin.height = "40";
                             imagePin.appendChild(namePin);
 
+                            colorIndex = member.zIndex
+                            while (colorIndex >= glyphColors.length) {
+                                colorIndex -= glyphColors.length
+                            }
                             const pin = new google.maps.marker.PinElement({
                                 scale: 2.5,
                                 background: "${DEFAULT_APP_THEME_COLOR}",
                                 borderColor: "${DEFAULT_APP_THEME_COLOR}",
-                                glyphColor: "white"
+                                glyphColor: glyphColors[colorIndex]
                             });
                             if (member.img) {
                                 pin.glyph = imagePin;
