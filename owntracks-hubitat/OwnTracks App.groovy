@@ -110,6 +110,7 @@
  *  1.7.57     2024-05-11      - Fixed higher accuracy reporting wasn't happening after the 2.5.x migration changes.  Fixed an error if a user notification was saved, with no selected regions.
  *  1.7.58     2024-05-20      - When using the dynamic region config map, creating more than one region at a time would result in duplicates.  Testing the map API key with no members would result in an exception and not display the map.
  *  1.7.59     2024-07-02      - Support locatorPriority in 2.5.x.
+ *  1.7.60     2024-07-03      - When trackerID was changed to two characters, the thumbnail image was not displayed.  Fixed markers on Google Family Map.
 */
 
 import groovy.transform.Field
@@ -118,7 +119,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.59"}
+def appVersion() { return "1.7.60"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -2275,7 +2276,7 @@ private def getMemberCard(member) {
     if (imageCards) {
         try{
             // append each enabled user's card with encoded image
-            card = [ "_type": "card", "name": "${member.name}", "face": "${downloadHubFile("${member.name}.jpg").encodeBase64().toString()}", "tid": "${member.name}" ]
+            card = [ "_type": "card", "name": "${member.name}", "face": "${downloadHubFile("${member.name}.jpg").encodeBase64().toString()}", "tid": "${member.trackerID}" ]
         }
         catch (e) {
             logError("No ${member.name}.jpg image stored in 'Settings->File Manager'")
@@ -3680,7 +3681,7 @@ def generateGoogleFriendsMap() {
                         // change the home pin glyph
                         if (position.tst == "${getHomeRegion()?.tst}") {
                             i.glyphColor = "green"
-                            i.scale = 2.0;
+                            i.scale = 1.3;
                         }
                     });
 
@@ -3693,16 +3694,19 @@ def generateGoogleFriendsMap() {
                             const imagePin = document.createElement("object");
                             imagePin.data = member.img;
                             imagePin.type = "image/jpeg";
-                            imagePin.width = "45";
+                            imagePin.width = "40";
+                            imagePin.height = "40";
                             imagePin.appendChild(namePin);
 
                             const pin = new google.maps.marker.PinElement({
-                                scale: 2.8,
+                                scale: 2.5,
                                 background: "${DEFAULT_APP_THEME_COLOR}",
                                 borderColor: "${DEFAULT_APP_THEME_COLOR}",
                                 glyphColor: "white"
                             });
-                            pin.glyph = imagePin;
+                            if (member.img) {
+                                pin.glyph = imagePin;
+                            } 
 
                             const marker = new google.maps.marker.AdvancedMarkerElement({
                                 map,
