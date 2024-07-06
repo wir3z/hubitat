@@ -115,7 +115,7 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	- If the phone is using mobile data, the cellular signal icon is displayed in the top banner.  If using wifi data, a wifi symbol is displayed.
 	- Distance from home, location accuracy and speed will be displayed if enabled.
 	- The last location time will be displayed in red if it is stale.
-NOTE:  Requires member thumbnails to be enabled, and will only display users using a local dashboard.
+    - NOTE:  Requires member thumbnails to be enabled, and will only display users using a local dashboard.
 - Prevent generating maps once free quota has been exhausted.  Current usage: x/y per month.	
 	- Google maps as a free quota level.  This slider should be selected unless you are on a paid plan.
 	- The usage total indicates the current usage in the quota period.  Google resets the total at the first of every month.
@@ -151,7 +151,7 @@ NOTE:  If a Google Map API key is entered in the 'Configure Hubitat App -> Googl
 - Delete Regions:
     - If region(s) are pending deletion, a banner will be displayed at the bottom of the table in red.
 	- Select the region to delete. 
-	NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.
+	- NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.
 	- Delete Region from Hub Only - Manually Delete Region from Mobile
 		- Click the 'Delete Region from Hubitat ONLY' button.
 		- On each mobile phone, find and delete the region selected above.
