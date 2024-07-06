@@ -124,6 +124,10 @@ NOTE:  Requires member thumbnails to be enabled, and will only display users usi
 	- Once the quota has been exhausted for the period, the application will stop generating the map until the next quote period.
 - Google Maps API key for combined family location map:
 	- Paste the API key provided into the box.
+#### Map Pin and Glyph Colors
+Change the member and pin colors, as well as the glyph (center circle of the pin) colors.
+	- Enter an HTML color name (ie: MidnightBlue) (https://www.w3schools.com/tags/ref_colornames.asp)
+	- or an HTML color code starting with # (ie: #191970) (https://www.w3schools.com/colors/colors_picker.asp)
 
 ## Configure Regions - Add, Edit, Delete, Assign 'Home'
 NOTE:  If a Google Map API key is entered in the 'Configure Hubitat App -> Google map Settings', an interactive map will be displayed to allow regions to be added, edited, and deleted.  Regions will show radius bubbles and the home region can be directly assign to any pin.

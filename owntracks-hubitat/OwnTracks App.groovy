@@ -112,6 +112,7 @@
  *  1.7.59     2024-07-02      - Support locatorPriority in 2.5.x.
  *  1.7.60     2024-07-03      - When trackerID was changed to two characters, the thumbnail image was not displayed.  Fixed markers on Google Family Map.
  *  1.7.61     2024-07-03      - If no thumbnails are configured, Google Family Map displays a random color on each members marker.
+ *  1.7.62     2024-07-06      - Added ability to change the member and region pin colors on the maps.
 */
 
 import groovy.transform.Field
@@ -120,7 +121,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.61"}
+def appVersion() { return "1.7.62"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -148,7 +149,13 @@ def appVersion() { return "1.7.61"}
 // Main defaults
 @Field String  ANDROID_LEGACY_VERSION = "Owntracks-Android/4204"
 
-@Field String  DEFAULT_APP_THEME_COLOR = "#2a0085"
+@Field String  DEFAULT_APP_THEME_COLOR = "#191970"
+@Field String  DEFAULT_MEMBER_PIN_COLOR = "MidnightBlue"         // "#191970" - "MidnightBlue"
+@Field String  DEFAULT_REGION_PIN_COLOR = "FireBrick"            // "#b22222" - "FireBrick"
+@Field String  DEFAULT_REGION_NEW_PIN_COLOR = "red"              // "#ff0000" - "Red"
+@Field String  DEFAULT_REGION_NEW_GLYPH_COLOR = "black"          // "#000000" - "Black"
+@Field String  DEFAULT_REGION_HOME_GLYPH_COLOR = "DarkSlateGrey" // "#2f4f4f" - "DarkSlateGrey"
+@Field String  DEFAULT_REGION_GLYPH_COLOR = "Maroon"             // "#800000" - "Maroon"
 @Field Number  GOOGLE_MAP_API_QUOTA = 28500
 @Field String  GOOGLE_MAP_API_KEY_LINK = "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>"
 @Field String  RECORDER_PUBLISH_FOLDER = "/pub"
@@ -406,7 +413,7 @@ def configureHubApp() {
                     String provider = GEOCODE_USAGE_COUNTER[geocodeProvider?.toInteger()]
                     usageCounter = state."$provider"
                     input name: "geocodeFreeOnly", type: "bool", title: "Prevent geocode lookups once free quota has been exhausted.  Current usage: <b>${usageCounter}/${GEOCODE_QUOTA[geocodeProvider?.toInteger()]} per ${(GEOCODE_QUOTA_INTERVAL_DAILY[geocodeProvider?.toInteger()] ? "day" : "month")}</b>.", defaultValue: DEFAULT_geocodeFreeOnly
-                    paragraph (GEOCODE_API_KEY_LINK[geocodeProvider?.toInteger()] + (geocodeProvider?.toInteger() == 1 ? " -- <i><b>'Geocoding API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Geocoding API</b>.</i>" : ""))
+                    paragraph (GEOCODE_API_KEY_LINK[geocodeProvider?.toInteger()] + (geocodeProvider?.toInteger() == 1 ? " -- <i><b>'Geocoding API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard' target='_blank'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Geocoding API</b>.</i>" : ""))
                     input name: "geocodeAPIKey_$geocodeProvider", type: "string", title: "Geocode API key for address lookups:", submitOnChange: true
                     reverseGeocodeTest = reverseGeocode(37.422331,-122.0843455)
                     paragraph ("Geocode API key check: ${(reverseGeocodeTest ? "<div><b>PASSED</b> - $reverseGeocodeTest</div>" : "<div style='color:#ff0000'>FAILED</div>")}")
@@ -417,9 +424,14 @@ def configureHubApp() {
                 paragraph ("If user thumbnails have not been added to Hubitat, follow the instructions for 'Enabling User Thumbnail Instructions' to allow images to be displayed on map pins:")
                 href(title: "Enabling User Thumbnails", description: "", style: "page", page: "thumbnailCreation")
                 input name: "mapFreeOnly", type: "bool", title: "Prevent generating maps once free quota has been exhausted.  Current usage: <b>${state.mapApiUsage}/${GOOGLE_MAP_API_QUOTA} per month</b>.", defaultValue: DEFAULT_mapFreeOnly
-                paragraph (GOOGLE_MAP_API_KEY_LINK + " -- <i><b>'Maps JavaScript API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Maps JavaScript API</b>.</i>")
+                paragraph (GOOGLE_MAP_API_KEY_LINK + " -- <i><b>'Maps JavaScript API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard' target='_blank'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Maps JavaScript API</b>.</i>")
                 input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:", submitOnChange: true
                 paragraph ("<a href='${getAttributeURL("[cloud.hubitat.com]", "googlemap")}' target='_blank'>Test map API key</a>")
+                paragraph ("<h2>Map Pin and Glyph Colors</h2>")
+                input name: "memberPinColor", type: "string", title: "<b>Member pin color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (MidnightBlue) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#191970):", defaultValue: DEFAULT_MEMBER_PIN_COLOR
+                input name: "regionPinColor", type: "string", title: "<b>Region pin color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (DarkRed) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#b22222):", defaultValue: DEFAULT_REGION_PIN_COLOR
+                input name: "regionGlyphColor", type: "string", title: "<b>Region glyph color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (Maroon) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#800000):", defaultValue: DEFAULT_REGION_GLYPH_COLOR
+                input name: "regionHomeGlyphColor", type: "string", title: "<b>Region home glyph color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (WhiteSmoke) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#2f4f4f):", defaultValue: DEFAULT_REGION_HOME_GLYPH_COLOR
             }
         }
     }
@@ -437,7 +449,7 @@ def installationInstructions() {
                        "          <b>Android</b>\r" +
                        "          <i>Preferences -> Connection\r" +
                        "                 Mode -> HTTP \r" +
-                       "                 Host -> <a href='${extUri}'>${extUri}</a> \r" +
+                       "                 Host -> <a href='${extUri}' target='_blank'>${extUri}</a> \r" +
                        "                 Identification ->\r" +
                        "                        Username -> Name of the user's phone (IE: 'Kevin') \r" +
                        "                        Device ID -> Optional extra descriptor (IE: 'Phone').  If using OwnTracks recorder, it would be desirable\r" +
@@ -450,7 +462,7 @@ def installationInstructions() {
                        "                 Mode -> HTTP \r" +
                        "                 DeviceID -> 2-character user initials that will be displayed on your map (IE: 'KT').  If using OwnTracks recorder, it would be desirable to keep this device ID common across device changes, since it logs 'username/deviceID'. \r" +
                        "                 UserID -> Name of the user's phone (IE: 'Kevin') \r" +
-                       "                 URL -> <a href='${extUri}'>${extUri}</a> \r" +
+                       "                 URL -> <a href='${extUri}' target='_blank'>${extUri}</a> \r" +
                        "                 cmd -> Selected</i>\r\n\r\n" +
                        "     2. Click the up arrow button in the top right of the map to trigger a 'Send Location Now' to register the device with the Hubitat App."
                       )
@@ -1299,6 +1311,10 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (notificationMessage == null)) app.updateSetting("notificationMessage", [value: DEFAULT_notificationMessage, type: "string"])
     if (forceDefaults || (mapFreeOnly == null)) app.updateSetting("mapFreeOnly", [value: DEFAULT_mapFreeOnly, type: "bool"])
     if (forceDefaults || (manualDeleteBehavior == null)) app.updateSetting("manualDeleteBehavior", [value: DEFAULT_manualDeleteBehavior, type: "bool"])
+    if (forceDefaults || (memberPinColor == null)) app.updateSetting("memberPinColor", [value: DEFAULT_MEMBER_PIN_COLOR, type: "string"])
+    if (forceDefaults || (regionPinColor == null)) app.updateSetting("regionPinColor", [value: DEFAULT_REGION_PIN_COLOR, type: "string"])
+    if (forceDefaults || (regionGlyphColor == null)) app.updateSetting("regionGlyphColor", [value: DEFAULT_REGION_GLYPH_COLOR, type: "string"])
+    if (forceDefaults || (regionHomeGlyphColor == null)) app.updateSetting("regionHomeGlyphColor", [value: DEFAULT_REGION_HOME_GLYPH_COLOR, type: "string"])
 }
 
 def initializeMobileLocation(forceDefaults) {
@@ -1743,7 +1759,7 @@ def parseMessage(headers, data, member) {
             if (!data.cc) { data.cc = location.getTimeZone().getID().substring(0, 2).toUpperCase() }
             // if the course over ground was not defined, replace distance from home
             if (!data.cog) { data.cog = data.currentDistanceFromHome }
-            // if we have the OwnTracks recorder configured, and the timestamp is valid, and the user is not parked as private, pass the location data to it
+            // if we have the OwnTracks recorder configured, and the timestamp is valid, and the user is not marked as private, pass the location data to it
             if (recorderURL && enableRecorder && !data.private) {
                 def postParams = [ uri: recorderURL + RECORDER_PUBLISH_FOLDER, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(headers), body : (new JsonBuilder(data)).toPrettyString() ]
                 asynchttpPost("httpCallbackMethod", postParams)
@@ -2843,9 +2859,9 @@ def generateRegionMap() {
                     const i=new google.maps.marker.PinElement(
                         {
                             scale:1.0,
-                            background:"${DEFAULT_APP_THEME_COLOR}",
-                            borderColor:"${DEFAULT_APP_THEME_COLOR}",
-                            glyphColor:"white"
+                            background:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
+                            borderColor:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
+                            glyphColor:"${DEFAULT_REGION_GLYPH_COLOR}"
                         }
                     );
                     const infoWindow = new google.maps.InfoWindow();
@@ -2867,10 +2883,10 @@ def generateRegionMap() {
                                 lat:${region.lat}, lng:${region.lon}
                             },
                             radius: ${region.rad},
-                            strokeColor:"${DEFAULT_APP_THEME_COLOR}",
+                            strokeColor:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
                             strokeOpacity:0.17,
                             strokeWeight:1,
-                            fillColor:"${DEFAULT_APP_THEME_COLOR}",
+                            fillColor:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
                             fillOpacity:0.17
                         }
                     );
@@ -2987,8 +3003,8 @@ def generateConfigMap() {
                     function createMarker(markerElement, index) {
                         const pin = new google.maps.marker.PinElement(
                             {
-                                background: "${DEFAULT_APP_THEME_COLOR}",
-                                borderColor: "${DEFAULT_APP_THEME_COLOR}",
+                                background: "${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
+                                borderColor: "${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
                             }
                         );
                         // change the pin glyph if it is home or just a region
@@ -3042,16 +3058,17 @@ def generateConfigMap() {
 
                     function changePinGlyph(index, pin, home) {
                         if (home) {
-                            pin.glyphColor = "green";
+                            pin.glyphColor = "${(regionHomeGlyphColor == null ? DEFAULT_REGION_HOME_GLYPH_COLOR : regionHomeGlyphColor)	}";
                             pin.scale = 2.0;
                         } else {
-                            pin.glyphColor = "white";
                             if (index == places.length) {
                                 pin.scale = 1.5;
-                                pin.background = "red";
+                                pin.background = "${DEFAULT_REGION_NEW_PIN_COLOR}";
+                                pin.glyphColor = "${DEFAULT_REGION_NEW_GLYPH_COLOR}";
                             } else {
                                 pin.scale = 1.0;
-                                pin.background = "${DEFAULT_APP_THEME_COLOR}";
+                                pin.background = "${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}";
+                                pin.glyphColor = "${(regionGlyphColor == null ? DEFAULT_REGION_GLYPH_COLOR : regionGlyphColor)}";
                             }
                         }
                     };
@@ -3060,8 +3077,8 @@ def generateConfigMap() {
                         // if this is a new (unsaved) pin, then change the color
                         if (index != places.length) {
                             radius.setOptions({
-                                strokeColor: "${DEFAULT_APP_THEME_COLOR}",
-                                fillColor: "${DEFAULT_APP_THEME_COLOR}"
+                                strokeColor: "${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
+                                fillColor: "${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}"
                             });
                         }
                     };
@@ -3648,9 +3665,9 @@ def generateGoogleFriendsMap() {
                         const i=new google.maps.marker.PinElement(
                             {
                                 scale:0.5,
-                                background:"${DEFAULT_APP_THEME_COLOR}",
-                                borderColor:"${DEFAULT_APP_THEME_COLOR}",
-                                glyphColor:"white"
+                                background:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
+                                borderColor:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
+                                glyphColor:"${(regionGlyphColor == null ? DEFAULT_REGION_GLYPH_COLOR : regionGlyphColor)}"
                             }
                         );
                         pin = new google.maps.marker.AdvancedMarkerElement(
@@ -3673,16 +3690,16 @@ def generateGoogleFriendsMap() {
                                     lng:position.lng,
                                 },
                                 radius:position.rad,
-                                strokeColor:"${DEFAULT_APP_THEME_COLOR}",
+                                strokeColor:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
                                 strokeOpacity:0.17,
                                 strokeWeight:1,
-                                fillColor:"${DEFAULT_APP_THEME_COLOR}",
+                                fillColor:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
                                 fillOpacity:0.17
                             }
                         )
                         // change the home pin glyph
                         if (position.tst == "${getHomeRegion()?.tst}") {
-                            i.glyphColor = "green"
+                            i.glyphColor = "${(regionHomeGlyphColor == null ? DEFAULT_REGION_HOME_GLYPH_COLOR : regionHomeGlyphColor)}"
                             i.scale = 1.3;
                         }
                     });
@@ -3706,13 +3723,13 @@ def generateGoogleFriendsMap() {
                             }
                             const pin = new google.maps.marker.PinElement({
                                 scale: 2.5,
-                                background: "${DEFAULT_APP_THEME_COLOR}",
-                                borderColor: "${DEFAULT_APP_THEME_COLOR}",
+                                background: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
+                                borderColor: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
                                 glyphColor: glyphColors[colorIndex]
                             });
                             if (member.img) {
                                 pin.glyph = imagePin;
-                            } 
+                            }
 
                             const marker = new google.maps.marker.AdvancedMarkerElement({
                                 map,
