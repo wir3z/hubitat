@@ -107,7 +107,7 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 - Select 'Disabled' to disable geocode lookups.
 
 ### Google Map API Settings - Creates a combined family map and adds radius bubbles on the 'Region' 'Add/Edit/Delete' page maps
-Creates a Google map with all members' thumbnails shown as well as region radius' when adding/editing regions.
+- Creates a Google map with all members' thumbnails shown as well as region radius' when adding/editing regions.
 	- Selecting a member will display an information window on their location and metrics.
 	- If battery saver is turned on, the battery percentage is displayed in red.
 	- If charging, the battery icon changes to a lightning bolt.
@@ -125,7 +125,7 @@ NOTE:  Requires member thumbnails to be enabled, and will only display users usi
 - Google Maps API key for combined family location map:
 	- Paste the API key provided into the box.
 #### Map Pin and Glyph Colors
-Change the member and pin colors, as well as the glyph (center circle of the pin) colors.
+- Change the member and pin colors, as well as the glyph (center circle of the pin) colors.
 	- Enter an HTML color name (ie: MidnightBlue) (https://www.w3schools.com/tags/ref_colornames.asp)
 	- or an HTML color code starting with # (ie: #191970) (https://www.w3schools.com/colors/colors_picker.asp)
 
