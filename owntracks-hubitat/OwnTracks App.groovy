@@ -113,6 +113,8 @@
  *  1.7.60     2024-07-03      - When trackerID was changed to two characters, the thumbnail image was not displayed.  Fixed markers on Google Family Map.
  *  1.7.61     2024-07-03      - If no thumbnails are configured, Google Family Map displays a random color on each members marker.
  *  1.7.62     2024-07-06      - Added ability to change the member and region pin colors on the maps.
+ *  1.7.62     2024-07-06      - Added ability to change the member and region pin colors on the maps.
+ *  1.7.63     2024-07-11      - Google Family Map accuracy and speed was not being converted to imperial.
 */
 
 import groovy.transform.Field
@@ -121,7 +123,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.62"}
+def appVersion() { return "1.7.63"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -3501,9 +3503,9 @@ def processAPIData() {
                         "id" :          member.id,
                         "lat" :         member.latitude,
                         "lng" :         member.longitude,
-                        "speed" :       member?.speed,
+                        "speed" :       deviceWrapper?.currentValue("lastSpeed"),
                         "bat" :         member?.battery,
-                        "acc" :         member?.accuracy,
+                        "acc" :         deviceWrapper?.currentValue("accuracy"),
                         "wifi" :        member?.wifi,
                         "ps" :          member?.ps,
                         "app" :         member?.hib || member?.bo || member?.loc,
