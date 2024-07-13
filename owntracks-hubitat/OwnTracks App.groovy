@@ -115,6 +115,7 @@
  *  1.7.62     2024-07-06      - Added ability to change the member and region pin colors on the maps.
  *  1.7.62     2024-07-06      - Added ability to change the member and region pin colors on the maps.
  *  1.7.63     2024-07-11      - Google Family Map accuracy and speed was not being converted to imperial.
+ *  1.7.64     2024-07-13      - Configuration map was not converting displayed radius back to feet on a save.
 */
 
 import groovy.transform.Field
@@ -123,7 +124,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.63"}
+def appVersion() { return "1.7.64"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -3246,7 +3247,7 @@ def generateConfigMap() {
                                     places[markerIndex.value] = {lat:0.0,lng:0.0,rad:0,desc:"",tst:0};
                                 }
                                 markers[markerIndex.value].marker.title = nameBox.value;
-                                markers[markerIndex.value].marker.rad = parseInt(radBox.value);
+                                markers[markerIndex.value].marker.rad = parseInt(convertRadiusToMeters(radBox.value));
                                 places[markerIndex.value].desc = markers[markerIndex.value].marker.title;
                                 places[markerIndex.value].rad = markers[markerIndex.value].marker.rad;
                                 places[markerIndex.value].lat = markers[markerIndex.value].marker.position.lat;
