@@ -116,6 +116,7 @@
  *  1.7.62     2024-07-06      - Added ability to change the member and region pin colors on the maps.
  *  1.7.63     2024-07-11      - Google Family Map accuracy and speed was not being converted to imperial.
  *  1.7.64     2024-07-13      - Configuration map was not converting displayed radius back to feet on a save.
+ *  1.7.65     2024-07-19      - Removed specialized support for Android 2.4.x.
 */
 
 import groovy.transform.Field
@@ -124,7 +125,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.64"}
+def appVersion() { return "1.7.65"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -150,8 +151,6 @@ def appVersion() { return "1.7.64"}
 @Field static final Map COLLECT_PLACES = [ "desc": 0, "desc_tst": 1, "map" : 2 ]
 
 // Main defaults
-@Field String  ANDROID_LEGACY_VERSION = "Owntracks-Android/4204"
-
 @Field String  DEFAULT_APP_THEME_COLOR = "#191970"
 @Field String  DEFAULT_MEMBER_PIN_COLOR = "MidnightBlue"         // "#191970" - "MidnightBlue"
 @Field String  DEFAULT_REGION_PIN_COLOR = "FireBrick"            // "#b22222" - "FireBrick"
@@ -708,10 +707,6 @@ def configureRegions() {
                                "3. <b>NOTE:</b> The actual delete behavior will be based on the operation described below.\r"
                     )
                     input name: "manualDeleteBehavior", type: "bool", title: "Manual Delete", defaultValue: DEFAULT_manualDeleteBehavior, submitOnChange: true
-//***********************************
-// TODO: REMOVE THIS COMMENT ONCE 2.5.x IS RELEASED
-                    paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile devices.</b></div>")
-//***********************************
                     paragraph("<h3><b>Manual Delete: Region Deleted from Hub Only.  Requires Region to be Manually Deleted from Mobile</b></h3>" +
                               "1. Deleted regions will be deleted from the Hubitat <b>ONLY</b>.\r" +
                               "2. On each mobile phone, find and remove the region that was deleted.\r"
@@ -970,10 +965,6 @@ def deleteRegions() {
             if (regionName) {
                 deleteRegion = state.places.find {it.desc==regionName}
                 paragraph("<iframe src='${getRegionMapLink(createRegionMap(deleteRegion?.lat,deleteRegion?.lon,deleteRegion?.rad))}' style='height: 500px; width:100%; border: none;'></iframe>")
-//***********************************
-// TODO: REMOVE THIS COMMENT ONCE 2.5.x IS RELEASED
-                paragraph("<div style='color:#ff0000'><b>NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.</b></div>")
-//***********************************
                 paragraph("<h3><b>Delete Region from Hub Only - Manually Delete Region from Mobile</b></h3>" +
                           "1. Click the 'Delete Region from Hubitat ONLY' button.\r" +
                           "2. On each mobile phone, find and delete the region selected above.\r"
@@ -1456,35 +1447,6 @@ def updated() {
     schedule("0 0 0 * * ? *", refreshMaps)
     refreshMaps()
     removePlaces()
-
-//***********************************
-// TODO: REMOVE THIS IN A FUTURE VERSION FOR CLEANUP
-// Added to fix 1.7.49 2024-04-24
-    // loop through all the waypoints, and migrate the numbers from strings
-    state.places.each { waypoint->
-        waypoint.lat = waypoint.lat.toDouble()
-        waypoint.lon = waypoint.lon.toDouble()
-        waypoint.rad = waypoint.rad.toInteger()
-        waypoint.tst = waypoint.tst.toInteger()
-    }
-    // cleanup removed data
-    state.remove("previousLocatorInterval")
-    state.members.each { member->
-        member.remove("restartApp")
-    }
-    app.removeSetting("advancedMode")
-    app.removeSetting("autoRequestLocation")
-    app.removeSetting("seeOwnImageCard")
-    app.removeSetting("useHubLocation")
-    app.removeSetting("deleteFromHubitatOnly")
-    app.removeSetting("mapAutoRefresh")
-    try {
-        test = locatorPriority.toInteger()
-        app.removeSetting("locatorPriority")
-        app.updateSetting("locatorPriority", [value: DEFAULT_locatorPriority, type: "string"])
-    } catch (e) {
-    }
-//***********************************
 }
 
 def refresh() {
@@ -2028,35 +1990,6 @@ def createConfiguration(member, useDynamicLocaterAccuracy) {
                             ]
     }
 
-//***********************************
-// TODO: REMOVE THIS BLOCK ONCE 2.5.x IS RELEASED
-    // check if we had a change, and then update the device configuration
-    if (isLegacyAndroidMember(member)) {
-        if (useDynamicLocaterAccuracy) {
-            // switch to locatorPriority=high power and pegLocatorFastestIntervalToInterval=false (dynamic interval)
-            configurationList = [ "_type": "configuration",
-                                 "pegLocatorFastestIntervalToInterval": DYNAMIC_INTERVALS.pegLocatorFastestIntervalToInterval,
-                                 "locatorPriority": 3,
-                                ]
-        } else {
-            // switch to settings.  Recommended locatorPriority=balanced power and pegLocatorFastestIntervalToInterval=true (fixed interval)
-            configurationList = [ "_type": "configuration",
-                                 "pegLocatorFastestIntervalToInterval": pegLocatorFastestIntervalToInterval,
-                                 "locatorPriority": 2,
-                                ]
-        }
-        if (member.requestLocation || (member?.dynamicLocaterAccuracy != useDynamicLocaterAccuracy)) {
-            // assign the new state
-            member.dynamicLocaterAccuracy = useDynamicLocaterAccuracy
-            // return with the dynamic configuration
-            return( [ "_type":"cmd","action":"setConfiguration", "configuration": configurationList ] )
-        } else {
-            // return nothing
-            return
-        }
-    }
-//***********************************
-
     if (member?.dynamicLocaterAccuracy != useDynamicLocaterAccuracy) {
         // assign the new state
         member.dynamicLocaterAccuracy = useDynamicLocaterAccuracy
@@ -2377,14 +2310,6 @@ private def sendConfiguration(currentMember) {
                                 "notificationGeocoderErrors" :          notificationGeocoderErrors,          // Display Geocoder errors in the notification banner
                             ]
 
-//***********************************
-// TODO: REMOVE THIS BLOCK ONCE 2.5.x IS RELEASED
-    // legacy uses numbers, new uses enums
-    if (isLegacyAndroidMember(member)) {
-        deviceLocatorList.locatorPriority = 2
-    }
-//***********************************
-
     // if we enabled a high accuracy location fix, then mark the user
     if (highAccuracyOnPing) {
 //        configurationList.experimentalFeatures = "showExperimentalPreferenceUI,locationPingUsesHighAccuracyLocationRequest"
@@ -2413,25 +2338,11 @@ private def sendUpdate(currentMember, data) {
     // only send the position updates on a ping or manual update
     if (validLocationType(data.t)) {
         update += sendMemberPositions(currentMember, data)
-//***********************************
-// TODO: REMOVE THIS BLOCK ONCE 2.5.x IS RELEASED - now part of the configuration experimental features
-        // if we enabled a high accuracy location fix, then mark the user
-        if (isLegacyAndroidMember(currentMember)) {
-            if (highAccuracyOnPing && isAndroidMember(currentMember)) {
-                currentMember.requestLocation = true
-            }
-        }
-//***********************************
     }
 
     if (currentMember?.updateWaypoints) {
         currentMember.updateWaypoints = false
-//***********************************
-// TODO: REMOVE THIS CONDITIONAL ONCE 2.5.x IS RELEASED
-        if (!isLegacyAndroidMember(currentMember)) {
-//***********************************
-            update += sendClearWaypointsRequest(currentMember)
-        }
+        update += sendClearWaypointsRequest(currentMember)
         update += sendWaypoints(currentMember)
     }
     // check if we have any places marked for removal, and clean up the list
@@ -2440,23 +2351,8 @@ private def sendUpdate(currentMember, data) {
     if ((currentMember?.updateLocation) || (currentMember?.updateDisplay)) {
         update += sendConfiguration(currentMember)
     } else {
-//***********************************
-// TODO: REMOVE THIS BLOCK ONCE 2.5.x IS RELEASED
-        if (isLegacyAndroidMember(currentMember)) {
-            if (currentMember?.requestLocation) {
-                logDescriptionText("Requesting a high accuracy location update for ${currentMember.name}")
-                // switch the phone to a high accuracy report for one location request
-                updateConfig = createConfiguration(currentMember, true)
-                currentMember.requestLocation = false
-            } else {
-                // dynamically change the configuration as necessary
-                updateConfig = checkRegionConfiguration(currentMember, data)
-            }
-        } else {
-//***********************************
         // dynamically change the configuration as necessary
         updateConfig = checkRegionConfiguration(currentMember, data)
-}
         if (updateConfig) {
             update += updateConfig
         }
@@ -2520,14 +2416,6 @@ def getiOSMembers() {
 
 def isAndroidMember(member) {
     if (member?.appVersion?.toString()?.indexOf(ANDROID_USER_AGENT,0) >= 0) {
-        return (true)
-    } else {
-        return (false)
-    }
-}
-
-def isLegacyAndroidMember(member) {
-    if (member?.appVersion?.toString()?.indexOf(ANDROID_LEGACY_VERSION,0) >= 0) {
         return (true)
     } else {
         return (false)
