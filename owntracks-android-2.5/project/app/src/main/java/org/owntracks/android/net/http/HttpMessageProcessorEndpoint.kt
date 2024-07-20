@@ -2,6 +2,7 @@ package org.owntracks.android.net.http
 
 import android.content.Context
 import com.fasterxml.jackson.core.JsonProcessingException
+import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.security.KeyStore
 import java.util.Locale
@@ -90,6 +91,7 @@ class HttpMessageProcessorEndpoint(
               "POST",
               message
                   .toJson(parser)
+                  .also { Timber.d("Publishing Message JSON $it") }
                   ?.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
           .apply {
             val url = configuration.url.toHttpUrl()
@@ -118,7 +120,6 @@ class HttpMessageProcessorEndpoint(
 
     httpClientAndConfiguration?.run {
       endpointStateRepo.setState(EndpointState.CONNECTING)
-      Timber.d("Publishing message $message")
       try {
         client.newCall(getRequest(configuration, message)).execute().use { response ->
           Timber.d("HTTP response received: $response")
@@ -133,7 +134,10 @@ class HttpMessageProcessorEndpoint(
           } else {
             if (response.body != null) {
               try {
-                val result = parser.fromJson(response.body!!.byteStream())
+                val responseString = response.body!!.string()
+                Timber.d("HTTP response body: ${responseString.take(1000)}")
+                val responseStream = ByteArrayInputStream(responseString.toByteArray())
+                val result = parser.fromJson(responseStream)
                 // TODO apply i18n here
                 scope.launch {
                   endpointStateRepo.setState(
@@ -184,13 +188,12 @@ class HttpMessageProcessorEndpoint(
       return
     }
     Timber.v("HTTP preferences changed: [${properties.joinToString(",")}]")
-    val propertiesWeCareAbout =
-        setOf(
-            Preferences::url.name,
-            Preferences::username.name,
-            Preferences::password.name,
-            Preferences::deviceId.name,
-            Preferences::tlsClientCrt.name)
+    /* In HTTP mode, the *only* preference we care about wanting to trigger an immediate reprocessing
+     * of the outgoing message queue is the password. The other properties that might change the
+     * liklihood of message sends succeeding (e.g. URL, username etc.) will actually trigger a
+     * queue wipe and full reset, and that's handled in the [MessageProcessor].
+     */
+    val propertiesWeCareAbout = setOf(Preferences::password.name)
 
     if (propertiesWeCareAbout.intersect(properties).isNotEmpty()) {
       scope.launch(ioDispatcher) {
@@ -209,6 +212,7 @@ class HttpMessageProcessorEndpoint(
       context: Context,
       preferences: Preferences
   ): HttpClientAndConfiguration {
+    Timber.v("Creating new HTTP client and configuration")
     val httpConfiguration = getEndpointConfiguration()
 
     val hostnameVerifier = CALeafCertMatchingHostnameVerifier()
@@ -234,12 +238,16 @@ class HttpMessageProcessorEndpoint(
 
   override fun onFinalizeMessage(message: MessageBase): MessageBase {
     // Build pseudo topic based on tid
-    if (message is MessageLocation) {
-      message.topic = HTTPTOPIC + message.trackerId
-    } else if (message is MessageCard) {
-      message.topic = HTTPTOPIC + message.trackerId
-    } else {
-      message.topic = "NOKEY"
+    when (message) {
+      is MessageLocation -> {
+        message.topic = HTTPTOPIC + message.trackerId
+      }
+      is MessageCard -> {
+        message.topic = HTTPTOPIC + message.trackerId
+      }
+      else -> {
+        message.topic = "NOKEY"
+      }
     }
     return message
   }

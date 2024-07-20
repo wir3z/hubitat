@@ -2,10 +2,12 @@ package org.owntracks.android
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.ActivityManager
 import android.app.Application
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.StrictMode
@@ -18,7 +20,6 @@ import androidx.databinding.DataBindingUtil
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.lifecycle.MutableLiveData
 import androidx.test.espresso.IdlingResource
-import androidx.test.espresso.idling.CountingIdlingResource
 import androidx.work.Configuration
 import androidx.work.InitializationExceptionHandler
 import dagger.hilt.EntryPoints
@@ -40,8 +41,9 @@ import org.owntracks.android.preferences.PreferencesStore
 import org.owntracks.android.preferences.types.AppTheme
 import org.owntracks.android.services.MessageProcessor
 import org.owntracks.android.services.worker.Scheduler
-import org.owntracks.android.support.IdlingResourceWithData
-import org.owntracks.android.support.SimpleIdlingResource
+import org.owntracks.android.test.CountingIdlingResourceShim
+import org.owntracks.android.test.IdlingResourceWithData
+import org.owntracks.android.test.SimpleIdlingResource
 import timber.log.Timber
 
 @HiltAndroidApp
@@ -72,7 +74,7 @@ class App : Application(), Configuration.Provider, Preferences.OnPreferenceChang
   @Inject
   @Named("outgoingQueueIdlingResource")
   @get:VisibleForTesting
-  lateinit var outgoingQueueIdlingResource: CountingIdlingResource
+  lateinit var outgoingQueueIdlingResource: CountingIdlingResourceShim
 
   @Inject
   @Named("contactsClearedIdlingResource")
@@ -139,6 +141,15 @@ class App : Application(), Configuration.Provider, Preferences.OnPreferenceChang
     // Notifications can be sent from multiple places, so let's make sure we've got the channels in
     // place
     createNotificationChannels()
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+      (this.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
+          .getHistoricalProcessExitReasons(this.packageName, 0, 10)
+          .forEach {
+            Timber.i(
+                "Historical process exit reason: ${it.reason} - Description: ${it.description}")
+          }
+    }
   }
 
   private fun setThemeFromPreferences() {

@@ -1,8 +1,11 @@
 package org.owntracks.android.services
 
 import android.Manifest
+import android.app.ActivityManager
+import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
@@ -39,7 +42,7 @@ import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.owntracks.android.App
 import org.owntracks.android.App.Companion.NOTIFICATION_GROUP_EVENTS
 import org.owntracks.android.App.Companion.NOTIFICATION_ID_EVENT_GROUP
@@ -57,6 +60,7 @@ import org.owntracks.android.location.LocationCallback
 import org.owntracks.android.location.LocationProviderClient
 import org.owntracks.android.location.LocationRequest
 import org.owntracks.android.location.LocationResult
+import org.owntracks.android.location.LocatorPriority
 import org.owntracks.android.location.geofencing.Geofence
 import org.owntracks.android.location.geofencing.GeofencingClient
 import org.owntracks.android.location.geofencing.GeofencingEvent
@@ -75,7 +79,7 @@ import org.owntracks.android.preferences.types.MonitoringMode.Companion.getByVal
 import org.owntracks.android.services.worker.Scheduler
 import org.owntracks.android.support.DateFormatter.formatDate
 import org.owntracks.android.support.RunThingsOnOtherThreads
-import org.owntracks.android.support.SimpleIdlingResource
+import org.owntracks.android.test.SimpleIdlingResource
 import org.owntracks.android.ui.map.MapActivity
 import timber.log.Timber
 
@@ -124,6 +128,9 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
 
   private val ongoingNotification by lazy { OngoingNotification(this, preferences.monitoring) }
   private val notificationManagerCompat by lazy { NotificationManagerCompat.from(this) }
+  private val activityManager by lazy {
+    this.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+  }
 
   @EntryPoint
   @InstallIn(SingletonComponent::class)
@@ -191,7 +198,7 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
             ongoingNotification.setEndpointState(
                 it,
                 if (preferences.mode == ConnectionMode.MQTT) preferences.host
-                else preferences.url.toHttpUrl().host)
+                else preferences.url.toHttpUrlOrNull()?.host ?: "")
           }
         }
         endpointStateRepo.setServiceStartedNow()
@@ -296,7 +303,19 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
 
   private fun setupAndStartService() {
     Timber.v("setupAndStartService")
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      try {
+        startForeground(
+            NOTIFICATION_ID_ONGOING,
+            ongoingNotification.getNotification(),
+            FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+      } catch (e: ForegroundServiceStartNotAllowedException) {
+        Timber.e(
+            e,
+            "Foreground service start not allowed. backgroundRestricted=${activityManager.isBackgroundRestricted}")
+        return
+      }
+    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       startForeground(
           NOTIFICATION_ID_ONGOING,
           ongoingNotification.getNotification(),
@@ -464,32 +483,31 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
 
     val monitoring = preferences.monitoring
     var interval: Duration? = null
-    var fastestInterval: Duration? = null
     var smallestDisplacement: Float? = null
-    var priority: Int? = null
+    val priority: LocatorPriority
     when (monitoring) {
       MonitoringMode.QUIET,
       MonitoringMode.MANUAL -> {
         interval = Duration.ofSeconds(preferences.locatorInterval.toLong())
         smallestDisplacement = preferences.locatorDisplacement.toFloat()
-        priority = LocationRequest.PRIORITY_LOW_POWER
+        priority = preferences.locatorPriority ?: LocatorPriority.LowPower
       }
       MonitoringMode.SIGNIFICANT -> {
         interval = Duration.ofSeconds(preferences.locatorInterval.toLong())
         smallestDisplacement = preferences.locatorDisplacement.toFloat()
-        priority = LocationRequest.PRIORITY_BALANCED_POWER_ACCURACY
+        priority = preferences.locatorPriority ?: LocatorPriority.BalancedPowerAccuracy
       }
       MonitoringMode.MOVE -> {
         interval = Duration.ofSeconds(preferences.moveModeLocatorInterval.toLong())
-        priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+        priority = preferences.locatorPriority ?: LocatorPriority.HighAccuracy
       }
     }
-    if (preferences.pegLocatorFastestIntervalToInterval) {
-      fastestInterval = interval
-    } else {
-      fastestInterval = Duration.ofSeconds(1)
-      priority = LocationRequest.PRIORITY_HIGH_ACCURACY
-    }
+    val fastestInterval =
+        if (preferences.pegLocatorFastestIntervalToInterval) {
+          interval
+        } else {
+          Duration.ofSeconds(1)
+        }
     val request =
         LocationRequest(fastestInterval, smallestDisplacement, null, null, priority, interval, null)
     Timber.d("location update request params: $request")
@@ -566,7 +584,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
             Preferences::locatorDisplacement.name,
             Preferences::moveModeLocatorInterval.name,
             Preferences::pegLocatorFastestIntervalToInterval.name,
-            Preferences::notificationHigherPriority.name)
+            Preferences::notificationHigherPriority.name,
+            Preferences::locatorPriority.name)
     if (propertiesWeCareAbout
         .stream()
         .filter { o: String -> properties.contains(o) }

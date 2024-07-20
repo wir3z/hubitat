@@ -14,7 +14,7 @@ import org.owntracks.android.preferences.DefaultsProviderImpl
 import org.owntracks.android.preferences.Preferences
 import org.owntracks.android.preferences.SharedPreferencesStore
 import org.owntracks.android.preferences.types.ReverseGeocodeProvider
-import org.owntracks.android.support.SimpleIdlingResource
+import org.owntracks.android.test.SimpleIdlingResource
 import org.owntracks.android.testutils.TestWithAnActivity
 import org.owntracks.android.testutils.scrollToPreferenceWithText
 import org.owntracks.android.testutils.writeToPreference
@@ -132,6 +132,7 @@ class PreferencesActivityTests :
     clickOnAndWait(R.string.preferencesReverseGeocodeProvider)
 
     clickOnAndWait("OpenCage")
+    clickOnAndWait(android.R.id.button1)
 
     writeToPreference(R.string.preferencesOpencageGeocoderApiKey, "geocodeAPIKey")
 

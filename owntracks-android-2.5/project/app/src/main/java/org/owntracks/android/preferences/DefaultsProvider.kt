@@ -36,7 +36,8 @@ interface DefaultsProvider {
       Preferences::keepalive -> 3600
             Preferences::locatorDisplacement -> 50
       Preferences::locatorInterval -> 60
-            Preferences::mode -> ConnectionMode.HTTP
+      Preferences::locatorPriority -> null
+      Preferences::mode -> ConnectionMode.HTTP
       Preferences::monitoring -> MonitoringMode.SIGNIFICANT
             Preferences::moveModeLocatorInterval -> 30
       Preferences::mqttProtocolLevel -> MqttProtocolLevel.MQTT_3_1
@@ -67,7 +68,7 @@ interface DefaultsProvider {
       Preferences::tlsClientCrt -> ""
       Preferences::tid ->
           StringMaxTwoAlphaNumericChars(preferences.deviceId.takeLast(2).ifEmpty { "na" })
-      Preferences::url -> "https://example.com"
+      Preferences::url -> ""
       Preferences::userDeclinedEnableLocationPermissions -> false
       Preferences::userDeclinedEnableLocationServices -> false
       Preferences::userDeclinedEnableNotificationPermissions -> false

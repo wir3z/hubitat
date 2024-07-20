@@ -19,7 +19,7 @@ import org.owntracks.android.preferences.InMemoryPreferencesStore
 import org.owntracks.android.preferences.Preferences
 import org.owntracks.android.preferences.PreferencesStore
 import org.owntracks.android.support.Parser
-import org.owntracks.android.support.SimpleIdlingResource
+import org.owntracks.android.test.SimpleIdlingResource
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LoadViewModelTest {
@@ -36,7 +36,7 @@ class LoadViewModelTest {
   }
 
   @Test
-  fun `Given an invalid RUL, when loading it into the LoadViewModel, then the error is correctly set`() =
+  fun `Given an invalid URL, when loading it into the LoadViewModel, then the error is correctly set`() =
       runTest {
         val parser = Parser(null)
         val preferences = Preferences(preferencesStore, mockIdlingResource)

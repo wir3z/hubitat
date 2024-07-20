@@ -33,6 +33,7 @@
 - Changing the connection details will now clear the contacts and the location message backlog (#1598)
 - Messages now include a random `_id` (String) field which can be used by any consumer to correlate and distinguish send/return messages
 - `pubExtendedData` preference renamed to `extendedData` (#1654)
+- `reportLocation` command is now supported in HTTP mode
 - Added `status` remote command to retrieve system configuration status (#1618)
 
 ### Bug fixes
@@ -52,6 +53,7 @@
 - Map blue dot should show the location accuracy circle properly
 - Fix crash on importing config URIs that weren't valid
 - Fix bug when sharing logs via GMail (#1600)
+- Default the locater fastest interval to 1-second to address changes in Android 14 that was fixing fastest interval to `interval` seconds.
 
 ## Version 2.4.12
 

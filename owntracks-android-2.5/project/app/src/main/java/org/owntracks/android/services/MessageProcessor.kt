@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import androidx.test.espresso.IdlingResource
-import androidx.test.espresso.idling.CountingIdlingResource
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.security.KeyStore
@@ -47,10 +46,11 @@ import org.owntracks.android.preferences.Preferences
 import org.owntracks.android.preferences.Preferences.Companion.PREFERENCES_THAT_WIPE_QUEUE_AND_CONTACTS
 import org.owntracks.android.preferences.types.ConnectionMode
 import org.owntracks.android.services.worker.Scheduler
-import org.owntracks.android.support.IdlingResourceWithData
 import org.owntracks.android.support.Parser
-import org.owntracks.android.support.SimpleIdlingResource
 import org.owntracks.android.support.interfaces.ConfigurationIncompleteException
+import org.owntracks.android.test.CountingIdlingResourceShim
+import org.owntracks.android.test.IdlingResourceWithData
+import org.owntracks.android.test.SimpleIdlingResource
 import timber.log.Timber
 
 @Singleton
@@ -65,7 +65,7 @@ constructor(
     private val scheduler: Scheduler,
     private val endpointStateRepo: EndpointStateRepo,
     @Named("outgoingQueueIdlingResource")
-    private val outgoingQueueIdlingResource: CountingIdlingResource,
+    private val outgoingQueueIdlingResource: CountingIdlingResourceShim,
     @Named("importConfigurationIdlingResource")
     private val importConfigurationIdlingResource: SimpleIdlingResource,
     @Named("messageReceivedIdlingResource")
@@ -77,7 +77,9 @@ constructor(
 ) : Preferences.OnPreferenceChangeListener {
   private var endpoint: MessageProcessorEndpoint? = null
   private var acceptMessages = false
-  private val outgoingQueue: BlockingDeque<MessageBase>
+  private val outgoingQueue: BlockingDeque<MessageBase> =
+      BlockingDequeThatAlsoSometimesPersistsThingsToDiskMaybe(
+          100_000, applicationContext.filesDir, parser)
   private var dequeueAndSenderJob: Job? = null
   private var retryDelayJob: Job? = null
   private var initialized = false
@@ -98,9 +100,6 @@ constructor(
       }
 
   init {
-    outgoingQueue =
-        BlockingDequeThatAlsoSometimesPersistsThingsToDiskMaybe(
-            100_000, applicationContext.filesDir, parser)
     synchronized(outgoingQueue) {
       for (i in outgoingQueue.indices) {
         outgoingQueueIdlingResource.increment()
@@ -243,7 +242,7 @@ constructor(
             when (e) {
               is OutgoingMessageSendingException,
               is ConfigurationIncompleteException -> {
-                Timber.w("Error sending message $message. Re-queueing")
+                Timber.w(e, "Error sending message $message. Re-queueing")
                 synchronized(outgoingQueue) {
                   if (!outgoingQueue.offerFirst(message)) {
                     val tailMessage = outgoingQueue.removeLast()
@@ -270,7 +269,10 @@ constructor(
                       join()
                       Timber.d("Retry wait finished for $message. Cancelled=${isCancelled}}")
                     }
-                retryWait = (retryWait * 2).coerceAtMost(SEND_FAILURE_BACKOFF_MAX_WAIT)
+                retryWait =
+                    (retryWait * 2).coerceAtMost(SEND_FAILURE_BACKOFF_MAX_WAIT).also {
+                      Timber.v("Increasing failure retry wait to $it")
+                    }
                 retriesToGo -= 1
               }
               else -> {
@@ -457,7 +459,7 @@ constructor(
           CommandAction.CLEAR_WAYPOINTS -> {
             waypointsRepo.clearAll()
           }
-          CommandAction.STATUS -> locationProcessorLazy.get().publishStatusMessage()
+          CommandAction.STATUS  -> locationProcessorLazy.get().publishStatusMessage()
           null -> {}
         }
         messageReceivedIdlingResource.remove(message)
@@ -477,11 +479,15 @@ constructor(
   override fun onPreferenceChanged(properties: Set<String>) {
     if (properties.intersect(PREFERENCES_THAT_WIPE_QUEUE_AND_CONTACTS).isNotEmpty()) {
       acceptMessages = false
-
+      Timber.v("Preferences changed: [${properties.joinToString(",")}] riggering queue wipe")
       outgoingQueue.also { Timber.i("Clearing outgoing message queue length=${it.size}") }.clear()
       while (!outgoingQueueIdlingResource.isIdleNow) {
         Timber.v("Decrementing outgoingQueueIdlingResource")
-        outgoingQueueIdlingResource.decrement()
+        try {
+          outgoingQueueIdlingResource.decrement()
+        } catch (e: IllegalStateException) {
+          Timber.w(e, "outgoingQueueIdlingResource is invalid")
+        }
       }
       loadOutgoingMessageProcessor()
     }
