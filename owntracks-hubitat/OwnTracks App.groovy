@@ -118,6 +118,7 @@
  *  1.7.64     2024-07-13      - Configuration map was not converting displayed radius back to feet on a save.
  *  1.7.65     2024-07-19      - Removed specialized support for Android 2.4.x.
  *  1.7.66     2024-07-30      - Added selectable member glyph colors.  Added member history to the Google Family Map.
+ *  1.7.67     2024-07-31      - Fixed exception when exiting the app before history was created.
 */
 
 import groovy.transform.Field
@@ -126,7 +127,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.66"}
+def appVersion() { return "1.7.67"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -1482,7 +1483,7 @@ def refresh() {
 
 def pruneMemberHistory(member) {
     // first remove the oldest of the history buffer is full
-    while (member.history.size() >= (memberHistoryLength != null ? memberHistoryLength : DEFAULT_memberHistoryLength)) {
+    while (member?.history?.size() >= (memberHistoryLength != null ? memberHistoryLength : DEFAULT_memberHistoryLength)) {
         member.history.remove(0)
     }
 }
