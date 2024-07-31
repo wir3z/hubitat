@@ -117,6 +117,7 @@
  *  1.7.63     2024-07-11      - Google Family Map accuracy and speed was not being converted to imperial.
  *  1.7.64     2024-07-13      - Configuration map was not converting displayed radius back to feet on a save.
  *  1.7.65     2024-07-19      - Removed specialized support for Android 2.4.x.
+ *  1.7.66     2024-07-30      - Added selectable member glyph colors.  Added member history to the Google Family Map.
 */
 
 import groovy.transform.Field
@@ -125,7 +126,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.65"}
+def appVersion() { return "1.7.66"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -153,11 +154,15 @@ def appVersion() { return "1.7.65"}
 // Main defaults
 @Field String  DEFAULT_APP_THEME_COLOR = "#191970"
 @Field String  DEFAULT_MEMBER_PIN_COLOR = "MidnightBlue"         // "#191970" - "MidnightBlue"
+@Field String  DEFAULT_MEMBER_GLYPH_COLOR = "Purple"             // "#800080" - "Brown"
 @Field String  DEFAULT_REGION_PIN_COLOR = "FireBrick"            // "#b22222" - "FireBrick"
 @Field String  DEFAULT_REGION_NEW_PIN_COLOR = "red"              // "#ff0000" - "Red"
 @Field String  DEFAULT_REGION_NEW_GLYPH_COLOR = "black"          // "#000000" - "Black"
 @Field String  DEFAULT_REGION_HOME_GLYPH_COLOR = "DarkSlateGrey" // "#2f4f4f" - "DarkSlateGrey"
 @Field String  DEFAULT_REGION_GLYPH_COLOR = "Maroon"             // "#800000" - "Maroon"
+@Field Number  DEFAULT_memberHistoryLength = 30
+@Field Number  DEFAULT_maxMemberHistoryLength = 60
+@Field Boolean DEFAULT_displayAllMembersHistory = false
 @Field Number  GOOGLE_MAP_API_QUOTA = 28500
 @Field String  GOOGLE_MAP_API_KEY_LINK = "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>"
 @Field String  RECORDER_PUBLISH_FOLDER = "/pub"
@@ -328,7 +333,7 @@ def mainPage() {
                         }
                     }
                 }
-                input name: "sectionCommands", type: "button", title: getSectionTitle(state.show.links, "Member Command API Links"), submitOnChange: true, style: getSectionStyle()
+                input name: "sectionCommands", type: "button", title: getSectionTitle(state.show.commands, "Member Command API Links"), submitOnChange: true, style: getSectionStyle()
                 if (state.show.commands) {
                     paragraph ("<b>Member API command links for advanced integrations and virtual switch controls.</b>")
                     URL_SOURCE.each{ source->
@@ -429,8 +434,25 @@ def configureHubApp() {
                 paragraph (GOOGLE_MAP_API_KEY_LINK + " -- <i><b>'Maps JavaScript API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard' target='_blank'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Maps JavaScript API</b>.</i>")
                 input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:", submitOnChange: true
                 paragraph ("<a href='${getAttributeURL("[cloud.hubitat.com]", "googlemap")}' target='_blank'>Test map API key</a>")
-                paragraph ("<h2>Map Pin and Glyph Colors</h2>")
+                paragraph ("<h2>Member History and Pin Colors</h2>")
+                input name: "memberHistoryLength", type: "number", title: "Number of past member locations to save (0..${DEFAULT_maxMemberHistoryLength}):", range: "0..${DEFAULT_maxMemberHistoryLength}", defaultValue: DEFAULT_memberHistoryLength
+                input name: "displayAllMembersHistory", type: "bool", title: "Enable to display all member(s) history on map.  Disable to only display history of selected member on map.", defaultValue: DEFAULT_displayAllMembersHistory
                 input name: "memberPinColor", type: "string", title: "<b>Member pin color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (MidnightBlue) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#191970):", defaultValue: DEFAULT_MEMBER_PIN_COLOR
+                input "selectMemberGlyph", "enum", multiple: false, title:"Select family member to change glyph and history color.", options: state.members.name.sort(), submitOnChange: true
+                // only clear on a change of selected member
+                if (state.selectMemberGlyph != selectMemberGlyph) {
+                    app.removeSetting("memberGlyphColor")
+                }
+                if (selectMemberGlyph) {
+                    state.selectMemberGlyph = selectMemberGlyph
+                    selectedMember = state.members.find {it.name==selectMemberGlyph}
+                    // if we have a defined color, then assign it to the member
+                    if (memberGlyphColor) {
+                        selectedMember.color = memberGlyphColor
+                    }
+                    input name: "memberGlyphColor", type: "string", title: "<b>${selectMemberGlyph} glyph and history color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (Purple) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#800080):", defaultValue: (selectedMember?.color ? selectedMember.color : DEFAULT_MEMBER_GLYPH_COLOR), submitOnChange: true
+                }
+                paragraph ("<h2>Region Pin Colors</h2>")
                 input name: "regionPinColor", type: "string", title: "<b>Region pin color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (DarkRed) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#b22222):", defaultValue: DEFAULT_REGION_PIN_COLOR
                 input name: "regionGlyphColor", type: "string", title: "<b>Region glyph color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (Maroon) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#800000):", defaultValue: DEFAULT_REGION_GLYPH_COLOR
                 input name: "regionHomeGlyphColor", type: "string", title: "<b>Region home glyph color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (WhiteSmoke) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#2f4f4f):", defaultValue: DEFAULT_REGION_HOME_GLYPH_COLOR
@@ -1291,6 +1313,8 @@ def initializeHub(forceDefaults) {
         app.removeSetting("regionHighAccuracyRadius")
         app.removeSetting("wifiPresenceKeepRadius")
         app.removeSetting("geocodeProvider")
+        app.removeSetting("selectMemberGlyph")
+        app.removeSetting("memberGlyphColor")
     }
     if (forceDefaults || (regionHighAccuracyRadius == null)) app.updateSetting("regionHighAccuracyRadius", [value: DEFAULT_regionHighAccuracyRadius, type: "number"])
     if (forceDefaults || (wifiPresenceKeepRadius == null)) app.updateSetting("wifiPresenceKeepRadius", [value: DEFAULT_wifiPresenceKeepRadius, type: "number"])
@@ -1309,6 +1333,8 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (regionPinColor == null)) app.updateSetting("regionPinColor", [value: DEFAULT_REGION_PIN_COLOR, type: "string"])
     if (forceDefaults || (regionGlyphColor == null)) app.updateSetting("regionGlyphColor", [value: DEFAULT_REGION_GLYPH_COLOR, type: "string"])
     if (forceDefaults || (regionHomeGlyphColor == null)) app.updateSetting("regionHomeGlyphColor", [value: DEFAULT_REGION_HOME_GLYPH_COLOR, type: "string"])
+    if (forceDefaults || (memberHistoryLength == null)) app.updateSetting("memberHistoryLength", [value: DEFAULT_memberHistoryLength, type: "number"])
+    if (forceDefaults || (displayAllMembersHistory == null)) app.updateSetting("displayAllMembersHistory", [value: DEFAULT_displayAllMembersHistory, type: "bool"])
 }
 
 def initializeMobileLocation(forceDefaults) {
@@ -1410,6 +1436,8 @@ def updated() {
             member.updateDisplay = true
             member.updateWaypoints = true
         }
+        // remove excessive history events
+        pruneMemberHistory(member)
     }
     // clear the settings flags to prevent the configurations from being forced to the display on each entry
     app.updateSetting("syncMobileSettings",[value:"",type:"enum"])
@@ -1450,6 +1478,13 @@ def updated() {
 }
 
 def refresh() {
+}
+
+def pruneMemberHistory(member) {
+    // first remove the oldest of the history buffer is full
+    while (member.history.size() >= (memberHistoryLength != null ? memberHistoryLength : DEFAULT_memberHistoryLength)) {
+        member.history.remove(0)
+    }
 }
 
 def childGetWarnOnNonOptimalSettings() {
@@ -1853,6 +1888,16 @@ def updateMemberAttributes(headers, data, member) {
     if (data?.vel  != null)         member.speed     = data.vel
     if (data?.bs   != null)         member.bs        = data.bs
     if (data?.conn != null)         member.conn      = data.conn
+
+    // save the history
+    if (member?.history == null) {
+        member.history = []
+    }
+    // first remove the oldest of the history buffer is full
+    pruneMemberHistory(member)
+    def memberLocation = [ "lat": member.latitude, "lng": member.longitude, "acc": member.accuracy, "speed": (data?.vel != null ? member.speed : 0), "tst": member.timeStamp, "location": member.address ]
+    // add to the end of the list
+    member.history << memberLocation
 }
 
 def updateDevicePresence(member, data) {
@@ -3405,14 +3450,23 @@ def processAPIData() {
                         "data" :        "${member?.conn}",
                         "location" :    "${deviceWrapper?.currentValue("location")}",
                         "dfh" :         deviceWrapper?.currentValue("distanceFromHome"),
+                        "color":        (member?.color ? member?.color : DEFAULT_MEMBER_GLYPH_COLOR),
+                        "history":      (member?.history ? member?.history : []),
                         "zIndex" :      index+1,
                     ]
 
                     // split out the img since that is a large data payload that we only need once during the page init
                     if (data.payload == "img") {
                         memberLocation["img"] = "${getEmbeddedImage(member.name)}"
+                        // clear the flag to allow the member to sync to the map
+                        member.lastMapTime = 0
                     }
-                    memberLocations << memberLocation
+                    // only send new data to the map to minimize data traffic
+                    if (member.lastMapTime != member.lastReportTime) {
+                        memberLocations << memberLocation
+                    }
+                    // store the last location report sent to the map
+                    member.lastMapTime = member.lastReportTime
                 }
                 // determine the map center based on the public members
                 publicMembers = getEnabledAndNotHiddenMemberData()
@@ -3491,12 +3545,13 @@ def generateGoogleFriendsMap() {
                 if (!currentZoom) {
                     currentZoom = mapCenterAndZoom.zoom;
                 }
+                historyMember = "null";
 
                 function initMap() {
                     const infoWindow = new google.maps.InfoWindow();
                     const markers = [];
-                    const glyphColors = ["yellow", "red", "orange", "purple", "pink", "cyan", "magenta", "brown", "blue", "white"]
-                    infoWindowVisible = false;
+                    // -2=close, -1=marker open, 0+=history sample open
+                    infoWindowVisible = -2;
 
                     // get the member data with thumbnail images
                     retrieveMemberLocations("img");
@@ -3523,7 +3578,7 @@ def generateGoogleFriendsMap() {
                     map.addListener("click", () => {
                         infoWindow.close();
                         // when the map is clicked, zoom back out to 14, and then next click to full zoom
-                        var currentZoom = map.getZoom()
+                        currentZoom = map.getZoom()
                         if (currentZoom > 14) {
                             currentZoom = 14;
                         } else {
@@ -3534,7 +3589,9 @@ def generateGoogleFriendsMap() {
                         }
                         map.setZoom(currentZoom);
                         currentMember = "null";
-                        infoWindowVisible = currentMember;
+                        historyMember = "null";
+                        showHideHistory();
+                        infoWindowVisible = -2;
                         postData = {};
                         postData["zoom"] = currentZoom;
                         postData["member"] = currentMember;
@@ -3543,12 +3600,14 @@ def generateGoogleFriendsMap() {
                     map.addListener("zoom_changed", () => {
                         // when the user clicks the +/- zoom buttons
                         currentZoom = map.getZoom();
+                        updateHistoryZoom(currentZoom);
                         postData = {};
                         postData["zoom"] = currentZoom;
                         sendDataToHub(postData);
                     });
                     google.maps.event.addListener(infoWindow, 'closeclick', () => {
-                        infoWindowVisible = "null";
+                        infoWindowVisible = -2;
+                        historyMember = "null";
                     });
 
                     // place the region pins
@@ -3573,7 +3632,7 @@ def generateGoogleFriendsMap() {
                             }
                         )
                         // place the region radius'
-                        radius = new google.maps.Circle(
+                        const radius = new google.maps.Circle(
                             {
                                 map,
                                 center:{
@@ -3597,57 +3656,49 @@ def generateGoogleFriendsMap() {
 
                     function addMemberMarkers() {
                         // place the members on the map
-                        locations.forEach(member => {
+                        for (let member=0; member<locations.length; member++) {
                             const namePin = document.createElement("div");
-                            namePin.textContent = member.name;
+                            namePin.textContent = locations[member].name;
 
                             const imagePin = document.createElement("object");
-                            imagePin.data = member.img;
+                            imagePin.data = locations[member].img;
                             imagePin.type = "image/jpeg";
                             imagePin.width = "40";
                             imagePin.height = "40";
                             imagePin.appendChild(namePin);
 
-                            colorIndex = member.zIndex
-                            while (colorIndex >= glyphColors.length) {
-                                colorIndex -= glyphColors.length
-                            }
                             const pin = new google.maps.marker.PinElement({
                                 scale: 2.5,
                                 background: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
                                 borderColor: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
-                                glyphColor: glyphColors[colorIndex]
+                                glyphColor: locations[member].color
                             });
-                            if (member.img) {
+                            if (locations[member].img) {
                                 pin.glyph = imagePin;
                             }
 
                             const marker = new google.maps.marker.AdvancedMarkerElement({
                                 map,
                                 position: {
-                                    lat: member.lat,
-                                    lng: member.lng
+                                    lat: locations[member].lat,
+                                    lng: locations[member].lng
                                 },
-                                title: member.name,
-                                zIndex: member.zIndex,
+                                title: locations[member].name,
+                                zIndex: locations[member].zIndex,
                                 content: pin.element
                             });
 
                             // Add a click listener for each marker, and set up the info window
                             marker.addListener("click", () => {
                                 infoWindow.close();
-                                locations.forEach(position => {
-                                    if (marker.title == position.name) {
-                                        infoWindow.setContent(infoContent(position));
-                                    }
-                                });
+                                infoWindow.setContent(infoContent(locations[member]));
                                 infoWindow.open(marker.map, marker);
                                 map.setCenter(marker.position);
                                 // if a marker is clicked, then assign it an index larger than the number of positions so it comes out in front
                                 marker.zIndex = locations.length+1;
 
                                 // on the first click, just display the info box
-                                if (infoWindowVisible == marker.title) {
+                                if (infoWindowVisible == -1) {
                                     // on second click, zoom to 14, and then keep zooming in by 3 on each future click
                                     var currentZoom = map.getZoom()
                                     if (currentZoom < 14) {
@@ -3659,19 +3710,55 @@ def generateGoogleFriendsMap() {
                                         }
                                     }
                                     map.setZoom(currentZoom);
+                                    updateHistoryZoom(currentZoom);
                                 }
 
                                 currentMember = marker.title;
-                                infoWindowVisible = currentMember;
+                                showHideHistory();
+                                infoWindowVisible = -1;
                                 postData = {};
                                 postData["zoom"] = currentZoom;
                                 postData["member"] = currentMember;
                                 sendDataToHub(postData);
                             });
-                            // save the marker
-                            markers.push(marker);
-                            followLocation(member);
-                        });
+
+                            // create history circles for the past locations
+                            var history = [];
+    						for (let past=0; past<locations[member].history.length; past++) {
+	    						// place the past locations
+		    					const radius = new google.maps.Circle(
+			    					{
+				    					map,
+					    				center:{
+						    				lat:locations[member].history[past].lat,
+							    			lng:locations[member].history[past].lng,
+								    	},
+									    radius:parseInt(1 + (Math.pow((22 - currentZoom), 2)/4)),
+    									strokeColor:locations[member].color,
+	    								strokeOpacity:0.1+(0.7*(past/(locations[member].history.length-1))),
+		    							strokeWeight:2,
+			    						fillColor:locations[member].color,
+				    					fillOpacity:0.1+(0.7*(past/(locations[member].history.length-1))),
+                                        visible:false,
+                                        zIndex:past
+					    			}
+						    	)
+                                // Add a click listener for each radius, and set up the info window
+                                radius.addListener("click", () => {
+                                    infoWindow.close();
+                                    infoWindow.setPosition(radius.getCenter());
+                                    infoWindowVisible = radius.zIndex;
+                                    infoWindow.setContent(historyContent(locations[member].name, locations[member].history, past));
+                                    infoWindow.open(radius.map, radius);
+                                    historyMember = locations[member].name;
+                                });
+                                history.push(radius);
+    						};
+                            // save the marker and history
+                            markers.push({marker, history});
+                            followLocation(locations[member]);
+                            showHideHistory();
+                        };
                     };
 
                     function followLocation(member) {
@@ -3682,13 +3769,39 @@ def generateGoogleFriendsMap() {
                             center["lat"] = member.lat;
                             center["lng"] = member.lng;
                             map.setZoom(currentZoom);
-                            infoWindow.setContent(infoContent(member));
+                            if (infoWindowVisible == -1) {
+                                infoWindow.setContent(infoContent(member));
+                            }
                             // recenter the map if the marker is out of bounds
                             const mapBounds = map.getBounds();
                             if (!mapBounds.contains(center)) {
                                 map.setCenter(center);
                             }
                         }
+                    };
+
+                    function showHideHistory() {
+                        for (let loc=0; loc<markers.length; loc++) {
+                            for (let past=0; past<markers[loc].history.length; past++) {
+                                if (${displayAllMembersHistory}) {
+                                    markers[loc].history[past].setVisible(true);
+                                } else {
+                                    if (markers[loc].marker.title == currentMember) {
+                                        markers[loc].history[past].setVisible(true);
+                                    } else {
+                                        markers[loc].history[past].setVisible(false);
+                                    }
+                                }
+                            }
+                        }
+                    };
+
+                    function updateHistoryZoom(zoomLevel) {
+                        for (let loc=0; loc<markers.length; loc++) {
+                            for (let past=0; past<markers[loc].history.length; past++) {
+                                markers[loc].history[past].setRadius(parseInt(1 + (Math.pow(2, (22 - zoomLevel))/10)));
+                            }
+	                    }
                     };
 
                     function centerMap() {
@@ -3715,36 +3828,48 @@ def generateGoogleFriendsMap() {
                         if (data.mapCenterAndZoom) {
                             // update the marker based on the incoming changes.
                             mapCenterAndZoom = data.mapCenterAndZoom
-                            if (locations.length) {
-                                // Incoming order may be different due to zIndex changes, so we need to search for matches
-                                for (let mem=0; mem<data.members.length; mem++) {
-                                    for (let loc=0; loc<locations.length; loc++) {
-                                        if (locations[loc].id == data.members[mem].id) {
-                                            // update the location data
-                                            locations[loc] = data.members[mem];
-                                            // update the marker data
-                                            center = {};
-                                            center["lat"] = data.members[mem].lat;
-                                            center["lng"] = data.members[mem].lng;
-                                            markers[loc].position = center;
-                                            // keep the selected member in focus
-                                            if (locations[loc].name == currentMember) {
-                                                markers[loc].zIndex = locations.length+1;
-                                            } else {
-                                                markers[loc].zIndex = data.members[mem].zIndex;
+                            // check if there is data to parse
+                            if (data.members.length) {
+                                if (locations.length) {
+                                    // Incoming order may be different due to zIndex changes, so we need to search for matches
+                                    for (let mem=0; mem<data.members.length; mem++) {
+                                        for (let loc=0; loc<locations.length; loc++) {
+                                            if (locations[loc].id == data.members[mem].id) {
+                                                // update the location data
+                                                locations[loc] = data.members[mem];
+                                                // update the marker data
+                                                center = {};
+                                                center["lat"] = data.members[mem].lat;
+                                                center["lng"] = data.members[mem].lng;
+                                                markers[loc].marker.position = center;
+                                                // update the past history markers
+                                                for (let past=0; past<markers[loc].history.length; past++) {
+                                                    markers[loc].history[past].setOptions({ center: { lat: data.members[mem].history[past].lat, lng: data.members[mem].history[past].lng }});
+                                                }
+                                                // keep the selected member in focus
+                                                if (markers[loc].marker.title == historyMember) {
+                                                    markers[loc].marker.zIndex = locations.length+1;
+                                                    // if a history info box is open
+                                                    if (infoWindowVisible >= 0) {
+                                                        infoWindow.setPosition(markers[loc].history[infoWindowVisible].getCenter());
+                                                        infoWindow.setContent(historyContent(markers[loc].marker.title, locations[loc].history, infoWindowVisible));
+                                                    }
+                                                } else {
+                                                    markers[loc].marker.zIndex = data.members[mem].zIndex;
+                                                }
+                                                followLocation(locations[loc]);
                                             }
-                                            followLocation(locations[loc]);
                                         }
-                                    }
+                                        // last person in the list is the one reported the latest location
+                                        updateLastUpdate(data.members[mem].last);
+                                    };
+                                } else {
+                                    // if there are no locations, copy the first instance and add the markers
+                                    locations = data.members;
+                                    addMemberMarkers();
                                     // last person in the list is the one reported the latest location
-                                    updateLastUpdate(data.members[mem].last);
-                                };
-                            } else {
-                                // if there are no locations, copy the first instance and add the markers
-                                locations = data.members;
-                                addMemberMarkers();
-                                // last person in the list is the one reported the latest location
-                                updateLastUpdate(locations[locations.length - 1].last);
+                                    updateLastUpdate(locations[locations.length - 1].last);
+                                }
                             }
                             // recenter the map if necessary
                             centerMap();
@@ -3784,6 +3909,14 @@ def generateGoogleFriendsMap() {
                     }, 5000);
                 };
 
+                function convertMetersToFeet(val) {
+                    return (${imperialUnits} ? parseInt(val*3.28084) : parseInt(val))
+                }
+
+                function convertKMToMiles(val) {
+                    return (${imperialUnits} ? parseInt(val*0.621371) : parseInt(val))
+                }
+
                 function infoContent(position) {
                     const contentString =
                     "<table style='width:100%;font-size:1.0em'>" +
@@ -3819,6 +3952,63 @@ def generateGoogleFriendsMap() {
                     "<hr>" +
                     (position.stale ? "<div style='color:red'>" : "<div>") + "Last: " + position.last + "</div>" +
                     ((position.app != "null") && (position.app != "0") ? "<div style='color:red'>&#9940;App Permissions</div>" : "")
+
+                    return(contentString)
+                };
+
+                function formatDateToCustomPattern(date) {
+                    const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+                    const dayOfWeek = daysOfWeek[date.getDay()];
+                    const hour = date.getHours();
+                    const minute = date.getMinutes();
+                    const amPm = hour >= 12 ? "PM" : "AM";
+                    const amPmHour = (hour % 12) == 0 ? 12 : (hour % 12)
+                    const formattedDate = dayOfWeek + " " + amPmHour + ":" + minute.toString().padStart(2, "0") + " " + amPm + " " + date.getFullYear() + "-" + (date.getMonth() + 1).toString().padStart(2, "0") + "-" + date.getDate().toString().padStart(2, "0");
+
+                    return formattedDate;
+                };
+
+                function historyContent(name, position, index) {
+                    currentTime = Date.now();
+                    historyTime = new Date(position[index].tst*1000);
+                    fromCurrentTime = parseInt((currentTime - historyTime) / (60*1000));
+                    fromCurrentTimeHours = parseInt(fromCurrentTime / 60)
+                    fromCurrentTimeMinutes = parseInt(fromCurrentTime - (fromCurrentTimeHours*60))
+                    const contentString =
+                    "<table style='width:100%;font-size:1.0em'>" +
+                        "<tr>" +
+                            "<td align='left'><b>" + name + "</b></td>" +
+                        "</tr>" +
+                        "<tr>" +
+                            "<td align='left'>" + position[index].location + "</td>" +
+                        "</tr>" +
+                        "<tr>" +
+                            "<td align='left'>" + "(" + position[index].lat + "," + position[index].lng + ")" + "</td>" +
+                        "</tr>" +
+                        "<tr>" +
+                            "<td align='left'>" + formatDateToCustomPattern(historyTime) + "</td>" +
+                        "</tr>" +
+                    "</table>" +
+                    "<hr>" +
+                    "<table style='width:100%;font-size:1.0em'>" +
+                        "<tr align='center'>" +
+                            "<th width=33%>&#128270;</th>" +
+                            (position[index].speed != "null" ? "<th width=33%>&#128663;</th>" : "") +
+                        "</tr>" +
+                        "<tr align='center'>" +
+                            "<td width=33%>" + convertMetersToFeet(position[index].acc) + " ${getSmallUnits()}</td>" +
+                            (position[index].speed != "null" ? "<td width=33%>" + convertKMToMiles(position[index].speed) + " ${getVelocityUnits()}</td>" : "") +
+                        "</tr>" +
+                    "</table>" +
+                    "<hr>" +
+                    "<table style='width:100%;font-size:1.0em'>" +
+                        "<tr align='center'>" +
+                            "<td width=33%>" + fromCurrentTimeHours + "h " + fromCurrentTimeMinutes + "m ago"  + "</td>" +
+                            "<td width=33%>" + "History: " + (index + 1) + " / " + position.length + "</td>" +
+                        "</tr>" +
+                    "</table>"
 
                     return(contentString)
                 };

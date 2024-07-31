@@ -115,7 +115,8 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	- If the phone is using mobile data, the cellular signal icon is displayed in the top banner.  If using wifi data, a wifi symbol is displayed.
 	- Distance from home, location accuracy and speed will be displayed if enabled.
 	- The last location time will be displayed in red if it is stale.
-    - NOTE:  Requires member thumbnails to be enabled, and will only display users using a local dashboard.
+    - NOTE:  Requires member thumbnails to be enabled, otherwise the selected glyph color is displayed.
+	- If member history is enabled, the members past history will be displayed as fading dots.  Clicking a dot will give information about that location point.
 - Prevent generating maps once free quota has been exhausted.  Current usage: x/y per month.	
 	- Google maps as a free quota level.  This slider should be selected unless you are on a paid plan.
 	- The usage total indicates the current usage in the quota period.  Google resets the total at the first of every month.
@@ -124,11 +125,23 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	- Once the quota has been exhausted for the period, the application will stop generating the map until the next quote period.
 - Google Maps API key for combined family location map:
 	- Paste the API key provided into the box.
-#### Map Pin and Glyph Colors
-- Change the member and pin colors, as well as the glyph (center circle of the pin) colors.
+	
+#### Member History and Pin Colors
+- Enter the number of past member locations to save.  Entering 0 will disable the member history.
+- Enable to display all member(s) history on map.  Disable to only display history of selected member on map.
+	- When this slider is enabled, the past history dots will appear on the Google Map for ALL members all the time.  
+	- When this slider is disabled, past history is only displayed when a member is clicked (selected).  Once you on the map to de-select the member, the history is hidden.
+- Change the member pin color, as well as the glyph (center circle of the pin) colors.  The history markers on the map will have the same color as the glyph.
 	- Enter an HTML color name (ie: MidnightBlue) (https://www.w3schools.com/tags/ref_colornames.asp)
 	- or an HTML color code starting with # (ie: #191970) (https://www.w3schools.com/colors/colors_picker.asp)
+	- Select each member from the drop box and change their respective glyph/history colors.  
+	- NOTE:  If thumbnails are enabled, the image will replace the pin's glyph.
 
+#### Region Pin Colors
+- Change the region pin color, as well as the glyph (center circle of the pin) colors.
+	- Enter an HTML color name (ie: MidnightBlue) (https://www.w3schools.com/tags/ref_colornames.asp)
+	- or an HTML color code starting with # (ie: #191970) (https://www.w3schools.com/colors/colors_picker.asp)
+	
 ## Configure Regions - Add, Edit, Delete, Assign 'Home'
 NOTE:  If a Google Map API key is entered in the 'Configure Hubitat App -> Google map Settings', an interactive map will be displayed to allow regions to be added, edited, and deleted.  Regions will show radius bubbles and the home region can be directly assign to any pin.
 - Select the 'Region Map Instructions and Delete Behavior' for information on how to use the interactive map.
