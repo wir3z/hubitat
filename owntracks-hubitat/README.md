@@ -128,6 +128,8 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	
 #### Member History and Pin Colors
 - Enter the number of past member locations to save.  Entering 0 will disable the member history.
+- Scale value for the past member locations dots.
+	- Scales the history dots up or down based on the value entered.
 - Enable to display all member(s) history on map.  Disable to only display history of selected member on map.
 	- When this slider is enabled, the past history dots will appear on the Google Map for ALL members all the time.  
 	- When this slider is disabled, past history is only displayed when a member is clicked (selected).  Once you on the map to de-select the member, the history is hidden.

@@ -119,6 +119,7 @@
  *  1.7.65     2024-07-19      - Removed specialized support for Android 2.4.x.
  *  1.7.66     2024-07-30      - Added selectable member glyph colors.  Added member history to the Google Family Map.
  *  1.7.67     2024-07-31      - Fixed exception when exiting the app before history was created.
+ *  1.7.68     2024-07-31      - Added history radius size adjustment.
 */
 
 import groovy.transform.Field
@@ -127,7 +128,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.67"}
+def appVersion() { return "1.7.68"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -163,6 +164,7 @@ def appVersion() { return "1.7.67"}
 @Field String  DEFAULT_REGION_GLYPH_COLOR = "Maroon"             // "#800000" - "Maroon"
 @Field Number  DEFAULT_memberHistoryLength = 30
 @Field Number  DEFAULT_maxMemberHistoryLength = 60
+@Field Number  DEFAULT_memberHistoryScale = 1.0
 @Field Boolean DEFAULT_displayAllMembersHistory = false
 @Field Number  GOOGLE_MAP_API_QUOTA = 28500
 @Field String  GOOGLE_MAP_API_KEY_LINK = "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>"
@@ -437,6 +439,7 @@ def configureHubApp() {
                 paragraph ("<a href='${getAttributeURL("[cloud.hubitat.com]", "googlemap")}' target='_blank'>Test map API key</a>")
                 paragraph ("<h2>Member History and Pin Colors</h2>")
                 input name: "memberHistoryLength", type: "number", title: "Number of past member locations to save (0..${DEFAULT_maxMemberHistoryLength}):", range: "0..${DEFAULT_maxMemberHistoryLength}", defaultValue: DEFAULT_memberHistoryLength
+                input name: "memberHistoryScale", type: "decimal", title: "Scale value for the past member locations dots (0.5..3.0):", range: "0.5..3.0", defaultValue: DEFAULT_memberHistoryScale
                 input name: "displayAllMembersHistory", type: "bool", title: "Enable to display all member(s) history on map.  Disable to only display history of selected member on map.", defaultValue: DEFAULT_displayAllMembersHistory
                 input name: "memberPinColor", type: "string", title: "<b>Member pin color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (MidnightBlue) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#191970):", defaultValue: DEFAULT_MEMBER_PIN_COLOR
                 input "selectMemberGlyph", "enum", multiple: false, title:"Select family member to change glyph and history color.", options: state.members.name.sort(), submitOnChange: true
@@ -1335,6 +1338,7 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (regionGlyphColor == null)) app.updateSetting("regionGlyphColor", [value: DEFAULT_REGION_GLYPH_COLOR, type: "string"])
     if (forceDefaults || (regionHomeGlyphColor == null)) app.updateSetting("regionHomeGlyphColor", [value: DEFAULT_REGION_HOME_GLYPH_COLOR, type: "string"])
     if (forceDefaults || (memberHistoryLength == null)) app.updateSetting("memberHistoryLength", [value: DEFAULT_memberHistoryLength, type: "number"])
+    if (forceDefaults || (memberHistoryScale == null)) app.updateSetting("memberHistoryScale", [value: DEFAULT_memberHistoryScale, type: "decimal"])
     if (forceDefaults || (displayAllMembersHistory == null)) app.updateSetting("displayAllMembersHistory", [value: DEFAULT_displayAllMembersHistory, type: "bool"])
 }
 
@@ -3734,7 +3738,7 @@ def generateGoogleFriendsMap() {
 						    				lat:locations[member].history[past].lat,
 							    			lng:locations[member].history[past].lng,
 								    	},
-									    radius:parseInt(1 + (Math.pow((22 - currentZoom), 2)/4)),
+									    radius:parseInt(1 + ((Math.pow(2, (22 - currentZoom))*${memberHistoryScale})/10)),
     									strokeColor:locations[member].color,
 	    								strokeOpacity:0.1+(0.7*(past/(locations[member].history.length-1))),
 		    							strokeWeight:2,
@@ -3800,7 +3804,7 @@ def generateGoogleFriendsMap() {
                     function updateHistoryZoom(zoomLevel) {
                         for (let loc=0; loc<markers.length; loc++) {
                             for (let past=0; past<markers[loc].history.length; past++) {
-                                markers[loc].history[past].setRadius(parseInt(1 + (Math.pow(2, (22 - zoomLevel))/10)));
+                                markers[loc].history[past].setRadius(parseInt(1 + ((Math.pow(2, (22 - zoomLevel))*${memberHistoryScale})/10)));
                             }
 	                    }
                     };
