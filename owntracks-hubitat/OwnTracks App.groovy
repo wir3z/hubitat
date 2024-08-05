@@ -120,6 +120,7 @@
  *  1.7.66     2024-07-30      - Added selectable member glyph colors.  Added member history to the Google Family Map.
  *  1.7.67     2024-07-31      - Fixed exception when exiting the app before history was created.
  *  1.7.68     2024-07-31      - Added history radius size adjustment.
+ *  1.7.69     2024-08-04      - Split the thumbnail and history sync to fix cloud data limitation.  Changed history dot fading scheme.  Prevent map from panning to selected member when history is open.
 */
 
 import groovy.transform.Field
@@ -128,7 +129,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.68"}
+def appVersion() { return "1.7.69"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -1486,9 +1487,13 @@ def refresh() {
 }
 
 def pruneMemberHistory(member) {
-    // first remove the oldest of the history buffer is full
-    while (member?.history?.size() >= (memberHistoryLength != null ? memberHistoryLength : DEFAULT_memberHistoryLength)) {
-        member.history.remove(0)
+    if (memberHistoryLength == 0) {
+        member.history = []
+    } else {
+        // first remove the oldest of the history buffer is full
+        while (member?.history?.size() >= (memberHistoryLength != null ? memberHistoryLength : DEFAULT_memberHistoryLength)) {
+            member.history.remove(0)
+        }
     }
 }
 
@@ -3463,6 +3468,12 @@ def processAPIData() {
                     // split out the img since that is a large data payload that we only need once during the page init
                     if (data.payload == "img") {
                         memberLocation["img"] = "${getEmbeddedImage(member.name)}"
+                        // don't send the history on the initial page load
+                        memberLocation["history"] = []
+                        // clear the flag to allow the member to sync to the map
+                        member.lastMapTime = 0
+                    }
+                    if (data.payload == "sync") {
                         // clear the flag to allow the member to sync to the map
                         member.lastMapTime = 0
                     }
@@ -3729,21 +3740,21 @@ def generateGoogleFriendsMap() {
 
                             // create history circles for the past locations
                             var history = [];
-    						for (let past=0; past<locations[member].history.length; past++) {
+    						for (let past=0; past<${memberHistoryLength}; past++) {
 	    						// place the past locations
 		    					const radius = new google.maps.Circle(
 			    					{
 				    					map,
 					    				center:{
-						    				lat:locations[member].history[past].lat,
-							    			lng:locations[member].history[past].lng,
+                                            lat: locations[member].lat,
+                                            lng: locations[member].lng
 								    	},
 									    radius:parseInt(1 + ((Math.pow(2, (22 - currentZoom))*${memberHistoryScale})/10)),
     									strokeColor:locations[member].color,
-	    								strokeOpacity:0.1+(0.7*(past/(locations[member].history.length-1))),
+                                        strokeOpacity:historyGradient(${memberHistoryLength},past),
 		    							strokeWeight:2,
 			    						fillColor:locations[member].color,
-				    					fillOpacity:0.1+(0.7*(past/(locations[member].history.length-1))),
+				    					fillOpacity:historyGradient(${memberHistoryLength},past),
                                         visible:false,
                                         zIndex:past
 					    			}
@@ -3774,15 +3785,28 @@ def generateGoogleFriendsMap() {
                             center["lat"] = member.lat;
                             center["lng"] = member.lng;
                             map.setZoom(currentZoom);
+                            // member is selected, and the window is open
                             if (infoWindowVisible == -1) {
                                 infoWindow.setContent(infoContent(member));
                             }
-                            // recenter the map if the marker is out of bounds
-                            const mapBounds = map.getBounds();
-                            if (!mapBounds.contains(center)) {
-                                map.setCenter(center);
+                            // member is selected, and the window is closed
+                            if (infoWindowVisible < 0) {
+                                // recenter the map if the marker is out of bounds, and the history window is closed
+                                const mapBounds = map.getBounds();
+                                if (!mapBounds.contains(center)) {
+                                    map.setCenter(center);
+                                }
                             }
                         }
+                    };
+
+                    function historyGradient(historyLength, historySample) {
+                        const start = 0.1;
+                        const end = 0.9;
+
+                        var gradient = start*Math.pow( Math.pow((end/start), (1/(historyLength-1))) , historySample );
+                        if (gradient > 1.0) gradient = 1.0;
+                        return(gradient);
                     };
 
                     function showHideHistory() {
@@ -3848,7 +3872,7 @@ def generateGoogleFriendsMap() {
                                                 center["lng"] = data.members[mem].lng;
                                                 markers[loc].marker.position = center;
                                                 // update the past history markers
-                                                for (let past=0; past<markers[loc].history.length; past++) {
+                                                for (let past=0; past<data.members[mem].history.length; past++) {
                                                     markers[loc].history[past].setOptions({ center: { lat: data.members[mem].history[past].lat, lng: data.members[mem].history[past].lng }});
                                                 }
                                                 // keep the selected member in focus
@@ -3912,6 +3936,10 @@ def generateGoogleFriendsMap() {
                     setInterval(() => {
                         retrieveMemberLocations("");
                     }, 5000);
+                    // Sync history data in 100ms
+                    setTimeout(() => {
+                        retrieveMemberLocations("sync");
+                    }, 100);
                 };
 
                 function convertMetersToFeet(val) {
