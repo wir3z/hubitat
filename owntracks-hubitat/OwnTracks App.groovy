@@ -121,6 +121,7 @@
  *  1.7.67     2024-07-31      - Fixed exception when exiting the app before history was created.
  *  1.7.68     2024-07-31      - Added history radius size adjustment.
  *  1.7.69     2024-08-04      - Split the thumbnail and history sync to fix cloud data limitation.  Changed history dot fading scheme.  Prevent map from panning to selected member when history is open.
+ *  1.7.70     2024-08-06      - Added connecting lines to history with directional arrows.  Fixed history point zoom.
 */
 
 import groovy.transform.Field
@@ -129,7 +130,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.69"}
+def appVersion() { return "1.7.70"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -3178,7 +3179,7 @@ def generateConfigMap() {
                                 nameBox.value = "";
                                 radBox.value = convertRadiusToFeet(${DEFAULT_RADIUS});
                             }
-                            markers[markerIndex.value].radius.setRadius(convertRadiusToMeters(parseInt(radBox.value)));
+                            markers[markerIndex.value].radius.setRadius(convertRadiusToMeters(radBox.value));
 
                             // show/hide the buttons when the window opens
                             displayButtons(markerIndex.value);
@@ -3190,7 +3191,7 @@ def generateConfigMap() {
                                     places[markerIndex.value] = {lat:0.0,lng:0.0,rad:0,desc:"",tst:0};
                                 }
                                 markers[markerIndex.value].marker.title = nameBox.value;
-                                markers[markerIndex.value].marker.rad = parseInt(convertRadiusToMeters(radBox.value));
+                                markers[markerIndex.value].marker.rad = convertRadiusToMeters(radBox.value);
                                 places[markerIndex.value].desc = markers[markerIndex.value].marker.title;
                                 places[markerIndex.value].rad = markers[markerIndex.value].marker.rad;
                                 places[markerIndex.value].lat = markers[markerIndex.value].marker.position.lat;
@@ -3749,7 +3750,7 @@ def generateGoogleFriendsMap() {
                                             lat: locations[member].lat,
                                             lng: locations[member].lng
 								    	},
-									    radius:parseInt(1 + ((Math.pow(2, (22 - currentZoom))*${memberHistoryScale})/10)),
+									    radius:1 + ((Math.pow(2, (22 - currentZoom))*${memberHistoryScale})/10),
     									strokeColor:locations[member].color,
                                         strokeOpacity:historyGradient(${memberHistoryLength},past),
 		    							strokeWeight:2,
@@ -3768,7 +3769,30 @@ def generateGoogleFriendsMap() {
                                     infoWindow.open(radius.map, radius);
                                     historyMember = locations[member].name;
                                 });
-                                history.push(radius);
+                                const lineSymbol = {
+                                    path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                                };
+                                const bearingLine = new google.maps.Polyline(
+                                    {    
+                                        path:[
+                                            { lat: locations[member].lat, lng: locations[member].lng },
+                                            { lat: locations[member].lat, lng: locations[member].lng },
+                                        ],
+                                        map,
+    									strokeColor:locations[member].color,
+                                        //strokeOpacity:1.0,
+                                        strokeOpacity:historyGradient(${memberHistoryLength},past),
+		    							strokeWeight:2,
+			    						fillColor:locations[member].color,
+				    					fillOpacity:historyGradient(${memberHistoryLength},past),
+                                        icons: [{
+                                            icon: lineSymbol,
+                                            offset: '50%',
+                                            repeat: '0%'
+                                        }]
+                                    }
+                                );
+                                history.push({radius,bearingLine});
     						};
                             // save the marker and history
                             markers.push({marker, history});
@@ -3804,7 +3828,9 @@ def generateGoogleFriendsMap() {
                         const start = 0.1;
                         const end = 0.9;
 
-                        var gradient = start*Math.pow( Math.pow((end/start), (1/(historyLength-1))) , historySample );
+//                        var gradient = start*Math.pow( Math.pow((end/start), (1/(historyLength-1))) , historySample );
+                        var gradient = start+((end-start)*(historySample/(historyLength-1)));
+
                         if (gradient > 1.0) gradient = 1.0;
                         return(gradient);
                     };
@@ -3813,12 +3839,15 @@ def generateGoogleFriendsMap() {
                         for (let loc=0; loc<markers.length; loc++) {
                             for (let past=0; past<markers[loc].history.length; past++) {
                                 if (${displayAllMembersHistory}) {
-                                    markers[loc].history[past].setVisible(true);
+                                    markers[loc].history[past].radius.setVisible(true);
+                                    markers[loc].history[past].bearingLine.setVisible(true);
                                 } else {
                                     if (markers[loc].marker.title == currentMember) {
-                                        markers[loc].history[past].setVisible(true);
+                                        markers[loc].history[past].radius.setVisible(true);
+                                        markers[loc].history[past].bearingLine.setVisible(true);
                                     } else {
-                                        markers[loc].history[past].setVisible(false);
+                                        markers[loc].history[past].radius.setVisible(false);
+                                        markers[loc].history[past].bearingLine.setVisible(false);
                                     }
                                 }
                             }
@@ -3828,7 +3857,7 @@ def generateGoogleFriendsMap() {
                     function updateHistoryZoom(zoomLevel) {
                         for (let loc=0; loc<markers.length; loc++) {
                             for (let past=0; past<markers[loc].history.length; past++) {
-                                markers[loc].history[past].setRadius(parseInt(1 + ((Math.pow(2, (22 - zoomLevel))*${memberHistoryScale})/10)));
+                                markers[loc].history[past].radius.setRadius(1 + ((Math.pow(2, (22 - zoomLevel))*${memberHistoryScale})/10));
                             }
 	                    }
                     };
@@ -3873,14 +3902,17 @@ def generateGoogleFriendsMap() {
                                                 markers[loc].marker.position = center;
                                                 // update the past history markers
                                                 for (let past=0; past<data.members[mem].history.length; past++) {
-                                                    markers[loc].history[past].setOptions({ center: { lat: data.members[mem].history[past].lat, lng: data.members[mem].history[past].lng }});
+                                                    markers[loc].history[past].radius.setOptions({ center: { lat: data.members[mem].history[past].lat, lng: data.members[mem].history[past].lng }});
+                                                    if (past>0) {
+                                                        markers[loc].history[past].bearingLine.setPath([ { lat: data.members[mem].history[past-1].lat, lng: data.members[mem].history[past-1].lng }, { lat: data.members[mem].history[past].lat, lng: data.members[mem].history[past].lng } ]);
+                                                    }
                                                 }
                                                 // keep the selected member in focus
                                                 if (markers[loc].marker.title == historyMember) {
                                                     markers[loc].marker.zIndex = locations.length+1;
                                                     // if a history info box is open
                                                     if (infoWindowVisible >= 0) {
-                                                        infoWindow.setPosition(markers[loc].history[infoWindowVisible].getCenter());
+                                                        infoWindow.setPosition(markers[loc].history[infoWindowVisible].radius.getCenter());
                                                         infoWindow.setContent(historyContent(markers[loc].marker.title, locations[loc].history, infoWindowVisible));
                                                     }
                                                 } else {
@@ -4039,7 +4071,7 @@ def generateGoogleFriendsMap() {
                     "<table style='width:100%;font-size:1.0em'>" +
                         "<tr align='center'>" +
                             "<td width=33%>" + fromCurrentTimeHours + "h " + fromCurrentTimeMinutes + "m ago"  + "</td>" +
-                            "<td width=33%>" + "History: " + (index + 1) + " / " + position.length + "</td>" +
+                            "<td width=33%>" + "History: " + (position.length - index) + " / " + position.length + "</td>" +
                         "</tr>" +
                     "</table>"
 
