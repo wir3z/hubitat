@@ -122,6 +122,7 @@
  *  1.7.68     2024-07-31      - Added history radius size adjustment.
  *  1.7.69     2024-08-04      - Split the thumbnail and history sync to fix cloud data limitation.  Changed history dot fading scheme.  Prevent map from panning to selected member when history is open.
  *  1.7.70     2024-08-06      - Added connecting lines to history with directional arrows.  Fixed history point zoom.
+ *  1.7.71     2024-08-07      - Added scaling to history lines and directional arrows.
 */
 
 import groovy.transform.Field
@@ -130,7 +131,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.70"}
+def appVersion() { return "1.7.71"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -167,6 +168,8 @@ def appVersion() { return "1.7.70"}
 @Field Number  DEFAULT_memberHistoryLength = 30
 @Field Number  DEFAULT_maxMemberHistoryLength = 60
 @Field Number  DEFAULT_memberHistoryScale = 1.0
+@Field Number  DEFAULT_memberHistoryStroke = 1.0
+@Field Number  DEFAULT_memberHistoryRepeat = 300
 @Field Boolean DEFAULT_displayAllMembersHistory = false
 @Field Number  GOOGLE_MAP_API_QUOTA = 28500
 @Field String  GOOGLE_MAP_API_KEY_LINK = "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>"
@@ -441,7 +444,9 @@ def configureHubApp() {
                 paragraph ("<a href='${getAttributeURL("[cloud.hubitat.com]", "googlemap")}' target='_blank'>Test map API key</a>")
                 paragraph ("<h2>Member History and Pin Colors</h2>")
                 input name: "memberHistoryLength", type: "number", title: "Number of past member locations to save (0..${DEFAULT_maxMemberHistoryLength}):", range: "0..${DEFAULT_maxMemberHistoryLength}", defaultValue: DEFAULT_memberHistoryLength
-                input name: "memberHistoryScale", type: "decimal", title: "Scale value for the past member locations dots (0.5..3.0):", range: "0.5..3.0", defaultValue: DEFAULT_memberHistoryScale
+                input name: "memberHistoryScale", type: "decimal", title: "Scale value for the past member locations dots (1.0..3.0):", range: "1.0..3.0", defaultValue: DEFAULT_memberHistoryScale
+                input name: "memberHistoryStroke", type: "decimal", title: "Scale value for the past member locations lines (1.0..3.0):", range: "1.0..3.0", defaultValue: DEFAULT_memberHistoryStroke
+                input name: "memberHistoryRepeat", type: "number", title: "Distance between repeat arrows on the history lines. '0' will place a single arrow in the middle of the line (0..1000):", range: "0..1000", defaultValue: DEFAULT_memberHistoryRepeat
                 input name: "displayAllMembersHistory", type: "bool", title: "Enable to display all member(s) history on map.  Disable to only display history of selected member on map.", defaultValue: DEFAULT_displayAllMembersHistory
                 input name: "memberPinColor", type: "string", title: "<b>Member pin color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (MidnightBlue) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#191970):", defaultValue: DEFAULT_MEMBER_PIN_COLOR
                 input "selectMemberGlyph", "enum", multiple: false, title:"Select family member to change glyph and history color.", options: state.members.name.sort(), submitOnChange: true
@@ -1341,6 +1346,8 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (regionHomeGlyphColor == null)) app.updateSetting("regionHomeGlyphColor", [value: DEFAULT_REGION_HOME_GLYPH_COLOR, type: "string"])
     if (forceDefaults || (memberHistoryLength == null)) app.updateSetting("memberHistoryLength", [value: DEFAULT_memberHistoryLength, type: "number"])
     if (forceDefaults || (memberHistoryScale == null)) app.updateSetting("memberHistoryScale", [value: DEFAULT_memberHistoryScale, type: "decimal"])
+    if (forceDefaults || (memberHistoryStroke == null)) app.updateSetting("memberHistoryStroke", [value: DEFAULT_memberHistoryStroke, type: "decimal"])
+    if (forceDefaults || (memberHistoryRepeat == null)) app.updateSetting("memberHistoryRepeat", [value: DEFAULT_memberHistoryRepeat, type: "number"])
     if (forceDefaults || (displayAllMembersHistory == null)) app.updateSetting("displayAllMembersHistory", [value: DEFAULT_displayAllMembersHistory, type: "bool"])
 }
 
@@ -3780,15 +3787,15 @@ def generateGoogleFriendsMap() {
                                         ],
                                         map,
     									strokeColor:locations[member].color,
-                                        //strokeOpacity:1.0,
                                         strokeOpacity:historyGradient(${memberHistoryLength},past),
-		    							strokeWeight:2,
+                                        strokeWeight:2.2*${memberHistoryStroke},
 			    						fillColor:locations[member].color,
 				    					fillOpacity:historyGradient(${memberHistoryLength},past),
                                         icons: [{
                                             icon: lineSymbol,
                                             offset: '50%',
-                                            repeat: '0%'
+//                                            repeat: '30%'
+                                            repeat: '${memberHistoryRepeat}px'
                                         }]
                                     }
                                 );
