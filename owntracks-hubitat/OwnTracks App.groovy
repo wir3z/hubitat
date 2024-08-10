@@ -126,6 +126,7 @@
  *  1.7.72     2024-08-08      - Added increased past history stored at a slower recording interval.  Added slider to disable cloud web links.
  *  1.7.73     2024-08-10      - Fixed exception with long history if the app was not opened after the updated.
  *  1.7.74     2024-08-10      - Fixed course over ground.  Fixed exception on new install without previous history.
+ *  1.7.75     2024-08-10      - Fixed exception on new install without previous history.
 */
 
 import groovy.transform.Field
@@ -134,7 +135,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.74"}
+def appVersion() { return "1.7.75"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -1930,7 +1931,7 @@ def updateMemberAttributes(headers, data, member) {
 
     // if the time between the first long history point and the last normal history point is less than the long window, remove the normal point
     // if it was longer than the window, the oldest long point will be removed below, and the current history point will become the newest long history point
-    if (memberLongHistoryDeltaMin && memberLongHistoryLength && (member.history.size() > 0)) {
+    if (memberLongHistoryDeltaMin && memberLongHistoryLength && (member.history.size() >= 1)) {
         historyLongLength = memberLongHistoryLength.toInteger()
         if ((historyLongLength != 0) && (memberHistoryLength.toInteger() > historyLongLength)) {
             if ((member.history.tst[historyLongLength] - member.history.tst[historyLongLength-1]) < (60 * memberLongHistoryDeltaMin.toInteger())) {
