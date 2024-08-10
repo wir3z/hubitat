@@ -124,6 +124,7 @@
  *  1.7.70     2024-08-06      - Added connecting lines to history with directional arrows.  Fixed history point zoom.
  *  1.7.71     2024-08-07      - Added scaling to history lines and directional arrows.
  *  1.7.72     2024-08-08      - Added increased past history stored at a slower recording interval.  Added slider to disable cloud web links.
+ *  1.7.73     2024-08-10      - Fixed exception with long history if the app was not opened after the updated.
 */
 
 import groovy.transform.Field
@@ -132,7 +133,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.72"}
+def appVersion() { return "1.7.73"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -1928,10 +1929,12 @@ def updateMemberAttributes(headers, data, member) {
 
     // if the time between the first long history point and the last normal history point is less than the long window, remove the normal point
     // if it was longer than the window, the oldest long point will be removed below, and the current history point will become the newest long history point
-    historyLongLength = memberLongHistoryLength.toInteger()
-    if ((historyLongLength != 0) && (memberHistoryLength.toInteger() > historyLongLength)) {
-        if ((member?.history?.tst[historyLongLength] - member?.history?.tst[historyLongLength-1]) < (60 * memberLongHistoryDeltaMin.toInteger())) {
-            member.history.remove(historyLongLength)
+    if (memberLongHistoryLength) {
+        historyLongLength = memberLongHistoryLength?.toInteger()
+        if ((historyLongLength != 0) && (memberHistoryLength?.toInteger() > historyLongLength)) {
+            if ((member?.history?.tst[historyLongLength] - member?.history?.tst[historyLongLength-1]) < (60 * memberLongHistoryDeltaMin?.toInteger())) {
+                member.history.remove(historyLongLength)
+            }
         }
     }
 
@@ -4257,7 +4260,7 @@ private def calculateCenterAndZoom(members) {
 
 private def isCloudLinkEnabled(requestURL) {
     if ((requestURL == HUBITAT_CLOUD_URL) && (disableCloudLinks == true)) {
-        log.warn("Cloud links are disabled.  Open the Hubitat OwnTracks app, and enable in 'Dashboard Web Links'.")
+        logWarn("Cloud links are disabled.  Open the Hubitat OwnTracks app, and enable in 'Dashboard Web Links'.")
         return(false)
     } else {
         return(true)
@@ -4324,13 +4327,13 @@ mappings {
 }
 
 def regionUpdate() {
-    log.warn "Received 'regionUpdate' ${params.region}"
+    logWarn "Received 'regionUpdate' ${params.region}"
 }
 
 private def webhookGetHandler() {
     testMember = [ "updateWaypoints":true, "updateLocation":true, "updateDisplay":true, "dynamicLocaterAccuracy":true ]
     result = sendUpdate(testMember, [ "t":"p", "lat":12.345, "lon":-123.45678 ] )
-    log.warn "ADDED FOR TESTING THROUGH THE BROWSER LINK - not currently handled"
+    logWarn "ADDED FOR TESTING THROUGH THE BROWSER LINK - not currently handled"
     return render(contentType: "text/html", data: result, status: 200)
 }
 
