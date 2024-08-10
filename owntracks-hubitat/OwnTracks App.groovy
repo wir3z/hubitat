@@ -123,6 +123,7 @@
  *  1.7.69     2024-08-04      - Split the thumbnail and history sync to fix cloud data limitation.  Changed history dot fading scheme.  Prevent map from panning to selected member when history is open.
  *  1.7.70     2024-08-06      - Added connecting lines to history with directional arrows.  Fixed history point zoom.
  *  1.7.71     2024-08-07      - Added scaling to history lines and directional arrows.
+ *  1.7.72     2024-08-08      - Added increased past history stored at a slower recording interval.  Added slider to disable cloud web links.
 */
 
 import groovy.transform.Field
@@ -131,7 +132,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.71"}
+def appVersion() { return "1.7.72"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -157,6 +158,7 @@ def appVersion() { return "1.7.71"}
 @Field static final Map COLLECT_PLACES = [ "desc": 0, "desc_tst": 1, "map" : 2 ]
 
 // Main defaults
+@Field String  HUBITAT_CLOUD_URL = "cloud.hubitat.com"
 @Field String  DEFAULT_APP_THEME_COLOR = "#191970"
 @Field String  DEFAULT_MEMBER_PIN_COLOR = "MidnightBlue"         // "#191970" - "MidnightBlue"
 @Field String  DEFAULT_MEMBER_GLYPH_COLOR = "Purple"             // "#800080" - "Brown"
@@ -165,11 +167,14 @@ def appVersion() { return "1.7.71"}
 @Field String  DEFAULT_REGION_NEW_GLYPH_COLOR = "black"          // "#000000" - "Black"
 @Field String  DEFAULT_REGION_HOME_GLYPH_COLOR = "DarkSlateGrey" // "#2f4f4f" - "DarkSlateGrey"
 @Field String  DEFAULT_REGION_GLYPH_COLOR = "Maroon"             // "#800000" - "Maroon"
-@Field Number  DEFAULT_memberHistoryLength = 30
+@Field Number  DEFAULT_memberHistoryLength = 60
 @Field Number  DEFAULT_maxMemberHistoryLength = 60
 @Field Number  DEFAULT_memberHistoryScale = 1.0
 @Field Number  DEFAULT_memberHistoryStroke = 1.0
 @Field Number  DEFAULT_memberHistoryRepeat = 300
+@Field Number  DEFAULT_memberLongHistoryLength = 15
+@Field Number  DEFAULT_maxMemberLongHistoryLength = 30
+@Field Number  DEFAULT_memberLongHistoryDeltaMin = 60
 @Field Boolean DEFAULT_displayAllMembersHistory = false
 @Field Number  GOOGLE_MAP_API_QUOTA = 28500
 @Field String  GOOGLE_MAP_API_KEY_LINK = "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>"
@@ -183,6 +188,7 @@ def appVersion() { return "1.7.71"}
 @Field Number  DEFAULT_regionHighAccuracyRadius = 750
 @Field Number  DEFAULT_wifiPresenceKeepRadius = 750
 @Field Boolean DEFAULT_imperialUnits = false
+@Field Boolean DEFAULT_disableCloudLinks = false
 @Field Boolean DEFAULT_regionHighAccuracyRadiusHomeOnly = true
 @Field Boolean DEFAULT_warnOnDisabledMember = true
 @Field Boolean DEFAULT_warnOnMemberSettings = false
@@ -305,37 +311,40 @@ def mainPage() {
                 input name: "sectionLinks", type: "button", title: getSectionTitle(state.show.links, "Dashboard Web Links"), submitOnChange: true, style: getSectionStyle()
                 if (state.show.links) {
                     paragraph ("<b>Direct dashboard links for use in a web browser.</b>")
+                    input name: "disableCloudLinks", type: "bool", title: "Disable cloud links", defaultValue: DEFAULT_disableCloudLinks, submitOnChange: true
                     URL_SOURCE.each{ source->
-                        paragraph ((source == URL_SOURCE[0] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>"))
-                        if (googleMapsAPIKey) {
-                            paragraph ("<b>Google family map:</b></br>&emsp;<a href='${getAttributeURL(source, "googlemap")}'>${getAttributeURL(source, "googlemap")}</a></br>")
-                            paragraph ("<b>Region configuration map:</b></br>&emsp;<a href='${getAttributeURL(source, "configmap")}'>${getAttributeURL(source, "configmap")}</a></br>")
-                        }
-                        if (state.members) {
-                            urlList = ""
-                            state.members.each { member->
-                                urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source, "membermap/${member.name.toLowerCase()}")}'>${getAttributeURL(source, "membermap/${member.name.toLowerCase()}")}</a></br>"
+                        if ((source != URL_SOURCE[0]) || (disableCloudLinks != true)) {
+                            paragraph ((source == URL_SOURCE[0] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>"))
+                            if (googleMapsAPIKey) {
+                                paragraph ("<b>Google family map:</b></br>&emsp;<a href='${getAttributeURL(source, "googlemap")}'>${getAttributeURL(source, "googlemap")}</a></br>")
+                                paragraph ("<b>Region configuration map:</b></br>&emsp;<a href='${getAttributeURL(source, "configmap")}'>${getAttributeURL(source, "configmap")}</a></br>")
                             }
-                            paragraph ("<b>Member location map:</b></br>${urlList}")
-                        }
-                        if (state.members) {
-                            urlList = ""
-                            state.members.each { member->
-                                urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source, "memberpresence/${member.name.toLowerCase()}")}'>${getAttributeURL(source, "memberpresence/${member.name.toLowerCase()}")}</a></br>"
+                            if (state.members) {
+                                urlList = ""
+                                state.members.each { member->
+                                    urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source, "membermap/${member.name.toLowerCase()}")}'>${getAttributeURL(source, "membermap/${member.name.toLowerCase()}")}</a></br>"
+                                }
+                                paragraph ("<b>Member location map:</b></br>${urlList}")
                             }
-                            paragraph ("<b>Member Presence:</b></br>${urlList}")
-                        }
-                        if (recorderURL) {
-                            // only display the recorder links if it's a local URL or if it's https (required for the cloud link)
-                            if ((source != URL_SOURCE[0]) || isHTTPsURL(getRecorderURL())) {
-                                paragraph ("<b>OwnTracks Recorder family map:</b></br>&emsp;<a href='${getAttributeURL(source, "recordermap")}'>${getAttributeURL(source, "recordermap")}</a>")
+                            if (state.members) {
+                                urlList = ""
+                                state.members.each { member->
+                                    urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source, "memberpresence/${member.name.toLowerCase()}")}'>${getAttributeURL(source, "memberpresence/${member.name.toLowerCase()}")}</a></br>"
+                                }
+                                paragraph ("<b>Member Presence:</b></br>${urlList}")
+                            }
+                            if (recorderURL) {
+                                // only display the recorder links if it's a local URL or if it's https (required for the cloud link)
+                                if ((source != URL_SOURCE[0]) || isHTTPsURL(getRecorderURL())) {
+                                    paragraph ("<b>OwnTracks Recorder family map:</b></br>&emsp;<a href='${getAttributeURL(source, "recordermap")}'>${getAttributeURL(source, "recordermap")}</a>")
 
-                                if (state.members) {
-                                    urlList = ""
-                                    state.members.each { member->
-                                        urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}'>${getAttributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}</a></br>"
+                                    if (state.members) {
+                                        urlList = ""
+                                        state.members.each { member->
+                                            urlList += "${member.name}:</br>&emsp;<a href='${getAttributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}'>${getAttributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}</a></br>"
+                                        }
+                                        paragraph ("<b>OwnTracks Recorder member past locations:</b></br>${urlList}")
                                     }
-                                    paragraph ("<b>OwnTracks Recorder member past locations:</b></br>${urlList}")
                                 }
                             }
                         }
@@ -443,7 +452,9 @@ def configureHubApp() {
                 input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:", submitOnChange: true
                 paragraph ("<a href='${getAttributeURL("[cloud.hubitat.com]", "googlemap")}' target='_blank'>Test map API key</a>")
                 paragraph ("<h2>Member History and Pin Colors</h2>")
-                input name: "memberHistoryLength", type: "number", title: "Number of past member locations to save (0..${DEFAULT_maxMemberHistoryLength}):", range: "0..${DEFAULT_maxMemberHistoryLength}", defaultValue: DEFAULT_memberHistoryLength
+                input name: "memberHistoryLength", type: "number", title: "Number of total past member locations to save (0..${DEFAULT_maxMemberHistoryLength}):", range: "0..${DEFAULT_maxMemberHistoryLength}", defaultValue: DEFAULT_memberHistoryLength
+                input name: "memberLongHistoryLength", type: "number", title: "Number of total past member locations to save at a slower interval for longer history.  Must be less than past member locations (0..${DEFAULT_maxMemberLongHistoryLength}):", range: "0..${DEFAULT_maxMemberLongHistoryLength}", defaultValue: memberLongHistoryLength
+                input name: "memberLongHistoryDeltaMin", type: "number", title: "Time in minutes between each longer history location (5..1440):", range: "0..1440", defaultValue: DEFAULT_memberLongHistoryDeltaMin
                 input name: "memberHistoryScale", type: "decimal", title: "Scale value for the past member locations dots (1.0..3.0):", range: "1.0..3.0", defaultValue: DEFAULT_memberHistoryScale
                 input name: "memberHistoryStroke", type: "decimal", title: "Scale value for the past member locations lines (1.0..3.0):", range: "1.0..3.0", defaultValue: DEFAULT_memberHistoryStroke
                 input name: "memberHistoryRepeat", type: "number", title: "Distance between repeat arrows on the history lines. '0' will place a single arrow in the middle of the line (0..1000):", range: "0..1000", defaultValue: DEFAULT_memberHistoryRepeat
@@ -1296,6 +1307,7 @@ def initialize(forceDefaults) {
     // assign hubitat defaults
     if (homeSSID == null) app.updateSetting("homeSSID", [value: "", type: "string"])
     if (imperialUnits == null) app.updateSetting("imperialUnits", [value: DEFAULT_imperialUnits, type: "bool"])
+    if (disableCloudLinks == null) app.updateSetting("disableCloudLinks", [value: DEFAULT_disableCloudLinks, type: "bool"])
     if (deviceNamePrefix == null) app.updateSetting("deviceNamePrefix", [value: DEFAULT_CHILDPREFIX, type: "string"])
     if (forceDefaults || (imageCards == null)) app.updateSetting("imageCards", [value: DEFAULT_imageCards, type: "bool"])
     if (forceDefaults || (highPowerMode == null)) app.updateSetting("highPowerMode", [value: DEFAULT_highPowerMode, type: "bool"])
@@ -1345,6 +1357,8 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (regionGlyphColor == null)) app.updateSetting("regionGlyphColor", [value: DEFAULT_REGION_GLYPH_COLOR, type: "string"])
     if (forceDefaults || (regionHomeGlyphColor == null)) app.updateSetting("regionHomeGlyphColor", [value: DEFAULT_REGION_HOME_GLYPH_COLOR, type: "string"])
     if (forceDefaults || (memberHistoryLength == null)) app.updateSetting("memberHistoryLength", [value: DEFAULT_memberHistoryLength, type: "number"])
+    if (forceDefaults || (memberLongHistoryLength == null)) app.updateSetting("memberLongHistoryLength", [value: DEFAULT_memberLongHistoryLength, type: "number"])
+    if (forceDefaults || (memberLongHistoryDeltaMin == null)) app.updateSetting("memberLongHistoryDeltaMin", [value: DEFAULT_memberLongHistoryDeltaMin, type: "number"])
     if (forceDefaults || (memberHistoryScale == null)) app.updateSetting("memberHistoryScale", [value: DEFAULT_memberHistoryScale, type: "decimal"])
     if (forceDefaults || (memberHistoryStroke == null)) app.updateSetting("memberHistoryStroke", [value: DEFAULT_memberHistoryStroke, type: "decimal"])
     if (forceDefaults || (memberHistoryRepeat == null)) app.updateSetting("memberHistoryRepeat", [value: DEFAULT_memberHistoryRepeat, type: "number"])
@@ -1911,6 +1925,16 @@ def updateMemberAttributes(headers, data, member) {
     if (member?.history == null) {
         member.history = []
     }
+
+    // if the time between the first long history point and the last normal history point is less than the long window, remove the normal point
+    // if it was longer than the window, the oldest long point will be removed below, and the current history point will become the newest long history point
+    historyLongLength = memberLongHistoryLength.toInteger()
+    if ((historyLongLength != 0) && (memberHistoryLength.toInteger() > historyLongLength)) {
+        if ((member?.history?.tst[historyLongLength] - member?.history?.tst[historyLongLength-1]) < (60 * memberLongHistoryDeltaMin.toInteger())) {
+            member.history.remove(historyLongLength)
+        }
+    }
+
     // first remove the oldest of the history buffer is full
     pruneMemberHistory(member)
     def memberLocation = [ "lat": member.latitude, "lng": member.longitude, "acc": member.accuracy, "speed": (data?.vel != null ? member.speed : 0), "tst": member.timeStamp, "location": member.address ]
@@ -2854,9 +2878,9 @@ def generateRegionMap() {
 }
 
 def generateConfigMap() {
-    String htmlData = "Google Maps API Not Configured or Quota Exceeded"
+    String htmlData = "Google Maps API Not Configured or Quota Exceeded or Cloud Web Links are Disabled"
     APIKey = getGoogleMapsAPIKey()
-    if (APIKey && isMapAllowed(true)) {
+    if (APIKey && isMapAllowed(true) && isCloudLinkEnabled(request.HOST)) {
         htmlData = """
         <div style="width:100%;height:100%;margin:5px">
             <table style="width:100%">
@@ -3361,13 +3385,17 @@ def displayMemberMap() {
     member = state.members.find {it.name.toLowerCase()==params.member}
     String htmlData = "Private Member"
 
-    def deviceWrapper = getChildDevice(member.id)
-    if (deviceWrapper) {
-        displayData = deviceWrapper.generateMember(request.headers.Host.toString())
-        // only display if we could retrieve the data
-        if (displayData) {
-            htmlData = displayData
+    if (isCloudLinkEnabled(request.HOST)) {
+        def deviceWrapper = getChildDevice(member.id)
+        if (deviceWrapper) {
+            displayData = deviceWrapper.generateMember(request.headers.Host.toString())
+            // only display if we could retrieve the data
+            if (displayData) {
+                htmlData = displayData
+            }
         }
+    } else {
+        htmlData = "Cloud web links are disabled."
     }
 
     return render(contentType: "text/html", data: (insertOwnTracksFavicon() + htmlData))
@@ -3378,13 +3406,17 @@ def displayMemberPresence() {
     member = state.members.find {it.name.toLowerCase()==params.member}
     String htmlData = "Member Not Configured"
 
-    def deviceWrapper = getChildDevice(member.id)
-    if (deviceWrapper) {
-        displayData = deviceWrapper.generatePresence(request.headers.Host.toString())
-        // only display if we could retrieve the data
-        if (displayData) {
-            htmlData = displayData
+    if (isCloudLinkEnabled(request.HOST)) {
+        def deviceWrapper = getChildDevice(member.id)
+        if (deviceWrapper) {
+            displayData = deviceWrapper.generatePresence(request.headers.Host.toString())
+            // only display if we could retrieve the data
+            if (displayData) {
+                htmlData = displayData
+            }
         }
+    } else {
+        htmlData = "Cloud web links are disabled."
     }
 
     return render(contentType: "text/html", data: (insertOwnTracksFavicon() + htmlData))
@@ -3539,9 +3571,9 @@ def insertOwnTracksFavicon() {
 }
 
 def generateGoogleFriendsMap() {
-    String htmlData = "Google Maps API Not Configured or Quota Exceeded"
+    String htmlData = "Google Maps API Not Configured or Quota Exceeded or Cloud Web Links are Disabled"
     APIKey = getGoogleMapsAPIKey()
-    if (APIKey && isMapAllowed(true)) {
+    if (APIKey && isMapAllowed(true) && isCloudLinkEnabled(request.HOST)) {
         // get the member structure for all enabled and public members
         publicMembers = getEnabledAndNotHiddenMemberData()
         // determine the initial map center based on the members
@@ -3780,7 +3812,7 @@ def generateGoogleFriendsMap() {
                                     path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
                                 };
                                 const bearingLine = new google.maps.Polyline(
-                                    {    
+                                    {
                                         path:[
                                             { lat: locations[member].lat, lng: locations[member].lng },
                                             { lat: locations[member].lat, lng: locations[member].lng },
@@ -4223,11 +4255,20 @@ private def calculateCenterAndZoom(members) {
     return [ lat: centerLat, lon: centerLon, zoom: zoomfactor ]
 }
 
+private def isCloudLinkEnabled(requestURL) {
+    if ((requestURL == HUBITAT_CLOUD_URL) && (disableCloudLinks == true)) {
+        log.warn("Cloud links are disabled.  Open the Hubitat OwnTracks app, and enable in 'Dashboard Web Links'.")
+        return(false)
+    } else {
+        return(true)
+    }
+}
+
 mappings {
 	path("/webhook") {
     	action: [
             POST: "webhookEventHandler",
-            GET:  "webhookGetHandler",        // used for tesing through a web browser
+            GET:  "webhookGetHandler",        // used for testing through a web browser
         ]
     }
 	path("/apidata") {

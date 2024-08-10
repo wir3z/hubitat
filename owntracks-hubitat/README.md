@@ -127,7 +127,11 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	- Paste the API key provided into the box.
 	
 #### Member History and Pin Colors
-- Enter the number of past member locations to save.  Entering 0 will disable the member history.
+- Enter the total number of past member locations to save (includes the slower interval locations, below).  
+	- Entering 0 will disable the member history.
+- Enter the number of thte total past member locations to save at a slower interval for longer history. Must be less than past member locations number.
+	- Entering 0 will disable the longer member history.
+- Time in minutes between each longer history location.
 - Scale value for the past member locations dots.
 	- Scales the history dots based on the value entered.
 - Scale value for the past member locations lines/arrows.
@@ -241,7 +245,8 @@ NOTE: A region named '+follow' is automatically created to allow iOS phones to h
 		
 
 ## Dashboard Web Links
-Displays direct cloud and local web links for the family, member and recorder maps.
+- Displays direct cloud and local web links for the family, member and recorder maps.
+- Selecting 'Disable cloud links' will prevent access to the web URL endpoints via the cloud links.
 
 
 # Optional Features - Thumbnails, Recorder, Secondary Hub
