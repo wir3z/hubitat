@@ -132,12 +132,13 @@
  *  1.7.35     2024-06-22      - Move sinceTime from state to attribute.
  *  1.7.36     2024-06-23      - Forced sinceTime attribute to be set to allow consumption by the tile generation.
  *  1.7.37     2024-07-19      - Removed migration code.
+ *  1.7.38     2024-08-10      - Added course over ground (bearing).
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.37" }
+def driverVersion() { return "1.7.38" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -206,6 +207,7 @@ metadata {
         attribute  "lat", "number"
         attribute  "lon", "number"
         attribute  "accuracy", "number"
+        attribute  "bearing", "number"
         attribute  "verticalAccuracy", "number"
         attribute  "altitude", "number"
         attribute  "sourceTopic", "string"
@@ -258,6 +260,7 @@ def deleteExtendedAttributes(makePrivate) {
     device.deleteCurrentState('accuracy')
     device.deleteCurrentState('verticalAccuracy')
     device.deleteCurrentState('altitude')
+    device.deleteCurrentState('bearing')
     device.deleteCurrentState('sourceTopic')
     device.deleteCurrentState('dataConnection')
     device.deleteCurrentState('batteryStatus')
@@ -330,25 +333,26 @@ def updateAttributes(member, data, locationType) {
     }
     // display the extended attributes if they were received, but only allow them to be removed on non-transition event
     if (!data.private) {
-        if (data?.acc)     sendEvent (name: "accuracy", value: parent.displayMFtVal(data.acc))         else if (locationType) device.deleteCurrentState('accuracy')
-        if (data?.vac)     sendEvent (name: "verticalAccuracy", value: parent.displayMFtVal(data.vac)) else if (locationType) device.deleteCurrentState('verticalAccuracy')
-        if (data?.alt)     sendEvent (name: "altitude", value: parent.displayMFtVal(data.alt))         else if (locationType) device.deleteCurrentState('altitude')
+        if (data?.acc)         sendEvent (name: "accuracy", value: parent.displayMFtVal(data.acc))             else if (locationType) device.deleteCurrentState('accuracy')
+        if (data?.vac)         sendEvent (name: "verticalAccuracy", value: parent.displayMFtVal(data.vac))     else if (locationType) device.deleteCurrentState('verticalAccuracy')
+        if (data?.alt)         sendEvent (name: "altitude", value: parent.displayMFtVal(data.alt))             else if (locationType) device.deleteCurrentState('altitude')
+        if (data?.cog >= 0)    sendEvent (name: "bearing", value: data.cog)                                    else if (locationType) device.deleteCurrentState('bearing')
         if (data?.address) {
             sendEvent (name: "address", value: data.address)
             sendEvent (name: "streetAddress", value: data.streetAddress)
         } else {
-            if (locationType) device.deleteCurrentState('address')
-            if (locationType) device.deleteCurrentState('streetAddress')
+            if (locationType)  device.deleteCurrentState('address')
+            if (locationType)  device.deleteCurrentState('streetAddress')
         }
 
         // can be updated all the time
-        if (data?.batt)    sendEvent (name: "battery", value: data.batt)                                   else if (locationType) device.deleteCurrentState('battery')
-        if (data?.topic)   sendEvent (name: "sourceTopic", value: data.topic)                              else if (locationType) device.deleteCurrentState('sourceTopic')
-        if (data?.bs)      sendEvent (name: "batteryStatus", value: BATTERY_STATUS[data.bs])               else if (locationType) device.deleteCurrentState('batteryStatus')
-        if (data?.conn)    sendEvent (name: "dataConnection", value: DATA_CONNECTION[data.conn])           else if (locationType) device.deleteCurrentState('dataConnection')
-        if (data?.BSSID)   sendEvent (name: "BSSID", value: data.BSSID)                                    else if (locationType) device.deleteCurrentState('BSSID')
-        if (data?.t)       sendEvent (name: "triggerSource", value: TRIGGER_TYPE[data.t])                  else if (locationType) device.deleteCurrentState('triggerSource')
-        if (data?.m)       sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])              else if (locationType) device.deleteCurrentState('monitoringMode')
+        if (data?.batt)        sendEvent (name: "battery", value: data.batt)                                   else if (locationType) device.deleteCurrentState('battery')
+        if (data?.topic)       sendEvent (name: "sourceTopic", value: data.topic)                              else if (locationType) device.deleteCurrentState('sourceTopic')
+        if (data?.bs)          sendEvent (name: "batteryStatus", value: BATTERY_STATUS[data.bs])               else if (locationType) device.deleteCurrentState('batteryStatus')
+        if (data?.conn)        sendEvent (name: "dataConnection", value: DATA_CONNECTION[data.conn])           else if (locationType) device.deleteCurrentState('dataConnection')
+        if (data?.BSSID)       sendEvent (name: "BSSID", value: data.BSSID)                                    else if (locationType) device.deleteCurrentState('BSSID')
+        if (data?.t)           sendEvent (name: "triggerSource", value: TRIGGER_TYPE[data.t])                  else if (locationType) device.deleteCurrentState('triggerSource')
+        if (data?.m)           sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])              else if (locationType) device.deleteCurrentState('monitoringMode')
 
         // process the additional status information
         if (member?.wifi != null) {
@@ -468,7 +472,7 @@ Boolean generatePresenceEvent(member, homeName, data) {
                 sendEvent( name: "sinceTime", value: data.tst, isStateChange: true )
             }
         }
-        
+
         long sinceTimeMilliSeconds = device.currentValue("sinceTime")
         sinceDate = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date(sinceTimeMilliSeconds * 1000))
         tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))

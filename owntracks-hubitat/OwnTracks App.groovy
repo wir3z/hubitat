@@ -125,6 +125,7 @@
  *  1.7.71     2024-08-07      - Added scaling to history lines and directional arrows.
  *  1.7.72     2024-08-08      - Added increased past history stored at a slower recording interval.  Added slider to disable cloud web links.
  *  1.7.73     2024-08-10      - Fixed exception with long history if the app was not opened after the updated.
+ *  1.7.74     2024-08-10      - Fixed course over ground.  Fixed exception on new install without previous history.
 */
 
 import groovy.transform.Field
@@ -133,7 +134,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.73"}
+def appVersion() { return "1.7.74"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -1790,8 +1791,6 @@ def parseMessage(headers, data, member) {
             payload = sendUpdate(member, data)
             // if the country code was not defined, replace with with hub timezone country
             if (!data.cc) { data.cc = location.getTimeZone().getID().substring(0, 2).toUpperCase() }
-            // if the course over ground was not defined, replace distance from home
-            if (!data.cog) { data.cog = data.currentDistanceFromHome }
             // if we have the OwnTracks recorder configured, and the timestamp is valid, and the user is not marked as private, pass the location data to it
             if (recorderURL && enableRecorder && !data.private) {
                 def postParams = [ uri: recorderURL + RECORDER_PUBLISH_FOLDER, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(headers), body : (new JsonBuilder(data)).toPrettyString() ]
@@ -1914,6 +1913,8 @@ def updateMemberAttributes(headers, data, member) {
     member.longitude                = data?.lon
     member.timeStamp                = data?.tst
     member.accuracy                 = data?.acc
+    member.bearing                  = (data?.cog != null) ? data.cog : -1
+    
     // these are not present in transition messages
     if (data?.tid  != null)         member.trackerID = data.tid
     if (data?.batt != null)         member.battery   = data.batt
@@ -1929,10 +1930,10 @@ def updateMemberAttributes(headers, data, member) {
 
     // if the time between the first long history point and the last normal history point is less than the long window, remove the normal point
     // if it was longer than the window, the oldest long point will be removed below, and the current history point will become the newest long history point
-    if (memberLongHistoryLength) {
-        historyLongLength = memberLongHistoryLength?.toInteger()
-        if ((historyLongLength != 0) && (memberHistoryLength?.toInteger() > historyLongLength)) {
-            if ((member?.history?.tst[historyLongLength] - member?.history?.tst[historyLongLength-1]) < (60 * memberLongHistoryDeltaMin?.toInteger())) {
+    if (memberLongHistoryDeltaMin && memberLongHistoryLength && (member.history.size() > 0)) {
+        historyLongLength = memberLongHistoryLength.toInteger()
+        if ((historyLongLength != 0) && (memberHistoryLength.toInteger() > historyLongLength)) {
+            if ((member.history.tst[historyLongLength] - member.history.tst[historyLongLength-1]) < (60 * memberLongHistoryDeltaMin.toInteger())) {
                 member.history.remove(historyLongLength)
             }
         }
@@ -1940,7 +1941,7 @@ def updateMemberAttributes(headers, data, member) {
 
     // first remove the oldest of the history buffer is full
     pruneMemberHistory(member)
-    def memberLocation = [ "lat": member.latitude, "lng": member.longitude, "acc": member.accuracy, "speed": (data?.vel != null ? member.speed : 0), "tst": member.timeStamp, "location": member.address ]
+    def memberLocation = [ "lat": member.latitude, "lng": member.longitude, "acc": member.accuracy, "cog": member.bearing, "speed": (data?.vel != null ? member.speed : 0), "tst": member.timeStamp, "location": member.address ]
     // add to the end of the list
     member.history << memberLocation
 }
@@ -3490,6 +3491,7 @@ def processAPIData() {
                         "id" :          member.id,
                         "lat" :         member.latitude,
                         "lng" :         member.longitude,
+                        "cog" :         member.bearing,
                         "speed" :       deviceWrapper?.currentValue("lastSpeed"),
                         "bat" :         member?.battery,
                         "acc" :         deviceWrapper?.currentValue("accuracy"),
@@ -3829,7 +3831,6 @@ def generateGoogleFriendsMap() {
                                         icons: [{
                                             icon: lineSymbol,
                                             offset: '50%',
-//                                            repeat: '30%'
                                             repeat: '${memberHistoryRepeat}px'
                                         }]
                                     }
