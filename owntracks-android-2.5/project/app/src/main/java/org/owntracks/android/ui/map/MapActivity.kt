@@ -11,6 +11,7 @@ import android.hardware.Sensor
 import android.hardware.SensorManager
 import android.hardware.SensorManager.SENSOR_DELAY_UI
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.Settings
@@ -61,6 +62,7 @@ import org.owntracks.android.support.RequirementsChecker
 import org.owntracks.android.test.CountingIdlingResourceShim
 import org.owntracks.android.test.SimpleIdlingResource
 import org.owntracks.android.ui.NotificationsStash
+import org.owntracks.android.ui.mixins.BackgroundLocationPermissionRequester
 import org.owntracks.android.ui.mixins.LocationPermissionRequester
 import org.owntracks.android.ui.mixins.NotificationPermissionRequester
 import org.owntracks.android.ui.mixins.ServiceStarter
@@ -81,6 +83,9 @@ class MapActivity :
           this, ::notificationPermissionGranted, ::notificationPermissionDenied)
   private val locationPermissionRequester =
       LocationPermissionRequester(this, ::locationPermissionGranted, ::locationPermissionDenied)
+  private val backgroundLocationPermissionRequester =
+      BackgroundLocationPermissionRequester(
+          this, ::backgroundLocationPermissionGranted, ::backgroundLocationPermissionDenied)
   private var service: BackgroundService? = null
   private var bottomSheetBehavior: BottomSheetBehavior<LinearLayoutCompat>? = null
   private var menu: Menu? = null
@@ -303,7 +308,7 @@ class MapActivity :
             Intent(
                 Intent.ACTION_VIEW,
                 Uri.parse(
-                    "google.navigation:q=${latitude.roundForDisplay()},${longitude.roundForDisplay()}"))
+                    "google.navigation:q=${latitude.value.roundForDisplay()},${longitude.value.roundForDisplay()}"))
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(intent)
       } catch (e: ActivityNotFoundException) {
@@ -354,26 +359,19 @@ class MapActivity :
       Timber.d("Location Services disabled")
       if ((explicitUserAction || !preferences.userDeclinedEnableLocationServices)) {
         Timber.d("Showing location services dialog")
-        if (!this::locationServicesAlertDialog.isInitialized) {
-          locationServicesAlertDialog =
-              MaterialAlertDialogBuilder(this)
-                  .setCancelable(true)
-                  .setIcon(R.drawable.ic_baseline_location_disabled_24)
-                  .setTitle(getString(R.string.deviceLocationDisabledDialogTitle))
-                  .setMessage(getString(R.string.deviceLocationDisabledDialogMessage))
-                  .setPositiveButton(
-                      getString(R.string.deviceLocationDisabledDialogPositiveButtonLabel)) { _, _ ->
-                        locationServicesLauncher.launch(
-                            Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-                      }
-                  .setNegativeButton(android.R.string.cancel) { _, _ ->
-                    preferences.userDeclinedEnableLocationServices = true
-                  }
-                  .create()
-        }
-        if (!locationServicesAlertDialog.isShowing) {
-          locationServicesAlertDialog.show()
-        }
+        MaterialAlertDialogBuilder(this)
+            .setCancelable(true)
+            .setIcon(R.drawable.ic_baseline_location_disabled_24)
+            .setTitle(getString(R.string.deviceLocationDisabledDialogTitle))
+            .setMessage(getString(R.string.deviceLocationDisabledDialogMessage))
+            .setPositiveButton(
+                getString(R.string.deviceLocationDisabledDialogPositiveButtonLabel)) { _, _ ->
+                  locationServicesLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                }
+            .setNegativeButton(android.R.string.cancel) { _, _ ->
+              preferences.userDeclinedEnableLocationServices = true
+            }
+            .show()
       } else {
         Timber.d(
             "Not requesting location services. " +
@@ -381,6 +379,7 @@ class MapActivity :
       }
       false
     } else {
+      Timber.d("Location services enabled")
       true
     }
   }
@@ -392,7 +391,7 @@ class MapActivity :
   }
 
   /**
-   * User has declined notification permissions. Log this in the preferences so we don't keep askin
+   * User has declined notification permissions. Log this in the preferences so we don't keep asking
    * them
    */
   private fun notificationPermissionDenied() {
@@ -435,6 +434,30 @@ class MapActivity :
               })
         }
         .show()
+  }
+
+  /**
+   * User has declined to enable background location permissions. Log this in the preferences so we
+   * don't keep asking
+   */
+  private fun backgroundLocationPermissionGranted() {
+    Timber.d("Background location permission granted")
+    preferences.userDeclinedEnableBackgroundLocationPermissions = false
+  }
+
+  /**
+   * User has declined to enable background location permissions. Log this in the preferences so we
+   * don't keep asking.
+   *
+   * This may have been called by the user calling cancel on the material dialog in the onResume
+   * flow so we need to check for location services next
+   */
+  private fun backgroundLocationPermissionDenied() {
+    Timber.d("Background location permission denied")
+    preferences.userDeclinedEnableBackgroundLocationPermissions = true
+    if (checkAndRequestLocationServicesEnabled(false)) {
+      viewModel.requestLocationUpdatesForBlueDot()
+    }
   }
 
   enum class CheckPermissionsResult {
@@ -507,6 +530,25 @@ class MapActivity :
     }
   }
 
+  private fun checkAndRequestBackgroundLocationPermissions(): CheckPermissionsResult {
+    Timber.d("Checking and requesting background location permissions")
+    return if (!requirementsChecker.hasBackgroundLocationPermission()) {
+      Timber.d("No background location permission")
+      if (!preferences.userDeclinedEnableBackgroundLocationPermissions &&
+          Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        Timber.d("Requesting background location permissions")
+        backgroundLocationPermissionRequester.requestLocationPermissions(this) { true }
+        CheckPermissionsResult.NO_PERMISSIONS_LAUNCHED_REQUEST
+      } else {
+        Timber.d("Not requesting background location permission")
+        CheckPermissionsResult.NO_PERMISSIONS_NOT_LAUNCHED_REQUEST
+      }
+    } else {
+      preferences.userDeclinedEnableBackgroundLocationPermissions = true
+      CheckPermissionsResult.HAS_PERMISSIONS
+    }
+  }
+
   override fun onResume() {
     val mapFragment =
         supportFragmentManager.fragmentFactory.instantiate(
@@ -521,26 +563,23 @@ class MapActivity :
     updateMonitoringModeMenu()
     viewModel.updateMyLocationStatus()
 
-    when (checkAndRequestNotificationPermissions()) {
-      CheckPermissionsResult.HAS_PERMISSIONS,
-      CheckPermissionsResult.NO_PERMISSIONS_NOT_LAUNCHED_REQUEST -> {
-        when (checkAndRequestLocationPermissions(false)) {
-          CheckPermissionsResult.NO_PERMISSIONS_LAUNCHED_REQUEST -> {
-            Timber.d("Launched location permission request")
-          }
-          CheckPermissionsResult.NO_PERMISSIONS_NOT_LAUNCHED_REQUEST -> {
-            Timber.d("No location permissions, not launched request")
-          }
-          CheckPermissionsResult.HAS_PERMISSIONS -> {
-            Timber.d("Has location permissions")
-            if (checkAndRequestLocationServicesEnabled(false)) {
-              viewModel.requestLocationUpdatesForBlueDot()
-            }
-          }
-        }
-      }
-      CheckPermissionsResult.NO_PERMISSIONS_LAUNCHED_REQUEST ->
-          Timber.d("Launched notification permission request, not asking for location permissions")
+    if (checkAndRequestNotificationPermissions() ==
+        CheckPermissionsResult.NO_PERMISSIONS_LAUNCHED_REQUEST) {
+      Timber.d("Launched notification permission request")
+      return
+    }
+    if (checkAndRequestLocationPermissions(false) ==
+        CheckPermissionsResult.NO_PERMISSIONS_LAUNCHED_REQUEST) {
+      Timber.d("Launched location permission request")
+      return
+    }
+    if (checkAndRequestBackgroundLocationPermissions() ==
+        CheckPermissionsResult.NO_PERMISSIONS_LAUNCHED_REQUEST) {
+      Timber.d("Launched background location permission request")
+      return
+    }
+    if (checkAndRequestLocationServicesEnabled(false)) {
+      viewModel.requestLocationUpdatesForBlueDot()
     }
   }
 

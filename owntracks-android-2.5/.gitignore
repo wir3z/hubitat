@@ -63,5 +63,3 @@ project/app/objectbox-*.dll
 project/localscripts
 
 jacoco.exec
-project/java_pid29084.hprof
-project/java_pid3144.hprof

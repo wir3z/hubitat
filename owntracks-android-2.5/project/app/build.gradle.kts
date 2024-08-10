@@ -18,7 +18,7 @@ val googleMapsAPIKey = System.getenv("GOOGLE_MAPS_API_KEY")?.toString() ?: extra
 
 val gmsImplementation: Configuration by configurations.creating
 
-val packageVersionCode: Int = System.getenv("VERSION_CODE")?.toInt() ?: 420503000
+val packageVersionCode: Int = System.getenv("VERSION_CODE")?.toInt() ?: 420505000
 val manuallySetVersion: Boolean = System.getenv("VERSION_CODE") != null
 
 android {
@@ -31,7 +31,7 @@ android {
         targetSdk = 34
 
         versionCode = packageVersionCode
-        versionName = "2.5.3"
+        versionName = "2.5.5"
 
         val localeCount = fileTree("src/main/res/").map {
             it.toPath()
@@ -136,20 +136,42 @@ android {
         }
         managedDevices {
             localDevices {
-                create("pixel2api30aosp") {
-                    device = "Pixel 2"
-                    apiLevel = 30
-                    systemImageSource = "aosp-atd"
+              val hardware = "Small Phone"
+              create("api34aosp") {
+                device = hardware
+                apiLevel = 34
+                systemImageSource = "aosp-atd"
+              }
+                create("api27aosp") {
+                    device = hardware
+                    apiLevel = 27
+                    systemImageSource = "aosp"
                 }
+              create("api34gms") {
+                device = hardware
+                apiLevel = 34
+                systemImageSource = "google-atd"
+              }
+              create("api27gms") {
+                device = hardware
+                apiLevel = 27
+                systemImageSource = "google"
+              }
             }
+          groups {
+            create("allGmsApis") {
+              targetDevices.addAll(listOf(devices["api34gms"], devices["api27gms"]))
+            }
+            create("allAospApis") {
+              targetDevices.addAll(listOf(devices["api34aosp"], devices["api27aosp"]))
+            }
+          }
         }
     }
 
     tasks.withType<Test> {
         testLogging {
             events(
-                TestLogEvent.STARTED,
-                TestLogEvent.PASSED,
                 TestLogEvent.SKIPPED,
                 TestLogEvent.FAILED,
                 TestLogEvent.STANDARD_OUT,

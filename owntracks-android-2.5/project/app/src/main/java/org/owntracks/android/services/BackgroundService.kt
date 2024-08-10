@@ -5,8 +5,10 @@ import android.app.ActivityManager
 import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
 import android.graphics.Typeface
@@ -14,6 +16,7 @@ import android.location.Location
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.Process
 import android.text.Spannable
 import android.text.SpannableString
@@ -66,8 +69,6 @@ import org.owntracks.android.location.geofencing.GeofencingClient
 import org.owntracks.android.location.geofencing.GeofencingEvent
 import org.owntracks.android.location.geofencing.GeofencingEvent.Companion.fromIntent
 import org.owntracks.android.location.geofencing.GeofencingRequest
-import org.owntracks.android.location.geofencing.Latitude
-import org.owntracks.android.location.geofencing.Longitude
 import org.owntracks.android.location.toLatLng
 import org.owntracks.android.model.messages.MessageLocation
 import org.owntracks.android.model.messages.MessageTransition
@@ -78,6 +79,7 @@ import org.owntracks.android.preferences.types.MonitoringMode
 import org.owntracks.android.preferences.types.MonitoringMode.Companion.getByValue
 import org.owntracks.android.services.worker.Scheduler
 import org.owntracks.android.support.DateFormatter.formatDate
+import org.owntracks.android.support.RequirementsChecker
 import org.owntracks.android.support.RunThingsOnOtherThreads
 import org.owntracks.android.test.SimpleIdlingResource
 import org.owntracks.android.ui.map.MapActivity
@@ -113,6 +115,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
 
   @Inject lateinit var locationProviderClient: LocationProviderClient
 
+  @Inject lateinit var requirementsChecker: RequirementsChecker
+
   @Inject
   @Named("contactsClearedIdlingResource")
   lateinit var contactsClearedIdlingResource: SimpleIdlingResource
@@ -131,6 +135,13 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
   private val activityManager by lazy {
     this.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
   }
+  private val powerStateLogger by lazy { PowerStateLogger(this.applicationContext) }
+  private val powerBroadcastReceiver =
+      object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+          intent.action?.run(powerStateLogger::logPowerState)
+        }
+      }
 
   @EntryPoint
   @InstallIn(SingletonComponent::class)
@@ -161,6 +172,19 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     super.onCreate()
 
     preferences.registerOnPreferenceChangedListener(this)
+
+    registerReceiver(
+        powerBroadcastReceiver,
+        IntentFilter().apply {
+          addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
+          addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            addAction(PowerManager.ACTION_DEVICE_LIGHT_IDLE_MODE_CHANGED)
+          }
+          addAction(Intent.ACTION_SCREEN_ON)
+          addAction(Intent.ACTION_SCREEN_OFF)
+        })
+    powerStateLogger.logPowerState("serviceOnCreate")
 
     lifecycleScope.launch {
       // Every time a waypoint is inserted, updated or deleted, we need to update the geofences, and
@@ -210,6 +234,7 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
   override fun onDestroy() {
     Timber.v("Backgroundservice onDestroy")
     stopForeground(STOP_FOREGROUND_REMOVE)
+    unregisterReceiver(powerBroadcastReceiver)
     preferences.unregisterOnPreferenceChangedListener(this)
     messageProcessor.stopSendingMessages()
     super.onDestroy()
@@ -274,13 +299,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
         INTENT_ACTION_BOOT_COMPLETED,
         INTENT_ACTION_PACKAGE_REPLACED -> {
           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val backgroundLocationPermissionDenied =
-                ActivityCompat.checkSelfPermission(
-                    this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) ==
-                    PackageManager.PERMISSION_DENIED
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                !hasBeenStartedExplicitly &&
-                backgroundLocationPermissionDenied) {
+            if (!requirementsChecker.hasBackgroundLocationPermission() &&
+                !hasBeenStartedExplicitly) {
               notifyUserOfBackgroundLocationRestriction()
             }
           }
@@ -534,8 +554,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
                     it.id.toString(),
                     Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT,
                     2.minutes.inWholeMilliseconds.toInt(),
-                    Latitude(it.geofenceLatitude),
-                    Longitude(it.geofenceLongitude),
+                    it.geofenceLatitude,
+                    it.geofenceLongitude,
                     it.geofenceRadius.toFloat(),
                     Geofence.NEVER_EXPIRE,
                     null)
@@ -675,6 +695,28 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
 
     override fun toString(): String {
       return "Backgroundservice callback[$reportType] "
+    }
+  }
+
+  class PowerStateLogger(private val applicationContext: Context) {
+    private val powerManager =
+        applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
+
+    fun logPowerState(action: String) {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        Timber.d(
+            "triggeringAction=$action " +
+                "isPowerSaveMode=${powerManager.isPowerSaveMode} " +
+                "locationPowerSaveMode=${powerManager.locationPowerSaveMode} " +
+                "isDeviceIdleMode=${powerManager.isDeviceIdleMode} " +
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                  "isDeviceLightIdleMode=${powerManager.isDeviceLightIdleMode} "
+                } else {
+                  ""
+                } +
+                "isInteractive=${powerManager.isInteractive} " +
+                "isIgnoringBatteryOptimizations=${powerManager.isIgnoringBatteryOptimizations(applicationContext.packageName)}")
+      }
     }
   }
 }

@@ -24,6 +24,7 @@ import org.owntracks.android.data.EndpointState
 import org.owntracks.android.data.repos.EndpointStateRepo
 import org.owntracks.android.di.ApplicationScope
 import org.owntracks.android.di.CoroutineScopes
+import org.owntracks.android.model.Parser
 import org.owntracks.android.model.messages.MessageBase
 import org.owntracks.android.model.messages.MessageCard
 import org.owntracks.android.model.messages.MessageLocation
@@ -33,7 +34,6 @@ import org.owntracks.android.net.OutgoingMessageSendingException
 import org.owntracks.android.preferences.Preferences
 import org.owntracks.android.preferences.types.ConnectionMode
 import org.owntracks.android.services.MessageProcessor
-import org.owntracks.android.support.Parser
 import org.owntracks.android.support.SocketFactory
 import org.owntracks.android.support.interfaces.ConfigurationIncompleteException
 import timber.log.Timber
@@ -190,7 +190,7 @@ class HttpMessageProcessorEndpoint(
     Timber.v("HTTP preferences changed: [${properties.joinToString(",")}]")
     /* In HTTP mode, the *only* preference we care about wanting to trigger an immediate reprocessing
      * of the outgoing message queue is the password. The other properties that might change the
-     * liklihood of message sends succeeding (e.g. URL, username etc.) will actually trigger a
+     * likelihood of message sends succeeding (e.g. URL, username etc.) will actually trigger a
      * queue wipe and full reset, and that's handled in the [MessageProcessor].
      */
     val propertiesWeCareAbout = setOf(Preferences::password.name)

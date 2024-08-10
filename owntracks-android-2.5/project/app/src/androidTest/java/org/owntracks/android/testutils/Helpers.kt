@@ -31,6 +31,7 @@ import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.platform.app.InstrumentationRegistry.getInstrumentation
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
 import androidx.test.runner.lifecycle.Stage
+import com.adevinta.android.barista.interaction.BaristaDialogInteractions.clickDialogNegativeButton
 import com.adevinta.android.barista.interaction.BaristaDialogInteractions.clickDialogPositiveButton
 import com.adevinta.android.barista.interaction.BaristaDrawerInteractions.openDrawer
 import com.adevinta.android.barista.interaction.BaristaEditTextInteractions
@@ -44,6 +45,7 @@ import junit.framework.AssertionFailedError
 import kotlin.random.Random
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.datetime.Clock
 import org.hamcrest.Matcher
 import org.owntracks.android.R
 import org.owntracks.android.preferences.Preferences
@@ -198,12 +200,21 @@ fun enableDeviceLocation() {
   }
 }
 
+fun grantNotificationAndForegroundPermissions() {
+  PermissionGranter.allowPermissionsIfNeeded(Manifest.permission.POST_NOTIFICATIONS)
+  PermissionGranter.allowPermissionsIfNeeded(Manifest.permission.ACCESS_FINE_LOCATION)
+  PermissionGranter.allowPermissionsIfNeeded(Manifest.permission.POST_NOTIFICATIONS)
+  PermissionGranter.allowPermissionsIfNeeded(Manifest.permission.ACCESS_FINE_LOCATION)
+}
+
 /** Who knows what order these will appear in. */
 fun grantMapActivityPermissions() {
-  PermissionGranter.allowPermissionsIfNeeded(Manifest.permission.POST_NOTIFICATIONS)
-  PermissionGranter.allowPermissionsIfNeeded(Manifest.permission.ACCESS_FINE_LOCATION)
-  PermissionGranter.allowPermissionsIfNeeded(Manifest.permission.POST_NOTIFICATIONS)
-  PermissionGranter.allowPermissionsIfNeeded(Manifest.permission.ACCESS_FINE_LOCATION)
+  grantNotificationAndForegroundPermissions()
+  // Wait for the dialog to appear
+  if (Build.VERSION.SDK_INT >= 29) {
+    waitUntilVisible(onView(withId(android.R.id.button2)))
+    clickDialogNegativeButton()
+  }
 }
 
 /**
@@ -310,4 +321,27 @@ fun getText(matcher: ViewInteraction): String {
       })
 
   return text
+}
+
+fun waitUntilVisible(matcher: ViewInteraction, timeout: Duration = 1.seconds) {
+  matcher.perform(
+      object : ViewAction {
+        override fun getConstraints(): Matcher<View> {
+          return ViewMatchers.isAssignableFrom(TextView::class.java)
+        }
+
+        override fun getDescription(): String {
+          return "Wait until this is visible"
+        }
+
+        override fun perform(uiController: UiController, view: View) {
+          val endTime = Clock.System.now().plus(timeout)
+          do {
+            if (view.visibility == View.VISIBLE) {
+              return
+            }
+            uiController.loopMainThreadUntilIdle()
+          } while (Clock.System.now() < endTime)
+        }
+      })
 }

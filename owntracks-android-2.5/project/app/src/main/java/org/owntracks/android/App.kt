@@ -1,7 +1,6 @@
 package org.owntracks.android
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.app.ActivityManager
 import android.app.Application
 import android.app.Notification
@@ -11,6 +10,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.StrictMode
+import androidx.annotation.MainThread
 import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.app.ActivityCompat
@@ -21,7 +21,6 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.lifecycle.MutableLiveData
 import androidx.test.espresso.IdlingResource
 import androidx.work.Configuration
-import androidx.work.InitializationExceptionHandler
 import dagger.hilt.EntryPoints
 import dagger.hilt.android.HiltAndroidApp
 import java.security.Security
@@ -41,6 +40,7 @@ import org.owntracks.android.preferences.PreferencesStore
 import org.owntracks.android.preferences.types.AppTheme
 import org.owntracks.android.services.MessageProcessor
 import org.owntracks.android.services.worker.Scheduler
+import org.owntracks.android.support.RunThingsOnOtherThreads
 import org.owntracks.android.test.CountingIdlingResourceShim
 import org.owntracks.android.test.IdlingResourceWithData
 import org.owntracks.android.test.SimpleIdlingResource
@@ -61,6 +61,8 @@ class App : Application(), Configuration.Provider, Preferences.OnPreferenceChang
   @Inject lateinit var notificationManager: NotificationManagerCompat
 
   @Inject lateinit var preferencesStore: PreferencesStore
+
+  @Inject lateinit var runThingsOnOtherThreads: RunThingsOnOtherThreads
 
   @Inject
   @get:VisibleForTesting
@@ -152,6 +154,7 @@ class App : Application(), Configuration.Provider, Preferences.OnPreferenceChang
     }
   }
 
+  @MainThread
   private fun setThemeFromPreferences() {
     when (preferences.theme) {
       AppTheme.AUTO -> AppCompatDelegate.setDefaultNightMode(Preferences.SYSTEM_NIGHT_AUTO_MODE)
@@ -220,22 +223,11 @@ class App : Application(), Configuration.Provider, Preferences.OnPreferenceChang
     }
   }
 
-  @SuppressLint("RestrictedApi")
-  override fun getWorkManagerConfiguration(): Configuration =
-      Configuration.Builder()
-          .setWorkerFactory(workerFactory)
-          .setInitializationExceptionHandler(
-              InitializationExceptionHandler { throwable ->
-                Timber.e(throwable, "Exception thrown when initializing WorkManager")
-                workManagerFailedToInitialize.postValue(true)
-              })
-          .setMinimumLoggingLevel(android.util.Log.INFO)
-          .build()
-
   override fun onPreferenceChanged(properties: Set<String>) {
     if (properties.contains(Preferences::theme.name)) {
       Timber.d("Theme changed. Setting theme to ${preferences.theme}")
-      setThemeFromPreferences()
+      // Can only call setThemeFromPreferences on the main thread
+      runThingsOnOtherThreads.postOnMainHandlerDelayed(::setThemeFromPreferences, 0)
     }
     Timber.v("Idling preferenceSetIdlingResource because of $properties")
     preferenceSetIdlingResource.setIdleState(true)
@@ -295,4 +287,15 @@ class App : Application(), Configuration.Provider, Preferences.OnPreferenceChang
     const val NOTIFICATION_ID_EVENT_GROUP = 2
     const val NOTIFICATION_GROUP_EVENTS = "events"
   }
+
+  override val workManagerConfiguration: Configuration
+    get() =
+        Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .setInitializationExceptionHandler { throwable ->
+              Timber.e(throwable, "Exception thrown when initializing WorkManager")
+              workManagerFailedToInitialize.postValue(true)
+            }
+            .setMinimumLoggingLevel(android.util.Log.INFO)
+            .build()
 }

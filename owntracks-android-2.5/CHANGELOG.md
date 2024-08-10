@@ -1,5 +1,28 @@
 # Changelog
 
+## Version 2.5.2
+
+### New features
+
+- Added `cog` field to location messages showing current bearing (#1777)
+
+### Bug fixes
+
+- Fix crash where changing the theme via setting the preferences remotely causes the theme change to not happen on the main thread
+- Fix crash where trying to close the MQTT connection whilst it's connecting thows an unhandled exception
+
+## Version 2.5.1
+
+### New features
+
+- The background location permission is explicitly asked for in the welcome activity. It's also prompted if missing (but foreground location permissions are present) in the map activity, to catch people upgrading from <2.5.0.
+
+### Bug fixes
+
+- Re-added `tst` from Lwt MQTT message type that was accidentally dropped in 2.5.0 (#1766)
+- Fixed bug where locations with either "timer" ("t") or "beacon" ("b") type weren't processed by the app (#1768)
+- Fixed bug where negative latitudes and longitudes couldn't be entered into the waypoints activity (#1765)
+
 ## Version 2.5.0
 
 ### Breaking changes
