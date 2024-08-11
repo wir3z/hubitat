@@ -129,6 +129,7 @@
  *  1.7.75     2024-08-10      - Fixed exception on new install without previous history.
  *  1.7.76     2024-08-10      - Fixed exception on new install without previous history.  Calculates speed if returned speed was 0.  Added directional bearing to Google Map.
  *  1.7.77     2024-08-11      - Calculates bearing if returned bearing was 0.  Dynamically change the speed icon on Google Map based on speed.
+ *  1.7.78     2024-08-11      - Bearing calculation was inverted.
 */
 
 import groovy.transform.Field
@@ -137,7 +138,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.77"}
+def appVersion() { return "1.7.78"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -1901,14 +1902,14 @@ def calcMemberVelocity(member, data) {
             member.speed = data.vel
         } else {
             // calculate the speed between the new and previous location point
-            member.speed = (haversine(data.lat.toDouble(), data.lon.toDouble(),member.latitude.toDouble(), member.longitude.toDouble()) / ((data.tst - member.timeStamp) / 3600)).toInteger()
+            member.speed = (haversine(member.latitude.toDouble(), member.longitude.toDouble(),data.lat.toDouble(), data.lon.toDouble()) / ((data.tst - member.timeStamp) / 3600)).toInteger()
         }
         // if we received a bearing
         if (data?.cog) {
             member.bearing = data.cog
         } else {
             // calculate the bearing between the new and previous location point
-            member.bearing = angleFromCoordinate(data.lat.toDouble(), data.lon.toDouble(),member.latitude.toDouble(), member.longitude.toDouble()).toInteger()
+            member.bearing = angleFromCoordinate(member.latitude.toDouble(), member.longitude.toDouble(),data.lat.toDouble(), data.lon.toDouble()).toInteger()
         }
     } catch (e) {
         member.speed = 0
