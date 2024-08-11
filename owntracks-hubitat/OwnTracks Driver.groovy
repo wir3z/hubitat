@@ -33,6 +33,7 @@
  *      tid:45, 					    // tracker ID
  *      conn:w, 					    // connection type: w=wifi, m=mobile data
  *      vel:0, 						    // velocity (kph)
+ *      cog:180,       				    // bearing (degrees)
  *      BSSID:11:22:33:44:55:66, 	    // WiFi AP MAC
  *      SSID:WIFIAP,     			    // WiFi AP SSID
  *      t:u, 						    // trigger: p=ping, c=region, r=reportLocation, u=manual

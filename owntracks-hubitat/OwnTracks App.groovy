@@ -127,6 +127,7 @@
  *  1.7.73     2024-08-10      - Fixed exception with long history if the app was not opened after the updated.
  *  1.7.74     2024-08-10      - Fixed course over ground.  Fixed exception on new install without previous history.
  *  1.7.75     2024-08-10      - Fixed exception on new install without previous history.
+ *  1.7.76     2024-08-10      - Fixed exception on new install without previous history.  Calculates speed if returned speed was 0.  Added directional bearing to Google Map.
 */
 
 import groovy.transform.Field
@@ -135,7 +136,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.75"}
+def appVersion() { return "1.7.76"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -1892,6 +1893,20 @@ def isSSIDMatch(dataString, deviceID) {
     return (result)
 }
 
+def calcMemberVelocity(member, data) {
+    try {
+        // if we received a velocity
+        if (data?.vel) {
+            member.speed = data.vel
+        } else {
+            // calculate the velocity between the new and previous location point
+            member.speed = (haversine(data.lat.toDouble(), data.lon.toDouble(),member.latitude.toDouble(), member.longitude.toDouble()) / ((data.tst - member.timeStamp) / 3600)).toInteger()
+        }
+    } catch (e) {
+        member.speed = 0
+    }
+}
+
 def updateMemberAttributes(headers, data, member) {
     // round to 6-decimal places
     data.lat = data?.lat?.toDouble()?.round(6)
@@ -1906,6 +1921,7 @@ def updateMemberAttributes(headers, data, member) {
     if (member.longitude == null) member.longitude = data?.lon
     // do a reverse lookup for the address if it doesn't exist, and we have an API enabled
     updateAddress(member, data)
+    calcMemberVelocity(member, data)
 
     // save the position and timestamp so we can push to other users
     member.appVersion               = headers.'User-agent'.toString()
@@ -1915,12 +1931,11 @@ def updateMemberAttributes(headers, data, member) {
     member.timeStamp                = data?.tst
     member.accuracy                 = data?.acc
     member.bearing                  = (data?.cog != null) ? data.cog : -1
-    
+
     // these are not present in transition messages
     if (data?.tid  != null)         member.trackerID = data.tid
     if (data?.batt != null)         member.battery   = data.batt
     if (data?.alt  != null)         member.altitude  = data.alt
-    if (data?.vel  != null)         member.speed     = data.vel
     if (data?.bs   != null)         member.bs        = data.bs
     if (data?.conn != null)         member.conn      = data.conn
 
@@ -1931,13 +1946,15 @@ def updateMemberAttributes(headers, data, member) {
 
     // if the time between the first long history point and the last normal history point is less than the long window, remove the normal point
     // if it was longer than the window, the oldest long point will be removed below, and the current history point will become the newest long history point
-    if (memberLongHistoryDeltaMin && memberLongHistoryLength && (member.history.size() >= 1)) {
+    try {
         historyLongLength = memberLongHistoryLength.toInteger()
         if ((historyLongLength != 0) && (memberHistoryLength.toInteger() > historyLongLength)) {
             if ((member.history.tst[historyLongLength] - member.history.tst[historyLongLength-1]) < (60 * memberLongHistoryDeltaMin.toInteger())) {
                 member.history.remove(historyLongLength)
             }
         }
+    } catch(e) {
+        // do nothing -- once we have configured and received enough history points, this will succeed
     }
 
     // first remove the oldest of the history buffer is full
@@ -4026,6 +4043,18 @@ def generateGoogleFriendsMap() {
                     return (${imperialUnits} ? parseInt(val*0.621371) : parseInt(val))
                 }
 
+                function getBearingIcon(val) {
+                    if (val == -1)                       return("?")
+                    if ((val > 22.5)  && (val <= 67.5))  return("&#8599;")
+                    if ((val > 67.5)  && (val <= 112.5)) return("&#8594;")
+                    if ((val > 112.5) && (val <= 157.5)) return("&#8600;")
+                    if ((val > 157.5) && (val <= 202.5)) return("&#8595;")
+                    if ((val > 202.5) && (val <= 247.5)) return("&#8601;")
+                    if ((val > 247.5) && (val <= 292.5)) return("&#8592;")
+                    if ((val > 292.5) && (val <= 337.5)) return("&#8598;")
+                    return("&#8593;")
+                }
+
                 function infoContent(position) {
                     const contentString =
                     "<table style='width:100%;font-size:1.0em'>" +
@@ -4037,6 +4066,7 @@ def generateGoogleFriendsMap() {
                     "<table style='width:100%;font-size:1.0em'>" +
                         "<tr>" +
                             "<td align='left'" + ((position.wifi == "0" || (position.app != "null" && position.app != "0")) ? " style='color:red'>" : ">") + "<b>" + position.name + "</b></td>" +
+                            "<td align='right'>" + "&#129517;" + getBearingIcon(position.cog) + "</td>" +
                         "</tr>" +
                         "<tr>" +
                             "<td align='left'>" + position.location + "</td>" +
@@ -4050,12 +4080,12 @@ def generateGoogleFriendsMap() {
                         "<tr align='center'>" +
                             (position.dfh != "null" ? "<th width=33%>&#127968;</th>" : "") +
                             "<th width=33%>&#128270;</th>" +
-                            (position.speed != "null" ? "<th width=33%>&#128663;</th>" : "") +
+                            "<th width=33%>&#128663;</th>" +
                         "</tr>" +
                         "<tr align='center'>" +
                             (position.dfh != "null" ? "<td width=33%>" + position.dfh + " ${getLargeUnits()}</td>" : "") +
                             "<td width=33%>" + position.acc + " ${getSmallUnits()}</td>" +
-                            (position.speed != "null" ? "<td width=33%>" + position.speed + " ${getVelocityUnits()}</td>" : "") +
+                            "<td width=33%>" + position.speed + " ${getVelocityUnits()}</td>" +
                         "</tr>" +
                     "</table>" +
                     "<hr>" +
@@ -4103,12 +4133,14 @@ def generateGoogleFriendsMap() {
                     "<hr>" +
                     "<table style='width:100%;font-size:1.0em'>" +
                         "<tr align='center'>" +
+                            "<th width=33%>" + "&#129517;" + getBearingIcon(position[index].cog) + "</th>" +
                             "<th width=33%>&#128270;</th>" +
-                            (position[index].speed != "null" ? "<th width=33%>&#128663;</th>" : "") +
+                            "<th width=33%>&#128663;</th>" +
                         "</tr>" +
                         "<tr align='center'>" +
+                            "<td width=33%>" + (position[index].cog >= 0 ? position[index].cog : "?") + "&#176;</td>" +
                             "<td width=33%>" + convertMetersToFeet(position[index].acc) + " ${getSmallUnits()}</td>" +
-                            (position[index].speed != "null" ? "<td width=33%>" + convertKMToMiles(position[index].speed) + " ${getVelocityUnits()}</td>" : "") +
+                            "<td width=33%>" + convertKMToMiles(position[index].speed) + " ${getVelocityUnits()}</td>" +
                         "</tr>" +
                     "</table>" +
                     "<hr>" +
