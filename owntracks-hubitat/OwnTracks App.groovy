@@ -128,6 +128,7 @@
  *  1.7.74     2024-08-10      - Fixed course over ground.  Fixed exception on new install without previous history.
  *  1.7.75     2024-08-10      - Fixed exception on new install without previous history.
  *  1.7.76     2024-08-10      - Fixed exception on new install without previous history.  Calculates speed if returned speed was 0.  Added directional bearing to Google Map.
+ *  1.7.77     2024-08-11      - Calculates bearing if returned bearing was 0.  Dynamically change the speed icon on Google Map based on speed.
 */
 
 import groovy.transform.Field
@@ -136,7 +137,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.76"}
+def appVersion() { return "1.7.77"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -1895,15 +1896,23 @@ def isSSIDMatch(dataString, deviceID) {
 
 def calcMemberVelocity(member, data) {
     try {
-        // if we received a velocity
+        // if we received a speed
         if (data?.vel) {
             member.speed = data.vel
         } else {
-            // calculate the velocity between the new and previous location point
+            // calculate the speed between the new and previous location point
             member.speed = (haversine(data.lat.toDouble(), data.lon.toDouble(),member.latitude.toDouble(), member.longitude.toDouble()) / ((data.tst - member.timeStamp) / 3600)).toInteger()
+        }
+        // if we received a bearing
+        if (data?.cog) {
+            member.bearing = data.cog
+        } else {
+            // calculate the bearing between the new and previous location point
+            member.bearing = angleFromCoordinate(data.lat.toDouble(), data.lon.toDouble(),member.latitude.toDouble(), member.longitude.toDouble()).toInteger()
         }
     } catch (e) {
         member.speed = 0
+        member.bearing = 0
     }
 }
 
@@ -1930,7 +1939,6 @@ def updateMemberAttributes(headers, data, member) {
     member.longitude                = data?.lon
     member.timeStamp                = data?.tst
     member.accuracy                 = data?.acc
-    member.bearing                  = (data?.cog != null) ? data.cog : -1
 
     // these are not present in transition messages
     if (data?.tid  != null)         member.trackerID = data.tid
@@ -2637,6 +2645,15 @@ def haversine(lat1, lon1, lat2, lon2) {
     def Double c = 2 * Math.asin(Math.sqrt(a))
     def Double d = R * c
     return(d)
+}
+
+private angleFromCoordinate(lat1, lon1, lat2, lon2) {
+    double deltaLon = Math.toRadians(lon2 - lon1);
+    double y = Math.sin(deltaLon) * Math.cos(Math.toRadians(lat2));
+    double x = Math.cos(Math.toRadians(lat1)) * Math.sin(Math.toRadians(lat2)) - Math.sin(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.cos(deltaLon);
+    double angle = Math.toDegrees(Math.atan2(y, x));
+
+    return (angle + 360) % 360; // Normalize to 0-360 degrees
 }
 
 def displayKmMiVal(val) {
@@ -4043,16 +4060,23 @@ def generateGoogleFriendsMap() {
                     return (${imperialUnits} ? parseInt(val*0.621371) : parseInt(val))
                 }
 
+                function getSpeedIcon(val) {
+                    if (val == 0)   return("&#129485;")    // standing
+                    if (val < 10)   return("&#128694;")    // walking
+                    if (val < 30)   return("&#128692;")    // cycling
+                    if (val < 200)  return("&#128663;")    // auto
+                    return("&#128747;")                    // plane
+                }
+
                 function getBearingIcon(val) {
-                    if (val == -1)                       return("?")
-                    if ((val > 22.5)  && (val <= 67.5))  return("&#8599;")
-                    if ((val > 67.5)  && (val <= 112.5)) return("&#8594;")
-                    if ((val > 112.5) && (val <= 157.5)) return("&#8600;")
-                    if ((val > 157.5) && (val <= 202.5)) return("&#8595;")
-                    if ((val > 202.5) && (val <= 247.5)) return("&#8601;")
-                    if ((val > 247.5) && (val <= 292.5)) return("&#8592;")
-                    if ((val > 292.5) && (val <= 337.5)) return("&#8598;")
-                    return("&#8593;")
+                    if ((val > 22.5)  && (val <= 67.5))  return("&#8599;NE")    // NE
+                    if ((val > 67.5)  && (val <= 112.5)) return("&#8594;E")     // E
+                    if ((val > 112.5) && (val <= 157.5)) return("&#8600;SE")    // SE
+                    if ((val > 157.5) && (val <= 202.5)) return("&#8595;S")     // S
+                    if ((val > 202.5) && (val <= 247.5)) return("&#8601;SW")    // SW
+                    if ((val > 247.5) && (val <= 292.5)) return("&#8592;W")     // W
+                    if ((val > 292.5) && (val <= 337.5)) return("&#8598;NW")    // NW
+                    return("&#8593;N")                                          // N
                 }
 
                 function infoContent(position) {
@@ -4066,7 +4090,7 @@ def generateGoogleFriendsMap() {
                     "<table style='width:100%;font-size:1.0em'>" +
                         "<tr>" +
                             "<td align='left'" + ((position.wifi == "0" || (position.app != "null" && position.app != "0")) ? " style='color:red'>" : ">") + "<b>" + position.name + "</b></td>" +
-                            "<td align='right'>" + "&#129517;" + getBearingIcon(position.cog) + "</td>" +
+                            "<td align='right'>" + getBearingIcon(position.cog) + "</td>" +
                         "</tr>" +
                         "<tr>" +
                             "<td align='left'>" + position.location + "</td>" +
@@ -4080,7 +4104,7 @@ def generateGoogleFriendsMap() {
                         "<tr align='center'>" +
                             (position.dfh != "null" ? "<th width=33%>&#127968;</th>" : "") +
                             "<th width=33%>&#128270;</th>" +
-                            "<th width=33%>&#128663;</th>" +
+                            "<th width=33%>" + getSpeedIcon(position.speed) + "</th>" +
                         "</tr>" +
                         "<tr align='center'>" +
                             (position.dfh != "null" ? "<td width=33%>" + position.dfh + " ${getLargeUnits()}</td>" : "") +
@@ -4133,12 +4157,12 @@ def generateGoogleFriendsMap() {
                     "<hr>" +
                     "<table style='width:100%;font-size:1.0em'>" +
                         "<tr align='center'>" +
-                            "<th width=33%>" + "&#129517;" + getBearingIcon(position[index].cog) + "</th>" +
+                            "<th width=33%>" + getBearingIcon(position[index].cog) + "</th>" +
                             "<th width=33%>&#128270;</th>" +
-                            "<th width=33%>&#128663;</th>" +
+                            "<th width=33%>" + getSpeedIcon(position[index].speed) + "</th>" +
                         "</tr>" +
                         "<tr align='center'>" +
-                            "<td width=33%>" + (position[index].cog >= 0 ? position[index].cog : "?") + "&#176;</td>" +
+                            "<td width=33%>" + position[index].cog + "&#176;</td>" +
                             "<td width=33%>" + convertMetersToFeet(position[index].acc) + " ${getSmallUnits()}</td>" +
                             "<td width=33%>" + convertKMToMiles(position[index].speed) + " ${getVelocityUnits()}</td>" +
                         "</tr>" +

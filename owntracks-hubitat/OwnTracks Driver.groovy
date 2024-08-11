@@ -134,12 +134,13 @@
  *  1.7.36     2024-06-23      - Forced sinceTime attribute to be set to allow consumption by the tile generation.
  *  1.7.37     2024-07-19      - Removed migration code.
  *  1.7.38     2024-08-10      - Added course over ground (bearing).
+ *  1.7.39     2024-08-11      - Updated bearing.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.38" }
+def driverVersion() { return "1.7.39" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -337,7 +338,7 @@ def updateAttributes(member, data, locationType) {
         if (data?.acc)         sendEvent (name: "accuracy", value: parent.displayMFtVal(data.acc))             else if (locationType) device.deleteCurrentState('accuracy')
         if (data?.vac)         sendEvent (name: "verticalAccuracy", value: parent.displayMFtVal(data.vac))     else if (locationType) device.deleteCurrentState('verticalAccuracy')
         if (data?.alt)         sendEvent (name: "altitude", value: parent.displayMFtVal(data.alt))             else if (locationType) device.deleteCurrentState('altitude')
-        if (data?.cog >= 0)    sendEvent (name: "bearing", value: data.cog)                                    else if (locationType) device.deleteCurrentState('bearing')
+        if (data?.cog)         sendEvent (name: "bearing", value: data.cog)                                    else if (locationType) device.deleteCurrentState('bearing')
         if (data?.address) {
             sendEvent (name: "address", value: data.address)
             sendEvent (name: "streetAddress", value: data.streetAddress)
