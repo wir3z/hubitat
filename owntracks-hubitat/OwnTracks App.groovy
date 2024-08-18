@@ -130,6 +130,7 @@
  *  1.7.76     2024-08-10      - Fixed exception on new install without previous history.  Calculates speed if returned speed was 0.  Added directional bearing to Google Map.
  *  1.7.77     2024-08-11      - Calculates bearing if returned bearing was 0.  Dynamically change the speed icon on Google Map based on speed.
  *  1.7.78     2024-08-11      - Bearing calculation was inverted.
+ *  1.7.79     2024-08-18      - Reduced saved address to street address only.  Added trip markers to history.  Don't save locations with repeated 0 speed or similar bearing.  Fixed speed calculations if phone returned 0 speed.
 */
 
 import groovy.transform.Field
@@ -138,11 +139,11 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.78"}
+def appVersion() { return "1.7.79"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
-@Field static final Map TRIGGER_TYPE = [ "p": "Ping", "c": "Region", "r": "Report Location", "u": "Manual", "b": "Beacon", "t": "Timer", "v": "Monitoring", "l": "Location" ]
+@Field static final Map TRIGGER_TYPE = [ "p": "Ping", "c": "Region", "r": "Report Location", "u": "Manual", "b": "Beacon", "t": "Timer", "v": "Monitoring", "l": "Region" ]
 @Field static final Map TOPIC_FORMAT = [ 0: "topicSource", 1: "userName", 2: "deviceID", 3: "eventType" ]
 @Field static final Map LOCATOR_PRIORITY = [ "NoPower": "NO_POWER (best accuracy with zero power consumption)", "LowPower": "LOW_POWER (city level accuracy)", "BalancedPowerAccuracy": "BALANCED_POWER (block level accuracy based on Wifi/Cell)", "HighAccuracy": "HIGH_POWER (most accurate accuracy based on GPS)" ]
 @Field static final Map DYNAMIC_INTERVALS = [ "pegLocatorFastestIntervalToInterval": false, "locatorPriority": "HighAccuracy" ]
@@ -178,10 +179,13 @@ def appVersion() { return "1.7.78"}
 @Field Number  DEFAULT_memberHistoryScale = 1.0
 @Field Number  DEFAULT_memberHistoryStroke = 1.0
 @Field Number  DEFAULT_memberHistoryRepeat = 300
-@Field Number  DEFAULT_memberLongHistoryLength = 15
-@Field Number  DEFAULT_maxMemberLongHistoryLength = 30
-@Field Number  DEFAULT_memberLongHistoryDeltaMin = 60
 @Field Boolean DEFAULT_displayAllMembersHistory = false
+@Field Boolean DEFAULT_removeMemberMarkersWithSameBearing = true
+@Field Number  DEFAULT_memberMarkerBearingDifferenceDegrees = 5
+@Field Number  DEFAULT_memberTripIdleMarkerTime = 15
+@Field String  memberBeginMarker = "b"
+@Field String  memberMiddleMarker = "m"
+@Field String  memberEndMarker = "e"
 @Field Number  GOOGLE_MAP_API_QUOTA = 28500
 @Field String  GOOGLE_MAP_API_KEY_LINK = "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>"
 @Field String  RECORDER_PUBLISH_FOLDER = "/pub"
@@ -269,6 +273,10 @@ preferences {
 }
 
 def mainPage() {
+    //TODO: remove these two lines in a future release
+    app.removeSetting("memberLongHistoryLength")
+    app.removeSetting("memberLongHistoryDeltaMin")
+
     // clear the setting fields
     clearSettingFields()
     app.removeSetting("regionToCheck")
@@ -459,8 +467,11 @@ def configureHubApp() {
                 paragraph ("<a href='${getAttributeURL("[cloud.hubitat.com]", "googlemap")}' target='_blank'>Test map API key</a>")
                 paragraph ("<h2>Member History and Pin Colors</h2>")
                 input name: "memberHistoryLength", type: "number", title: "Number of total past member locations to save (0..${DEFAULT_maxMemberHistoryLength}):", range: "0..${DEFAULT_maxMemberHistoryLength}", defaultValue: DEFAULT_memberHistoryLength
-                input name: "memberLongHistoryLength", type: "number", title: "Number of total past member locations to save at a slower interval for longer history.  Must be less than past member locations (0..${DEFAULT_maxMemberLongHistoryLength}):", range: "0..${DEFAULT_maxMemberLongHistoryLength}", defaultValue: memberLongHistoryLength
-                input name: "memberLongHistoryDeltaMin", type: "number", title: "Time in minutes between each longer history location (5..1440):", range: "0..1440", defaultValue: DEFAULT_memberLongHistoryDeltaMin
+                input name: "memberTripIdleMarkerTime", type: "number", title: "Time in minutes between adjacent history locations to denote an end of trip (5..60):", range: "5..60", defaultValue: DEFAULT_memberTripIdleMarkerTime
+                input name: "removeMemberMarkersWithSameBearing", type: "bool", title: "Remove previous history location if member is moving in the same direction.", defaultValue: DEFAULT_removeMemberMarkersWithSameBearing, submitOnChange: true
+                if (removeMemberMarkersWithSameBearing) {
+                    input name: "memberMarkerBearingDifferenceDegrees", type: "number", title: "Locations with bearings within this number of degrees are removed to reduce history size (0..45):", range: "0..45", defaultValue: DEFAULT_memberMarkerBearingDifferenceDegrees
+                }
                 input name: "memberHistoryScale", type: "decimal", title: "Scale value for the past member locations dots (1.0..3.0):", range: "1.0..3.0", defaultValue: DEFAULT_memberHistoryScale
                 input name: "memberHistoryStroke", type: "decimal", title: "Scale value for the past member locations lines (1.0..3.0):", range: "1.0..3.0", defaultValue: DEFAULT_memberHistoryStroke
                 input name: "memberHistoryRepeat", type: "number", title: "Distance between repeat arrows on the history lines. '0' will place a single arrow in the middle of the line (0..1000):", range: "0..1000", defaultValue: DEFAULT_memberHistoryRepeat
@@ -1363,12 +1374,13 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (regionGlyphColor == null)) app.updateSetting("regionGlyphColor", [value: DEFAULT_REGION_GLYPH_COLOR, type: "string"])
     if (forceDefaults || (regionHomeGlyphColor == null)) app.updateSetting("regionHomeGlyphColor", [value: DEFAULT_REGION_HOME_GLYPH_COLOR, type: "string"])
     if (forceDefaults || (memberHistoryLength == null)) app.updateSetting("memberHistoryLength", [value: DEFAULT_memberHistoryLength, type: "number"])
-    if (forceDefaults || (memberLongHistoryLength == null)) app.updateSetting("memberLongHistoryLength", [value: DEFAULT_memberLongHistoryLength, type: "number"])
-    if (forceDefaults || (memberLongHistoryDeltaMin == null)) app.updateSetting("memberLongHistoryDeltaMin", [value: DEFAULT_memberLongHistoryDeltaMin, type: "number"])
     if (forceDefaults || (memberHistoryScale == null)) app.updateSetting("memberHistoryScale", [value: DEFAULT_memberHistoryScale, type: "decimal"])
     if (forceDefaults || (memberHistoryStroke == null)) app.updateSetting("memberHistoryStroke", [value: DEFAULT_memberHistoryStroke, type: "decimal"])
     if (forceDefaults || (memberHistoryRepeat == null)) app.updateSetting("memberHistoryRepeat", [value: DEFAULT_memberHistoryRepeat, type: "number"])
     if (forceDefaults || (displayAllMembersHistory == null)) app.updateSetting("displayAllMembersHistory", [value: DEFAULT_displayAllMembersHistory, type: "bool"])
+    if (forceDefaults || (memberTripIdleMarkerTime == null)) app.updateSetting("memberTripIdleMarkerTime", [value: DEFAULT_memberTripIdleMarkerTime, type: "number"])
+    if (forceDefaults || (memberMarkerBearingDifferenceDegrees == null)) app.updateSetting("memberMarkerBearingDifferenceDegrees", [value: DEFAULT_memberMarkerBearingDifferenceDegrees, type: "number"])
+    if (forceDefaults || (removeMemberMarkersWithSameBearing == null)) app.updateSetting("removeMemberMarkersWithSameBearing", [value: DEFAULT_removeMemberMarkersWithSameBearing, type: "bool"])
 }
 
 def initializeMobileLocation(forceDefaults) {
@@ -1519,7 +1531,7 @@ def pruneMemberHistory(member) {
         member.history = []
     } else {
         // first remove the oldest of the history buffer is full
-        while (member?.history?.size() >= (memberHistoryLength != null ? memberHistoryLength : DEFAULT_memberHistoryLength)) {
+        while (member?.history?.size() > (memberHistoryLength != null ? memberHistoryLength : DEFAULT_memberHistoryLength)) {
             member.history.remove(0)
         }
     }
@@ -1897,12 +1909,19 @@ def isSSIDMatch(dataString, deviceID) {
 
 def calcMemberVelocity(member, data) {
     try {
-        // if we received a speed
-        if (data?.vel) {
+        // if we received a speed -- wifi location updates will return with 0 speed, so ignore those and calculated based on the distance moved
+        if (data?.vel > 0) {
             member.speed = data.vel
         } else {
-            // calculate the speed between the new and previous location point
-            member.speed = (haversine(member.latitude.toDouble(), member.longitude.toDouble(),data.lat.toDouble(), data.lon.toDouble()) / ((data.tst - member.timeStamp) / 3600)).toInteger()
+            // only calculate speed on specific location types
+            if (validLocationType(data.t)) {
+                // calculate the speed between the new and previous location point
+                member.speed = (haversine(member.latitude.toDouble(), member.longitude.toDouble(),data.lat.toDouble(), data.lon.toDouble()) / ((data.tst - member.timeStamp) / 3600)).toInteger()
+            } else {
+                // prevent high calculated speed between multiple manual points returned in succession
+                member.speed = 0
+            }
+            data.vel = member.speed
         }
         // if we received a bearing
         if (data?.cog) {
@@ -1910,11 +1929,62 @@ def calcMemberVelocity(member, data) {
         } else {
             // calculate the bearing between the new and previous location point
             member.bearing = angleFromCoordinate(member.latitude.toDouble(), member.longitude.toDouble(),data.lat.toDouble(), data.lon.toDouble()).toInteger()
+            data.cog = member.bearing
         }
     } catch (e) {
         member.speed = 0
         member.bearing = 0
     }
+}
+
+def getCompassDifference(bearing1, bearing2) {
+    difference = Math.abs(bearing1 - bearing2)
+    if (difference > 180) {
+        return (360 - difference)
+    } else {
+        return (difference)
+    }
+}
+
+def getHistoryMarker(member, data) {
+    // default to the "middle" marker
+    marker = memberMiddleMarker
+    try {
+        historyLength = member.history.size - 1
+        removeMarker = false
+        // check if enough time has elapsed between points to denote a trip end
+        if ((member.timeStamp - member.history.tst[historyLength]) > (60 * memberTripIdleMarkerTime.toInteger())) {
+            // check if the last marker was a begin marker, if so remove it so it can be replaced with a new begin marker
+            if (member.history.mkr[historyLength] == memberBeginMarker) {
+                removeMarker = true
+            } else {
+                // change the last marker to "end"
+                historyPoint = member.history[historyLength]
+                historyPoint.mkr = memberEndMarker
+            }
+            // return "begin" for the next marker
+            marker = memberBeginMarker
+        } else {
+            // if the last two history points have zero velocity
+            if ((member.speed == 0) && (member.history.spd[historyLength] == 0)) {
+                removeMarker = true
+            }
+            // if we are travelling in roughly the same direction
+            if (removeMemberMarkersWithSameBearing && (getCompassDifference(member.bearing, member.history.cog[historyLength]) <= memberMarkerBearingDifferenceDegrees)) {
+                removeMarker = true
+            }
+        }
+
+        // remove the last history point so it can be replaced with the new one
+        if (removeMarker) {
+            // replace the marker with the same type as deleted
+            marker = member.history.mkr[historyLength]
+            member.history.remove(historyLength)
+        }
+    } catch (e) {
+    }
+
+    return(marker)
 }
 
 def updateMemberAttributes(headers, data, member) {
@@ -1931,6 +2001,8 @@ def updateMemberAttributes(headers, data, member) {
     if (member.longitude == null) member.longitude = data?.lon
     // do a reverse lookup for the address if it doesn't exist, and we have an API enabled
     updateAddress(member, data)
+    // add the street address and regions, if they exist
+    addStreetAddressAndRegions(data)
     calcMemberVelocity(member, data)
 
     // save the position and timestamp so we can push to other users
@@ -1953,24 +2025,32 @@ def updateMemberAttributes(headers, data, member) {
         member.history = []
     }
 
-    // if the time between the first long history point and the last normal history point is less than the long window, remove the normal point
-    // if it was longer than the window, the oldest long point will be removed below, and the current history point will become the newest long history point
-    try {
-        historyLongLength = memberLongHistoryLength.toInteger()
-        if ((historyLongLength != 0) && (memberHistoryLength.toInteger() > historyLongLength)) {
-            if ((member.history.tst[historyLongLength] - member.history.tst[historyLongLength-1]) < (60 * memberLongHistoryDeltaMin.toInteger())) {
-                member.history.remove(historyLongLength)
+    // only save history on valid location types (ignore region and manual types)
+    if (validLocationType(data.t)) {
+        // first create the new member location so that the getHistoryMarker can clean up repeating events as necessary
+        def memberLocation = [ "lat": member.latitude, "lng": member.longitude, "acc": member.accuracy, "cog": member.bearing, "spd": member.speed, "tst": member.timeStamp, "loc": data.streetAddress, "mkr": getHistoryMarker(member, data) ]
+        try {
+            // if the history buffer is full
+            if (member.history.size == memberHistoryLength.toInteger()) {
+                // first check if the second location is not a middle marker, if so then locations 1 and 3 are begin/end of the oldest trip
+                if (member.history.mkr[1] == memberMiddleMarker) {
+                    member.history.remove(1)
+                } else {
+                    // remove that last trip
+                    member.history.remove(0)
+                    member.history.remove(0)
+                }
             }
+        } catch(e) {
+            // do nothing -- once we have configured and received enough history points, this will succeed
         }
-    } catch(e) {
-        // do nothing -- once we have configured and received enough history points, this will succeed
+        // add to the end of the list
+        member.history << memberLocation
+        // remove the oldest of the history buffer if over full
+        pruneMemberHistory(member)
+    } else {
+        logDebug("Skipping history point save for trigger source '${(data.t ? TRIGGER_TYPE[data.t] : "Location")}', member: ${member.name}")
     }
-
-    // first remove the oldest of the history buffer is full
-    pruneMemberHistory(member)
-    def memberLocation = [ "lat": member.latitude, "lng": member.longitude, "acc": member.accuracy, "cog": member.bearing, "speed": (data?.vel != null ? member.speed : 0), "tst": member.timeStamp, "location": member.address ]
-    // add to the end of the list
-    member.history << memberLocation
 }
 
 def updateDevicePresence(member, data) {
@@ -2004,8 +2084,6 @@ def updateDevicePresence(member, data) {
             data.currentDistanceFromHome = 0.0
             logWarn("No 'Home' location has been defined.  Create a 'Home' region to enable presence detection.")
         }
-        // add the street address and regions, if they exist
-        addStreetAddressAndRegions(data)
         // update the child information
         deviceWrapper.generatePresenceEvent(member, getHomeRegion().desc, data)
     } catch(e) {
@@ -2321,7 +2399,7 @@ private def sendMemberPositions(currentMember, data) {
                 positions << memberLocation
 
                 // send the image cards for the user if there is one, and we aren't sending commands, -- only send on the ping or the manual update to minimize data traffic
-                if (validLocationType(data.t)) {
+                if (validPositionType(data.t)) {
                     card = getMemberCard(member)
                     if (!sendCmdToMember(currentMember) && card) {
                         positions << card
@@ -2454,7 +2532,7 @@ private def sendUpdate(currentMember, data) {
     def update = []
 
     // only send the position updates on a ping or manual update
-    if (validLocationType(data.t)) {
+    if (validPositionType(data.t)) {
         update += sendMemberPositions(currentMember, data)
     }
 
@@ -2545,9 +2623,14 @@ def isAllAndroidMembers() {
     return(settings?.enabledMembers?.size() == getAndroidMembers()?.size() ? true : false)
 }
 
-def validLocationType(locationType) {
+def validPositionType(locationType) {
     // allow update if ping or manual location
     return ((locationType == "p") || (locationType == "u"))
+}
+
+def validLocationType(locationType) {
+    // allow if not a region or manual update
+    return ((locationType != "l") && (locationType != "u"))
 }
 
 private def createRecorderFriendsLocationTile() {
@@ -3528,7 +3611,7 @@ def processAPIData() {
                         "lat" :         member.latitude,
                         "lng" :         member.longitude,
                         "cog" :         member.bearing,
-                        "speed" :       deviceWrapper?.currentValue("lastSpeed"),
+                        "spd" :         deviceWrapper?.currentValue("lastSpeed"),
                         "bat" :         member?.battery,
                         "acc" :         deviceWrapper?.currentValue("accuracy"),
                         "wifi" :        member?.wifi,
@@ -3539,7 +3622,7 @@ def processAPIData() {
                         "last" :        "${deviceWrapper?.currentValue("lastLocationtime")}",
                         "since" :       "${deviceWrapper?.currentValue("since")}",
                         "data" :        "${member?.conn}",
-                        "location" :    "${deviceWrapper?.currentValue("location")}",
+                        "loc" :         "${deviceWrapper?.currentValue("location")}",
                         "dfh" :         deviceWrapper?.currentValue("distanceFromHome"),
                         "color":        (member?.color ? member?.color : DEFAULT_MEMBER_GLYPH_COLOR),
                         "history":      (member?.history ? member?.history : []),
@@ -3646,10 +3729,12 @@ def generateGoogleFriendsMap() {
 
                 function initMap() {
                     const infoWindow = new google.maps.InfoWindow();
+                    const minBearingGradient = 0.1;
+                    const minRadiusGradient = 0.1;
+                    const minEndpointStrokeGradient = 0.4;
                     const markers = [];
                     // -2=close, -1=marker open, 0+=history sample open
                     infoWindowVisible = -2;
-
                     // get the member data with thumbnail images
                     retrieveMemberLocations("img");
 
@@ -3695,7 +3780,7 @@ def generateGoogleFriendsMap() {
                         sendDataToHub(postData);
                     });
                     map.addListener("zoom_changed", () => {
-                        // when the user clicks the +/- zoom buttons
+                        // when the user clicks the +/- zoom buttons or we modify zoom by clicking on the marker
                         currentZoom = map.getZoom();
                         updateHistoryZoom(currentZoom);
                         postData = {};
@@ -3793,7 +3878,6 @@ def generateGoogleFriendsMap() {
                                 map.setCenter(marker.position);
                                 // if a marker is clicked, then assign it an index larger than the number of positions so it comes out in front
                                 marker.zIndex = locations.length+1;
-
                                 // on the first click, just display the info box
                                 if (infoWindowVisible == -1) {
                                     // on second click, zoom to 14, and then keep zooming in by 3 on each future click
@@ -3807,11 +3891,15 @@ def generateGoogleFriendsMap() {
                                         }
                                     }
                                     map.setZoom(currentZoom);
-                                    updateHistoryZoom(currentZoom);
+                                }
+                                if (((currentMember != "null") && (currentMember != marker.title)) || (infoWindowVisible == -1)) {
+                                    // assign the new current member so that the history can update
+                                    currentMember = marker.title;
+                                    showHideHistory();
+                                } else {
+                                    currentMember = marker.title;
                                 }
 
-                                currentMember = marker.title;
-                                showHideHistory();
                                 infoWindowVisible = -1;
                                 postData = {};
                                 postData["zoom"] = currentZoom;
@@ -3832,10 +3920,10 @@ def generateGoogleFriendsMap() {
 								    	},
 									    radius:1 + ((Math.pow(2, (22 - currentZoom))*${memberHistoryScale})/10),
     									strokeColor:locations[member].color,
-                                        strokeOpacity:historyGradient(${memberHistoryLength},past),
+                                        strokeOpacity:historyGradient(${memberHistoryLength},past,minRadiusGradient),
 		    							strokeWeight:2,
 			    						fillColor:locations[member].color,
-				    					fillOpacity:historyGradient(${memberHistoryLength},past),
+				    					fillOpacity:historyGradient(${memberHistoryLength},past,minRadiusGradient),
                                         visible:false,
                                         zIndex:past
 					    			}
@@ -3860,14 +3948,14 @@ def generateGoogleFriendsMap() {
                                         ],
                                         map,
     									strokeColor:locations[member].color,
-                                        strokeOpacity:historyGradient(${memberHistoryLength},past),
+                                        strokeOpacity:historyGradient(${memberHistoryLength},past,minBearingGradient),
                                         strokeWeight:2.2*${memberHistoryStroke},
 			    						fillColor:locations[member].color,
-				    					fillOpacity:historyGradient(${memberHistoryLength},past),
+				    					fillOpacity:historyGradient(${memberHistoryLength},past,minBearingGradient),
                                         icons: [{
                                             icon: lineSymbol,
                                             offset: '50%',
-                                            repeat: '${memberHistoryRepeat}px'
+                                            repeat: '${memberHistoryRepeat}px',
                                         }]
                                     }
                                 );
@@ -3903,13 +3991,9 @@ def generateGoogleFriendsMap() {
                         }
                     };
 
-                    function historyGradient(historyLength, historySample) {
-                        const start = 0.1;
+                    function historyGradient(historyLength, historySample, minimumGradient) {
                         const end = 0.9;
-
-//                        var gradient = start*Math.pow( Math.pow((end/start), (1/(historyLength-1))) , historySample );
-                        var gradient = start+((end-start)*(historySample/(historyLength-1)));
-
+                        var gradient = minimumGradient+((end-minimumGradient)*(historySample/(historyLength-1)));
                         if (gradient > 1.0) gradient = 1.0;
                         return(gradient);
                     };
@@ -3917,17 +4001,55 @@ def generateGoogleFriendsMap() {
                     function showHideHistory() {
                         for (let loc=0; loc<markers.length; loc++) {
                             for (let past=0; past<markers[loc].history.length; past++) {
-                                if (${displayAllMembersHistory}) {
-                                    markers[loc].history[past].radius.setVisible(true);
-                                    markers[loc].history[past].bearingLine.setVisible(true);
-                                } else {
-                                    if (markers[loc].marker.title == currentMember) {
+                                if (locations[loc].history[past]?.tst != null) {
+                                    if (${displayAllMembersHistory}) {
                                         markers[loc].history[past].radius.setVisible(true);
                                         markers[loc].history[past].bearingLine.setVisible(true);
                                     } else {
-                                        markers[loc].history[past].radius.setVisible(false);
-                                        markers[loc].history[past].bearingLine.setVisible(false);
+                                        if (markers[loc].marker.title == currentMember) {
+                                            markers[loc].history[past].radius.setVisible(true);
+                                            // if the last two markers were the end marker, or the next a beginning, hide the bearing line to the next begin marker
+                                            if ((locations[loc].history[past]?.mkr == "${memberBeginMarker}") || ((locations[loc].history[past]?.mkr == "${memberEndMarker}") && (locations[loc].history[past-1]?.mkr == "${memberEndMarker}"))) {
+                                                markers[loc].history[past].bearingLine.setVisible(false);
+                                            } else {
+                                                markers[loc].history[past].bearingLine.setVisible(true);
+                                            }
+                                        } else {
+                                            markers[loc].history[past].radius.setVisible(false);
+                                            markers[loc].history[past].bearingLine.setVisible(false);
+                                        }
                                     }
+                                    // change the radius stroke based on the trip markers
+                                    // middle markers and the current begin marker use the default colors
+                                    if ((locations[loc].history[past]?.mkr == "${memberMiddleMarker}") || (locations[loc].history[past+1]?.tst == null)) {
+                                        markers[loc].history[past].radius.setOptions({
+                                            strokeColor:locations[loc].color,
+                                            strokeOpacity:historyGradient(${memberHistoryLength},past,minRadiusGradient),
+                                            strokeWeight:2,
+                                            fillColor:locations[loc].color,
+                                            fillOpacity:historyGradient(${memberHistoryLength},past,minRadiusGradient),
+                                        });
+                                    } else {
+                                        if (locations[loc].history[past]?.mkr == "${memberBeginMarker}") {
+                                            markers[loc].history[past].radius.setOptions({
+                                                strokeOpacity:historyGradient(${memberHistoryLength},past,minEndpointStrokeGradient),
+                                                strokeWeight:5,
+                                                fillColor:"white",
+                                                fillOpacity:1.0,
+                                            });
+                                        }
+                                        if (locations[loc].history[past]?.mkr == "${memberEndMarker}") {
+                                            markers[loc].history[past].radius.setOptions({
+                                                strokeOpacity:historyGradient(${memberHistoryLength},past,minEndpointStrokeGradient),
+                                                strokeWeight:3,
+                                                fillColor:"white",
+                                                fillOpacity:1.0,
+                                            });
+                                        }
+                                    }
+                                } else {
+                                    markers[loc].history[past].radius.setVisible(false);
+                                    markers[loc].history[past].bearingLine.setVisible(false);
                                 }
                             }
                         }
@@ -3998,6 +4120,7 @@ def generateGoogleFriendsMap() {
                                                     markers[loc].marker.zIndex = data.members[mem].zIndex;
                                                 }
                                                 followLocation(locations[loc]);
+                                                showHideHistory();
                                             }
                                         }
                                         // last person in the list is the one reported the latest location
@@ -4047,7 +4170,7 @@ def generateGoogleFriendsMap() {
                     setInterval(() => {
                         retrieveMemberLocations("");
                     }, 5000);
-                    // Sync history data in 100ms
+                    // Sync history data in 100ms (one time)
                     setTimeout(() => {
                         retrieveMemberLocations("sync");
                     }, 100);
@@ -4094,7 +4217,7 @@ def generateGoogleFriendsMap() {
                             "<td align='right'>" + getBearingIcon(position.cog) + "</td>" +
                         "</tr>" +
                         "<tr>" +
-                            "<td align='left'>" + position.location + "</td>" +
+                            "<td align='left'>" + position.loc + "</td>" +
                         "</tr>" +
                         "<tr>" +
                             "<td align='left'>" + "Since: " + position.since + "</td>" +
@@ -4105,12 +4228,12 @@ def generateGoogleFriendsMap() {
                         "<tr align='center'>" +
                             (position.dfh != "null" ? "<th width=33%>&#127968;</th>" : "") +
                             "<th width=33%>&#128270;</th>" +
-                            "<th width=33%>" + getSpeedIcon(position.speed) + "</th>" +
+                            "<th width=33%>" + getSpeedIcon(position.spd) + "</th>" +
                         "</tr>" +
                         "<tr align='center'>" +
                             (position.dfh != "null" ? "<td width=33%>" + position.dfh + " ${getLargeUnits()}</td>" : "") +
                             "<td width=33%>" + position.acc + " ${getSmallUnits()}</td>" +
-                            "<td width=33%>" + position.speed + " ${getVelocityUnits()}</td>" +
+                            "<td width=33%>" + position.spd + " ${getVelocityUnits()}</td>" +
                         "</tr>" +
                     "</table>" +
                     "<hr>" +
@@ -4146,7 +4269,7 @@ def generateGoogleFriendsMap() {
                             "<td align='left'><b>" + name + "</b></td>" +
                         "</tr>" +
                         "<tr>" +
-                            "<td align='left'>" + position[index].location + "</td>" +
+                            "<td align='left'>" + position[index].loc + "</td>" +
                         "</tr>" +
                         "<tr>" +
                             "<td align='left'>" + "(" + position[index].lat + "," + position[index].lng + ")" + "</td>" +
@@ -4160,12 +4283,12 @@ def generateGoogleFriendsMap() {
                         "<tr align='center'>" +
                             "<th width=33%>" + getBearingIcon(position[index].cog) + "</th>" +
                             "<th width=33%>&#128270;</th>" +
-                            "<th width=33%>" + getSpeedIcon(position[index].speed) + "</th>" +
+                            "<th width=33%>" + getSpeedIcon(position[index].spd) + "</th>" +
                         "</tr>" +
                         "<tr align='center'>" +
                             "<td width=33%>" + position[index].cog + "&#176;</td>" +
                             "<td width=33%>" + convertMetersToFeet(position[index].acc) + " ${getSmallUnits()}</td>" +
-                            "<td width=33%>" + convertKMToMiles(position[index].speed) + " ${getVelocityUnits()}</td>" +
+                            "<td width=33%>" + convertKMToMiles(position[index].spd) + " ${getVelocityUnits()}</td>" +
                         "</tr>" +
                     "</table>" +
                     "<hr>" +

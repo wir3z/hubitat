@@ -129,9 +129,10 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 #### Member History and Pin Colors
 - Enter the total number of past member locations to save (includes the slower interval locations, below).  
 	- Entering 0 will disable the member history.
-- Enter the number of thte total past member locations to save at a slower interval for longer history. Must be less than past member locations number.
-	- Entering 0 will disable the longer member history.
-- Time in minutes between each longer history location.
+- Time in minutes between adjacent history locations to denote an end of trip
+- Remove previous history location if member is moving in the same direction
+	- Select the slide to remove history points with similar bearings (value entered in the next setting).
+	- Locations with bearings within this number of degrees are removed to reduce history size 
 - Scale value for the past member locations dots.
 	- Scales the history dots based on the value entered.
 - Scale value for the past member locations lines/arrows.
