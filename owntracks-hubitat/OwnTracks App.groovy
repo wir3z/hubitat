@@ -132,6 +132,7 @@
  *  1.7.78     2024-08-11      - Bearing calculation was inverted.
  *  1.7.79     2024-08-18      - Reduced saved address to street address only.  Added trip markers to history.  Don't save locations with repeated 0 speed or similar bearing.  Fixed speed calculations if phone returned 0 speed.
  *  1.7.80     2024-08-18      - Added trip odometer.
+ *  1.7.81     2024-08-18      - Added trip stats to history points.
 */
 
 import groovy.transform.Field
@@ -140,7 +141,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.80"}
+def appVersion() { return "1.7.81"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -4248,10 +4249,10 @@ def generateGoogleFriendsMap() {
                     (position.stale ? "<div style='color:red'>" : "<div>") + "Last: " + position.last + "</div>" +
                     ((position.app != "null") && (position.app != "0") ? "<div style='color:red'>&#9940;App Permissions</div>" : "")
 
-                    return(contentString)
+                    return(contentString);
                 };
 
-                function formatDateToCustomPattern(date) {
+                function formatDateToCustomPattern(date, timeOnly) {
                     const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
                     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -4260,22 +4261,66 @@ def generateGoogleFriendsMap() {
                     const minute = date.getMinutes();
                     const amPm = hour >= 12 ? "PM" : "AM";
                     const amPmHour = (hour % 12) == 0 ? 12 : (hour % 12)
-                    const formattedDate = dayOfWeek + " " + amPmHour + ":" + minute.toString().padStart(2, "0") + " " + amPm + " " + date.getFullYear() + "-" + (date.getMonth() + 1).toString().padStart(2, "0") + "-" + date.getDate().toString().padStart(2, "0");
 
-                    return formattedDate;
+                    if (timeOnly) {
+                        return (amPmHour + ":" + minute.toString().padStart(2, "0") + " " + amPm);
+                    } else {
+                        return(dayOfWeek + " " + amPmHour + ":" + minute.toString().padStart(2, "0") + " " + amPm + " " + date.getFullYear() + "-" + (date.getMonth() + 1).toString().padStart(2, "0") + "-" + date.getDate().toString().padStart(2, "0"));
+                    }
+                };
+
+                function getSinceTime(newTime, oldTime) {
+                    timeDelta = parseInt((newTime - oldTime) / (60*1000));
+                    timeHours = parseInt(timeDelta / 60);
+                    timeMinutes = parseInt(timeDelta - (timeHours*60));
+                    timeDays = parseInt(timeHours / 24);
+                    timeHours = timeHours % 24;
+                    // change the return phrase depending on duration
+                    if (timeDays == 0) {
+                        return(timeHours + " h " + timeMinutes + " m");
+                    } else {
+                        return(timeDays + " d " + timeHours + " h");
+                    }
+                };
+
+                function getTripStats(position, index) {
+                    // default to current marker in case there are no beginning markers
+                    startTime = new Date(position[index].tst*1000);
+                    endTime = new Date(position[index].tst*1000);
+
+                    // if the current marker is a begin, then get the time since last trip - reverse the start/end times
+                    if (position[index].mkr == "${memberBeginMarker}") {
+                        startTime = new Date(position[index-1].tst*1000);
+                        tripStatus = "Idle";
+                    } else {
+                        // start at the current marker, and go backwards until we find the being marker
+                        for (let past=index; past>=0; past--) {
+                            if (position[past].mkr == "${memberBeginMarker}") {
+                                startTime = new Date(position[past].tst*1000);
+                                break;
+                            }
+                        }
+                        tripStatus = position[index].odo + " ${getLargeUnits()} Trip";
+                    }
+                    if (position[index].mkr == "${memberMiddleMarker}") {
+                        tripEndTime = "...";
+                    } else {
+                        tripEndTime = formatDateToCustomPattern(endTime, true);
+                    }
+                    timeDuration = getSinceTime(endTime, startTime);
+                    tripTimes = formatDateToCustomPattern(startTime, true) + " - " + tripEndTime + " " + "(" + timeDuration + ")";
+                    return[ tripStatus, tripTimes ]
                 };
 
                 function historyContent(name, position, index) {
-                    currentTime = Date.now();
                     historyTime = new Date(position[index].tst*1000);
-                    fromCurrentTime = parseInt((currentTime - historyTime) / (60*1000));
-                    fromCurrentTimeHours = parseInt(fromCurrentTime / 60)
-                    fromCurrentTimeMinutes = parseInt(fromCurrentTime - (fromCurrentTimeHours*60))
+                    tripStatus = "";
+                    tripTimes = "";
+                    [tripStatus, tripTimes] = getTripStats(position, index);
                     const contentString =
                     "<table style='width:100%;font-size:1.0em'>" +
                         "<tr>" +
                             "<td align='left'><b>" + name + "</b></td>" +
-                            "<td align='right'><b>Trip: " + position[index].odo + " ${getLargeUnits()}</b></td>" +
                         "</tr>" +
                         "<tr>" +
                             "<td align='left'>" + position[index].loc + "</td>" +
@@ -4284,7 +4329,16 @@ def generateGoogleFriendsMap() {
                             "<td align='left'>" + "(" + position[index].lat + "," + position[index].lng + ")" + "</td>" +
                         "</tr>" +
                         "<tr>" +
-                            "<td align='left'>" + formatDateToCustomPattern(historyTime) + "</td>" +
+                            "<td align='left'>" + formatDateToCustomPattern(historyTime, false) + "</td>" +
+                        "</tr>" +
+                    "</table>" +
+                    "<hr>" +
+                    "<table style='width:100%;font-size:1.0em'>" +
+                        "<tr>" +
+                            "<td align='left'><b>" + tripStatus + "</b></td>" +
+                        "</tr>" +
+                        "<tr>" +
+                            "<td align='left'>" + tripTimes + "</td>" +
                         "</tr>" +
                     "</table>" +
                     "<hr>" +
@@ -4303,7 +4357,7 @@ def generateGoogleFriendsMap() {
                     "<hr>" +
                     "<table style='width:100%;font-size:1.0em'>" +
                         "<tr align='center'>" +
-                            "<td width=33%>" + fromCurrentTimeHours + "h " + fromCurrentTimeMinutes + "m ago"  + "</td>" +
+                            "<td width=33%>" + getSinceTime(Date.now(), historyTime) + " ago"  + "</td>" +
                             "<td width=33%>" + "History: " + (position.length - index) + " / " + position.length + "</td>" +
                         "</tr>" +
                     "</table>"
