@@ -131,6 +131,7 @@
  *  1.7.77     2024-08-11      - Calculates bearing if returned bearing was 0.  Dynamically change the speed icon on Google Map based on speed.
  *  1.7.78     2024-08-11      - Bearing calculation was inverted.
  *  1.7.79     2024-08-18      - Reduced saved address to street address only.  Added trip markers to history.  Don't save locations with repeated 0 speed or similar bearing.  Fixed speed calculations if phone returned 0 speed.
+ *  1.7.80     2024-08-18      - Added trip odometer.
 */
 
 import groovy.transform.Field
@@ -139,7 +140,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.79"}
+def appVersion() { return "1.7.80"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -1909,6 +1910,9 @@ def isSSIDMatch(dataString, deviceID) {
 
 def calcMemberVelocity(member, data) {
     try {
+        travelDistance = haversine(member.latitude.toDouble(), member.longitude.toDouble(),data.lat.toDouble(), data.lon.toDouble())
+        // calcuate the member odometer
+        member.odo = (member.odo ? (member.odo + travelDistance).round(1) : travelDistance.round(1))
         // if we received a speed -- wifi location updates will return with 0 speed, so ignore those and calculated based on the distance moved
         if (data?.vel > 0) {
             member.speed = data.vel
@@ -1916,7 +1920,7 @@ def calcMemberVelocity(member, data) {
             // only calculate speed on specific location types
             if (validLocationType(data.t)) {
                 // calculate the speed between the new and previous location point
-                member.speed = (haversine(member.latitude.toDouble(), member.longitude.toDouble(),data.lat.toDouble(), data.lon.toDouble()) / ((data.tst - member.timeStamp) / 3600)).toInteger()
+                member.speed = (travelDistance / ((data.tst - member.timeStamp) / 3600)).toInteger()
             } else {
                 // prevent high calculated speed between multiple manual points returned in succession
                 member.speed = 0
@@ -1964,6 +1968,8 @@ def getHistoryMarker(member, data) {
             }
             // return "begin" for the next marker
             marker = memberBeginMarker
+            // reset the odometer
+            member.odo = 0
         } else {
             // if the last two history points have zero velocity
             if ((member.speed == 0) && (member.history.spd[historyLength] == 0)) {
@@ -2003,6 +2009,7 @@ def updateMemberAttributes(headers, data, member) {
     updateAddress(member, data)
     // add the street address and regions, if they exist
     addStreetAddressAndRegions(data)
+    // calculate the speed and odometer
     calcMemberVelocity(member, data)
 
     // save the position and timestamp so we can push to other users
@@ -2027,8 +2034,9 @@ def updateMemberAttributes(headers, data, member) {
 
     // only save history on valid location types (ignore region and manual types)
     if (validLocationType(data.t)) {
+
         // first create the new member location so that the getHistoryMarker can clean up repeating events as necessary
-        def memberLocation = [ "lat": member.latitude, "lng": member.longitude, "acc": member.accuracy, "cog": member.bearing, "spd": member.speed, "tst": member.timeStamp, "loc": data.streetAddress, "mkr": getHistoryMarker(member, data) ]
+        def memberLocation = [ "lat": member.latitude, "lng": member.longitude, "acc": member.accuracy, "cog": member.bearing, "spd": member.speed, "odo": member.odo, "tst": member.timeStamp, "loc": data.streetAddress, "mkr": getHistoryMarker(member, data) ]
         try {
             // if the history buffer is full
             if (member.history.size == memberHistoryLength.toInteger()) {
@@ -4267,6 +4275,7 @@ def generateGoogleFriendsMap() {
                     "<table style='width:100%;font-size:1.0em'>" +
                         "<tr>" +
                             "<td align='left'><b>" + name + "</b></td>" +
+                            "<td align='right'><b>Trip: " + position[index].odo + " ${getLargeUnits()}</b></td>" +
                         "</tr>" +
                         "<tr>" +
                             "<td align='left'>" + position[index].loc + "</td>" +
