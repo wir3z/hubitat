@@ -133,6 +133,7 @@
  *  1.7.79     2024-08-18      - Reduced saved address to street address only.  Added trip markers to history.  Don't save locations with repeated 0 speed or similar bearing.  Fixed speed calculations if phone returned 0 speed.
  *  1.7.80     2024-08-18      - Added trip odometer.
  *  1.7.81     2024-08-18      - Added trip stats to history points.
+ *  1.7.82     2024-08-20      - Improved trip stats display.  Give full trip stats when a trip line is selected.  Disable auto zoom/centering when the map is panned or a history point is opened.
 */
 
 import groovy.transform.Field
@@ -141,7 +142,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.81"}
+def appVersion() { return "1.7.82"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -3744,6 +3745,7 @@ def generateGoogleFriendsMap() {
                     const markers = [];
                     // -2=close, -1=marker open, 0+=history sample open
                     infoWindowVisible = -2;
+                    inhibitAutoZoom = false;
                     // get the member data with thumbnail images
                     retrieveMemberLocations("img");
 
@@ -3768,25 +3770,29 @@ def generateGoogleFriendsMap() {
 
                     map.addListener("click", () => {
                         infoWindow.close();
-                        // when the map is clicked, zoom back out to 14, and then next click to full zoom
-                        currentZoom = map.getZoom()
-                        if (currentZoom > 14) {
-                            currentZoom = 14;
+                        if (inhibitAutoZoom) {
+                            inhibitAutoZoom = false;
                         } else {
-                            currentZoom -= 1;
-                            if (currentZoom < mapCenterAndZoom.zoom) {
-                                currentZoom = mapCenterAndZoom.zoom;
+                            // when the map is clicked, zoom back out to 14, and then next click to full zoom
+                            currentZoom = map.getZoom()
+                            if (currentZoom > 14) {
+                                currentZoom = 14;
+                            } else {
+                                currentZoom -= 1;
+                                if (currentZoom < mapCenterAndZoom.zoom) {
+                                    currentZoom = mapCenterAndZoom.zoom;
+                                }
                             }
+                            map.setZoom(currentZoom);
+                            currentMember = "null";
+                            historyMember = "null";
+                            showHideHistory();
+                            infoWindowVisible = -2;
+                            postData = {};
+                            postData["zoom"] = currentZoom;
+                            postData["member"] = currentMember;
+                            sendDataToHub(postData);
                         }
-                        map.setZoom(currentZoom);
-                        currentMember = "null";
-                        historyMember = "null";
-                        showHideHistory();
-                        infoWindowVisible = -2;
-                        postData = {};
-                        postData["zoom"] = currentZoom;
-                        postData["member"] = currentMember;
-                        sendDataToHub(postData);
                     });
                     map.addListener("zoom_changed", () => {
                         // when the user clicks the +/- zoom buttons or we modify zoom by clicking on the marker
@@ -3796,7 +3802,16 @@ def generateGoogleFriendsMap() {
                         postData["zoom"] = currentZoom;
                         sendDataToHub(postData);
                     });
+                    map.addListener('dragstart', () => {
+                        // user starting panning the map
+                        inhibitAutoZoom = true;
+                    });
+                    map.addListener('dragend', () => {
+                        // user stopped panning the map
+                        inhibitAutoZoom = true;
+                    });
                     google.maps.event.addListener(infoWindow, 'closeclick', () => {
+                        inhibitAutoZoom = false;
                         infoWindowVisible = -2;
                         historyMember = "null";
                     });
@@ -3939,10 +3954,12 @@ def generateGoogleFriendsMap() {
 						    	)
                                 // Add a click listener for each radius, and set up the info window
                                 radius.addListener("click", () => {
+                                    // user selected a history point
+                                    inhibitAutoZoom = true;
                                     infoWindow.close();
                                     infoWindow.setPosition(radius.getCenter());
                                     infoWindowVisible = radius.zIndex;
-                                    infoWindow.setContent(historyContent(locations[member].name, locations[member].history, past));
+                                    infoWindow.setContent(historyContent(locations[member].name, locations[member].history, past, false));
                                     infoWindow.open(radius.map, radius);
                                     historyMember = locations[member].name;
                                 });
@@ -3968,6 +3985,17 @@ def generateGoogleFriendsMap() {
                                         }]
                                     }
                                 );
+                                bearingLine.addListener("click", function(event) {
+                                    // user selected a history point
+                                    inhibitAutoZoom = true;
+                                    infoWindow.close();
+                                    infoWindow.setPosition(event.latLng);
+                                    infoWindowVisible = bearingLine.zIndex;
+                                    infoWindow.setContent(historyContent(locations[member].name, locations[member].history, past, true));
+                                    infoWindow.open(bearingLine.map, bearingLine);
+                                    historyMember = locations[member].name;
+                                });
+
                                 history.push({radius,bearingLine});
     						};
                             // save the marker and history
@@ -3990,7 +4018,7 @@ def generateGoogleFriendsMap() {
                                 infoWindow.setContent(infoContent(member));
                             }
                             // member is selected, and the window is closed
-                            if (infoWindowVisible < 0) {
+                            if ((infoWindowVisible < 0) && !inhibitAutoZoom) {
                                 // recenter the map if the marker is out of bounds, and the history window is closed
                                 const mapBounds = map.getBounds();
                                 if (!mapBounds.contains(center)) {
@@ -4123,7 +4151,7 @@ def generateGoogleFriendsMap() {
                                                     // if a history info box is open
                                                     if (infoWindowVisible >= 0) {
                                                         infoWindow.setPosition(markers[loc].history[infoWindowVisible].radius.getCenter());
-                                                        infoWindow.setContent(historyContent(markers[loc].marker.title, locations[loc].history, infoWindowVisible));
+                                                        infoWindow.setContent(historyContent(markers[loc].marker.title, locations[loc].history, infoWindowVisible, false));
                                                     }
                                                 } else {
                                                     markers[loc].marker.zIndex = data.members[mem].zIndex;
@@ -4283,26 +4311,44 @@ def generateGoogleFriendsMap() {
                     }
                 };
 
-                function getTripStats(position, index) {
+                function getTripStats(position, index, findFullTrip) {
                     // default to current marker in case there are no beginning markers
                     startTime = new Date(position[index].tst*1000);
                     endTime = new Date(position[index].tst*1000);
+                    tripEndFound = false;
+                    tripNumber = 1;
+                    for (let past=index; past<position.length; past++) {
+                        // find the trip number
+                        if (position[past].mkr == "${memberBeginMarker}") {
+                            tripNumber++;
+                        }
+                        // find the next end marker
+                        if (findFullTrip && !tripEndFound && (position[past].mkr == "${memberEndMarker}")) {
+                            endTime = new Date(position[past].tst*1000);
+                            tripEndFound = true;
+                        }
+                    }
 
                     // if the current marker is a begin, then get the time since last trip - reverse the start/end times
                     if (position[index].mkr == "${memberBeginMarker}") {
-                        startTime = new Date(position[index-1].tst*1000);
+                        if (index > 0) {
+                            startTime = new Date(position[index-1].tst*1000);
+                        }
                         tripStatus = "Idle";
                     } else {
                         // start at the current marker, and go backwards until we find the being marker
+                        saveBegin = true
                         for (let past=index; past>=0; past--) {
                             if (position[past].mkr == "${memberBeginMarker}") {
+                                // store the first begin marker
                                 startTime = new Date(position[past].tst*1000);
                                 break;
                             }
                         }
-                        tripStatus = position[index].odo + " ${getLargeUnits()} Trip";
+                        tripStatus = position[index].odo + " ${getLargeUnits()} Trip #" + tripNumber;
                     }
-                    if (position[index].mkr == "${memberMiddleMarker}") {
+
+                    if ((findFullTrip && !tripEndFound) || (!findFullTrip && (position[index].mkr == "${memberMiddleMarker}"))) {
                         tripEndTime = "...";
                     } else {
                         tripEndTime = formatDateToCustomPattern(endTime, true);
@@ -4312,11 +4358,11 @@ def generateGoogleFriendsMap() {
                     return[ tripStatus, tripTimes ]
                 };
 
-                function historyContent(name, position, index) {
+                function historyContent(name, position, index, fullTripStats) {
                     historyTime = new Date(position[index].tst*1000);
                     tripStatus = "";
                     tripTimes = "";
-                    [tripStatus, tripTimes] = getTripStats(position, index);
+                    [tripStatus, tripTimes] = getTripStats(position, index, fullTripStats);
                     const contentString =
                     "<table style='width:100%;font-size:1.0em'>" +
                         "<tr>" +
