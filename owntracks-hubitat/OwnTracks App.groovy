@@ -134,6 +134,7 @@
  *  1.7.80     2024-08-18      - Added trip odometer.
  *  1.7.81     2024-08-18      - Added trip stats to history points.
  *  1.7.82     2024-08-20      - Improved trip stats display.  Give full trip stats when a trip line is selected.  Disable auto zoom/centering when the map is panned or a history point is opened.
+ *  1.7.83     2024-08-21      - Disable auto zoom/centering when the map is panned or a history point is opened and member is being tracked.
 */
 
 import groovy.transform.Field
@@ -142,7 +143,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.82"}
+def appVersion() { return "1.7.83"}
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -3727,15 +3728,23 @@ def generateGoogleFriendsMap() {
                 mapCenterAndZoom["lat"]  = ${initialMapCenterAndZoom.lat};
                 mapCenterAndZoom["lon"]  = ${initialMapCenterAndZoom.lon};
                 // check if we are tracking a user when the map is created
-                currentMember = "${retrieveGoogleFriendsMapMember()}";
-                if (!currentMember) {
-                    currentMember = "null";
-                }
+                currentMember = getMember("${retrieveGoogleFriendsMapMember()}");
                 currentZoom = ${retrieveGoogleFriendsMapZoom()};
                 if (!currentZoom) {
                     currentZoom = mapCenterAndZoom.zoom;
                 }
                 historyMember = "null";
+                lastUpdate = "Unknown";
+
+                function getMember(memberName) {
+                    // returns the member map based on a name match
+                    for (let loc=0; loc<locations.length; loc++) {
+                        if (locations[loc].name == memberName) {
+                            return(locations[loc]);
+                        }
+                    }
+                    return("null");
+                }
 
                 function initMap() {
                     const infoWindow = new google.maps.InfoWindow();
@@ -3772,6 +3781,8 @@ def generateGoogleFriendsMap() {
                         infoWindow.close();
                         if (inhibitAutoZoom) {
                             inhibitAutoZoom = false;
+                            // resume tracking to the member if selected
+                            followLocation(currentMember);
                         } else {
                             // when the map is clicked, zoom back out to 14, and then next click to full zoom
                             currentZoom = map.getZoom()
@@ -3793,6 +3804,7 @@ def generateGoogleFriendsMap() {
                             postData["member"] = currentMember;
                             sendDataToHub(postData);
                         }
+                        updateBottomBanner();
                     });
                     map.addListener("zoom_changed", () => {
                         // when the user clicks the +/- zoom buttons or we modify zoom by clicking on the marker
@@ -3805,15 +3817,18 @@ def generateGoogleFriendsMap() {
                     map.addListener('dragstart', () => {
                         // user starting panning the map
                         inhibitAutoZoom = true;
+                        updateBottomBanner();
                     });
                     map.addListener('dragend', () => {
                         // user stopped panning the map
                         inhibitAutoZoom = true;
+                        updateBottomBanner();
                     });
                     google.maps.event.addListener(infoWindow, 'closeclick', () => {
                         inhibitAutoZoom = false;
                         infoWindowVisible = -2;
                         historyMember = "null";
+                        updateBottomBanner();
                     });
 
                     // place the region pins
@@ -3916,19 +3931,20 @@ def generateGoogleFriendsMap() {
                                     }
                                     map.setZoom(currentZoom);
                                 }
-                                if (((currentMember != "null") && (currentMember != marker.title)) || (infoWindowVisible == -1)) {
+                                if (((currentMember != "null") && (currentMember.name != marker.title)) || (infoWindowVisible == -1)) {
                                     // assign the new current member so that the history can update
-                                    currentMember = marker.title;
+                                    currentMember = getMember(marker.title);
                                     showHideHistory();
                                 } else {
-                                    currentMember = marker.title;
+                                    currentMember = getMember(marker.title);
                                 }
 
                                 infoWindowVisible = -1;
                                 postData = {};
                                 postData["zoom"] = currentZoom;
-                                postData["member"] = currentMember;
+                                postData["member"] = currentMember.name;
                                 sendDataToHub(postData);
+                                updateBottomBanner();
                             });
 
                             // create history circles for the past locations
@@ -3962,6 +3978,7 @@ def generateGoogleFriendsMap() {
                                     infoWindow.setContent(historyContent(locations[member].name, locations[member].history, past, false));
                                     infoWindow.open(radius.map, radius);
                                     historyMember = locations[member].name;
+                                    updateBottomBanner();
                                 });
                                 const lineSymbol = {
                                     path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
@@ -3994,6 +4011,7 @@ def generateGoogleFriendsMap() {
                                     infoWindow.setContent(historyContent(locations[member].name, locations[member].history, past, true));
                                     infoWindow.open(bearingLine.map, bearingLine);
                                     historyMember = locations[member].name;
+                                    updateBottomBanner();
                                 });
 
                                 history.push({radius,bearingLine});
@@ -4007,7 +4025,7 @@ def generateGoogleFriendsMap() {
 
                     function followLocation(member) {
                         // change the center and zoom to match the member being tracked
-                        if (member.name == currentMember) {
+                        if (member.name == currentMember.name) {
                             // center the map on the member
                             center = {};
                             center["lat"] = member.lat;
@@ -4028,6 +4046,25 @@ def generateGoogleFriendsMap() {
                         }
                     };
 
+                    function centerMap() {
+                        // check if we have any out of bounds locations when not tracking a member
+                        if ((currentMember == "null") && !inhibitAutoZoom) {
+                            center = {};
+                            const mapBounds = map.getBounds();
+                            // if a member is out of bounds, reset the center and zoom
+                            for (let loc=0; loc<locations.length; loc++) {
+                                center["lat"] = locations[loc].lat;
+                                center["lng"] = locations[loc].lng;
+                                if (!mapBounds.contains(center)) {
+                                    center["lat"] = mapCenterAndZoom.lat;
+                                    center["lng"] = mapCenterAndZoom.lon;
+                                    map.setCenter(center);
+                                    map.setZoom(mapCenterAndZoom.zoom);
+                                }
+                            }
+                        }
+                    };
+
                     function historyGradient(historyLength, historySample, minimumGradient) {
                         const end = 0.9;
                         var gradient = minimumGradient+((end-minimumGradient)*(historySample/(historyLength-1)));
@@ -4043,7 +4080,7 @@ def generateGoogleFriendsMap() {
                                         markers[loc].history[past].radius.setVisible(true);
                                         markers[loc].history[past].bearingLine.setVisible(true);
                                     } else {
-                                        if (markers[loc].marker.title == currentMember) {
+                                        if (markers[loc].marker.title == currentMember.name) {
                                             markers[loc].history[past].radius.setVisible(true);
                                             // if the last two markers were the end marker, or the next a beginning, hide the bearing line to the next begin marker
                                             if ((locations[loc].history[past]?.mkr == "${memberBeginMarker}") || ((locations[loc].history[past]?.mkr == "${memberEndMarker}") && (locations[loc].history[past-1]?.mkr == "${memberEndMarker}"))) {
@@ -4100,25 +4137,6 @@ def generateGoogleFriendsMap() {
 	                    }
                     };
 
-                    function centerMap() {
-                        // check if we have any out of bounds locations when not tracking a member
-                        if (currentMember == "null") {
-                            center = {};
-                            const mapBounds = map.getBounds();
-                            // if a member is out of bounds, reset the center and zoom
-                            for (let loc=0; loc<locations.length; loc++) {
-                                center["lat"] = locations[loc].lat;
-                                center["lng"] = locations[loc].lng;
-                                if (!mapBounds.contains(center)) {
-                                    center["lat"] = mapCenterAndZoom.lat;
-                                    center["lng"] = mapCenterAndZoom.lon;
-                                    map.setCenter(center);
-                                    map.setZoom(mapCenterAndZoom.zoom);
-                                }
-                            }
-                        }
-                    };
-
                     function updateLocations(data) {
                         // check if it is a member update response
                         if (data.mapCenterAndZoom) {
@@ -4161,23 +4179,24 @@ def generateGoogleFriendsMap() {
                                             }
                                         }
                                         // last person in the list is the one reported the latest location
-                                        updateLastUpdate(data.members[mem].last);
+                                        lastUpdate = data.members[mem].last;
                                     };
                                 } else {
                                     // if there are no locations, copy the first instance and add the markers
                                     locations = data.members;
                                     addMemberMarkers();
                                     // last person in the list is the one reported the latest location
-                                    updateLastUpdate(locations[locations.length - 1].last);
+                                    lastUpdate = locations[locations.length - 1].last;
                                 }
                             }
-                            // recenter the map if necessary
-                            centerMap();
+                            updateBottomBanner();
                         }
                     };
 
-                    function updateLastUpdate(last) {
-                        document.getElementById("id-lastTime").textContent = 'Last Update: ' + last;
+                    function updateBottomBanner() {
+                        document.getElementById("id-lastTime").textContent = "Last Update: " + lastUpdate + (currentMember != "null" ? (" | Following: " + currentMember.name) : "") + (inhibitAutoZoom ? " | Tracking Paused" : "");
+                        // recenter the map if necessary
+                        centerMap();
                     }
 
                     function retrieveMemberLocations(payload) {
