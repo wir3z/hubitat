@@ -11,6 +11,7 @@ import android.os.Build
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import org.owntracks.android.model.messages.MessageStatus
 
 @Singleton
 class WifiInfoProvider @Inject constructor(@ApplicationContext context: Context) {
@@ -62,7 +63,11 @@ class WifiInfoProvider @Inject constructor(@ApplicationContext context: Context)
   fun isConnected(): Boolean = getBSSID() != null
 
   fun isWiFiEnabled(): Int =
-      if (wifiManager.isWifiEnabled) { 1 } else { 0 }
+      if (wifiManager.isWifiEnabled) {
+        MessageStatus.STATUS_WIFI_ENABLED
+      } else {
+        MessageStatus.STATUS_WIFI_DISABLED
+      }
 }
 
 fun WifiInfo.getUnquotedSSID(): String = this.ssid.replace(Regex("^\"(.*)\"$"), "$1")

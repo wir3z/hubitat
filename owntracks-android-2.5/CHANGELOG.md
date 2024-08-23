@@ -5,11 +5,15 @@
 ### New features
 
 - Added `cog` field to location messages showing current bearing (#1777)
+- Added `status` remote command to retrieve system configuration status (#1618)
 
 ### Bug fixes
 
 - Fix crash where changing the theme via setting the preferences remotely causes the theme change to not happen on the main thread
 - Fix crash where trying to close the MQTT connection whilst it's connecting thows an unhandled exception
+- Only latest stop reason should be printed to logs on startup
+- Fix bug where geofencing client wasn't initialized properly, leading to very unreliable region transition detection
+- Fix bug where some settings (`pubQos`, `mqttProtocolLevel` etc.) couldn't be set via the config editor (#1801)
 
 ## Version 2.5.1
 
@@ -57,7 +61,6 @@
 - Messages now include a random `_id` (String) field which can be used by any consumer to correlate and distinguish send/return messages
 - `pubExtendedData` preference renamed to `extendedData` (#1654)
 - `reportLocation` command is now supported in HTTP mode
-- Added `status` remote command to retrieve system configuration status (#1618)
 
 ### Bug fixes
 

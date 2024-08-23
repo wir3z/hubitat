@@ -2,6 +2,12 @@ package org.owntracks.android.services
 
 import android.location.Location
 import android.os.Build
+import java.time.Instant
+import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Named
+import javax.inject.Singleton
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -12,6 +18,7 @@ import org.owntracks.android.data.waypoints.WaypointsRepo
 import org.owntracks.android.di.ApplicationScope
 import org.owntracks.android.di.CoroutineScopes
 import org.owntracks.android.location.geofencing.Geofence
+import org.owntracks.android.model.messages.AddMessageStatus
 import org.owntracks.android.model.messages.MessageLocation
 import org.owntracks.android.model.messages.MessageLocation.Companion.fromLocation
 import org.owntracks.android.model.messages.MessageLocation.Companion.fromLocationAndWifiInfo
@@ -19,7 +26,6 @@ import org.owntracks.android.model.messages.MessageStatus
 import org.owntracks.android.model.messages.MessageTransition
 import org.owntracks.android.model.messages.MessageWaypoint
 import org.owntracks.android.model.messages.MessageWaypoints
-import org.owntracks.android.model.messages.addMessageStatus
 import org.owntracks.android.net.WifiInfoProvider
 import org.owntracks.android.preferences.Preferences
 import org.owntracks.android.preferences.types.MonitoringMode
@@ -27,12 +33,6 @@ import org.owntracks.android.support.DeviceMetricsProvider
 import org.owntracks.android.support.MessageWaypointCollection
 import org.owntracks.android.test.SimpleIdlingResource
 import timber.log.Timber
-import java.time.Instant
-import java.util.concurrent.TimeUnit
-import javax.inject.Inject
-import javax.inject.Named
-import javax.inject.Singleton
-import kotlin.math.roundToInt
 
 @Singleton
 class LocationProcessor
@@ -52,15 +52,13 @@ constructor(
     private val mockLocationIdlingResource: SimpleIdlingResource
 ) {
   var lastAddress: String? = null
-
   private fun locationIsWithAccuracyThreshold(l: Location): Boolean =
       preferences.ignoreInaccurateLocations
           .run { preferences.ignoreInaccurateLocations == 0 || l.accuracy < this }
           .also {
             if (!it) {
               Timber.v(
-                  "Location accuracy ${l.accuracy} is outside accuracy threshold of ${preferences.ignoreInaccurateLocations}",
-              )
+                  "Location accuracy ${l.accuracy} is outside accuracy threshold of ${preferences.ignoreInaccurateLocations}")
             }
           }
 
@@ -79,8 +77,7 @@ constructor(
 
     // Check if publish would trigger a region if fusedRegionDetection is enabled
     Timber.v(
-        "Checking if location triggers waypoint transitions. waypoints: $loadedWaypoints, fusedRegionDetection: ${preferences.fusedRegionDetection}",
-    )
+        "Checking if location triggers waypoint transitions. waypoints: $loadedWaypoints, trigger=$trigger, fusedRegionDetection: ${preferences.fusedRegionDetection}")
     if (loadedWaypoints.isNotEmpty() &&
         preferences.fusedRegionDetection &&
         trigger != MessageLocation.ReportType.CIRCULAR) {
@@ -89,13 +86,12 @@ constructor(
             waypoint,
             location,
             if (location.distanceTo(waypoint.getLocation()) <=
-              waypoint.geofenceRadius + location.accuracy) {
+                waypoint.geofenceRadius + location.accuracy) {
               Geofence.GEOFENCE_TRANSITION_ENTER
             } else {
               Geofence.GEOFENCE_TRANSITION_EXIT
             },
-            MessageTransition.TRIGGER_LOCATION,
-        )
+            MessageTransition.TRIGGER_LOCATION)
       }
     }
     if (preferences.monitoring === MonitoringMode.QUIET &&
@@ -128,7 +124,6 @@ constructor(
               address = lastAddress
             }
     Timber.v("Actually publishing location $location triggered by $trigger as message=$message")
-
     messageProcessor.queueMessageForSending(message)
     if (responseMessageTypes.contains(trigger)) {
       publishResponseMessageIdlingResource.setIdleState(true)
@@ -140,8 +135,7 @@ constructor(
       listOf(
           MessageLocation.ReportType.RESPONSE,
           MessageLocation.ReportType.USER,
-          MessageLocation.ReportType.CIRCULAR,
-      )
+          MessageLocation.ReportType.CIRCULAR)
 
   private fun calculateInRegions(loadedWaypoints: List<WaypointModel>): List<String> =
       loadedWaypoints
@@ -181,11 +175,12 @@ constructor(
       transition: Int,
       trigger: String
   ) {
-    Timber.v("OnWaypointTransition $waypointModel $location $transition $trigger")
     if (!locationIsWithAccuracyThreshold(location)) {
-      Timber.d("ignoring transition: low accuracy ")
+      Timber.d(
+          "ignoring transition for $location, transition=$transition, trigger=$trigger: low accuracy")
       return
     }
+    Timber.d("OnWaypointTransition $waypointModel $location $transition $trigger")
     scope.launch {
       // If the transition hasn't changed, or has moved from unknown to exit, don't notify.
       if (transition == waypointModel.lastTransition ||
@@ -229,8 +224,7 @@ constructor(
           timestamp = TimeUnit.MILLISECONDS.toSeconds(triggeringLocation.time)
           waypointTimestamp = waypointModel.tst.epochSecond
           description = waypointModel.description
-        },
-    )
+        })
   }
 
   suspend fun publishWaypointsMessage() {
@@ -248,25 +242,24 @@ constructor(
                           radius = it.geofenceRadius
                           timestamp = it.tst.epochSecond
                         }
-                      },
-                  )
+                      })
                 }
               }
-        },
-    )
+        })
     publishResponseMessageIdlingResource.setIdleState(true)
   }
 
-  suspend fun publishStatusMessage() {
+  fun publishStatusMessage() {
     messageProcessor.queueMessageForSending(
         MessageStatus().apply {
-          android = addMessageStatus().apply {
-            wifistate = wifiInfoProvider.isWiFiEnabled();
-            powerSave = deviceMetricsProvider.powerSave;
-            batteryOptimizations = deviceMetricsProvider.batteryOptimizations;
-            appHibernation = deviceMetricsProvider.appHibernation;
-            locationPermission = deviceMetricsProvider.locationPermission;
-          }
+          android =
+              AddMessageStatus().apply {
+                wifistate = wifiInfoProvider.isWiFiEnabled()
+                powerSave = deviceMetricsProvider.powerSave
+                batteryOptimizations = deviceMetricsProvider.batteryOptimizations
+                appHibernation = deviceMetricsProvider.appHibernation
+                locationPermission = deviceMetricsProvider.locationPermission
+              }
         })
     publishResponseMessageIdlingResource.setIdleState(true)
   }
