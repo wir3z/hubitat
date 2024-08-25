@@ -137,6 +137,7 @@
  *  1.7.83     2024-08-21      - Disable auto zoom/centering when the map is panned or a history point is opened and member is being tracked.
  *  1.7.84     2024-08-24      - Re-worked the zoom/auto zoom controls.  Set the minimum history speed limit to <2KPH to reduce noisy location points.  Prevent calculating speed on rapidly arriving locations.
  *  1.7.85     2024-08-25      - Selecting a trip will bring it into focus.
+ *  1.7.86     2024-08-25      - Selecting trips when all member trips are visible will bring it into focus.
 */
 
 import groovy.transform.Field
@@ -145,7 +146,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.85"}
+def appVersion() { return "1.7.86" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -3759,6 +3760,7 @@ def generateGoogleFriendsMap() {
                     infoWindowVisible = -2;
                     inhibitAutoZoom = false;
                     tripNumber = 0;
+                    tripMember = "null";
                     // get the member data with thumbnail images
                     retrieveMemberLocations("img");
                     currentZoom = ${retrieveGoogleFriendsMapZoom()};
@@ -3873,6 +3875,7 @@ def generateGoogleFriendsMap() {
 
                     function mapRegionClick() {
                         tripNumber = 0;
+                        tripMember = "null";
                         showHideHistory();
                         infoWindow.close();
                         if (inhibitAutoZoom) {
@@ -4199,14 +4202,19 @@ def generateGoogleFriendsMap() {
                             for (let past=0; past<markers[loc].history.length; past++) {
                                 if (locations[loc].history[past]?.tst != null) {
                                     tripFocus = false;
+                                    // if the member is selected, show all trips if no trip is select, otherwise only show the selected trip
+                                    if (tripNumber == locations[loc].history[past].tp) {
+                                        tripFocus = true;
+                                    }
                                     if (${displayAllMembersHistory}) {
-                                        markers[loc].history[past].radius.setVisible(true);
-                                        markers[loc].history[past].bearingLine.setVisible(true);
-                                    } else {
-                                        // if the member is selected, show all trips if no trip is select, otherwise only show the selected trip
-                                        if (tripNumber == locations[loc].history[past].tp) {
-                                            tripFocus = true;
+                                        if ((tripNumber == 0) || (tripFocus && (markers[loc].marker.title == tripMember))) {
+                                            markers[loc].history[past].radius.setVisible(true);
+                                            markers[loc].history[past].bearingLine.setVisible(true);
+                                        } else {
+                                            markers[loc].history[past].radius.setVisible(false);
+                                            markers[loc].history[past].bearingLine.setVisible(false);
                                         }
+                                    } else {
                                         if ((markers[loc].marker.title == currentMember.name) && ((tripNumber == 0) || tripFocus)) {
                                             markers[loc].history[past].radius.setVisible(true);
                                             // if the last two markers were the end marker, or the next a beginning, hide the bearing line to the next begin marker
@@ -4387,6 +4395,7 @@ def generateGoogleFriendsMap() {
 
                 function infoContent(position) {
                     tripNumber = 0;
+                    tripMember = position.name;
                     const contentString =
                     "<table style='width:100%;font-size:1.0em'>" +
                         "<tr>" +
@@ -4501,6 +4510,7 @@ def generateGoogleFriendsMap() {
 
                 function historyContent(name, position, index, fullTripStats) {
                     tripNumber = position[index].tp;
+                    tripMember = name;
                     historyTime = new Date(position[index].tst*1000);
                     tripStatus = "";
                     tripTimes = "";
