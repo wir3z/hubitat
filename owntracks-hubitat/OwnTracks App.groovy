@@ -139,6 +139,7 @@
  *  1.7.85     2024-08-25      - Selecting a trip will bring it into focus.
  *  1.7.86     2024-08-25      - Selecting trips when all member trips are visible will bring it into focus.
  *  1.7.87     2024-08-25      - Fixed exception in trip numbering when member has no history.
+ *  1.7.88     2024-08-26      - Fixed exception if a member was deleted and past settings were not cleared.
 */
 
 import groovy.transform.Field
@@ -147,7 +148,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.87" }
+def appVersion() { return "1.7.88" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -1288,12 +1289,16 @@ def clearSettingFields() {
     app.removeSetting("regionRadius")
     app.removeSetting("regionLat")
     app.removeSetting("regionLon")
-    state.previousRegionName = ""
     app.removeSetting("selectFamilyMembers")
     app.removeSetting("notificationEnter")
     app.removeSetting("notificationEnterRegions")
     app.removeSetting("notificationLeave")
     app.removeSetting("notificationLeaveRegions")
+    app.removeSetting("selectMemberGlyph")
+    app.removeSetting("memberGlyphColor")
+    state.previousRegionName = null
+    state.selectFamilyMembers = null
+    state.selectMemberGlyph = null
 }
 
 def installed() {
@@ -1557,7 +1562,7 @@ def pruneMemberHistory(member) {
             }
         } catch (e) {
             // do nothing -- once we have configured and received enough history points, this will succeed
-        }        
+        }
     }
 }
 
