@@ -138,6 +138,7 @@
  *  1.7.84     2024-08-24      - Re-worked the zoom/auto zoom controls.  Set the minimum history speed limit to <2KPH to reduce noisy location points.  Prevent calculating speed on rapidly arriving locations.
  *  1.7.85     2024-08-25      - Selecting a trip will bring it into focus.
  *  1.7.86     2024-08-25      - Selecting trips when all member trips are visible will bring it into focus.
+ *  1.7.87     2024-08-25      - Fixed exception in trip numbering when member has no history.
 */
 
 import groovy.transform.Field
@@ -146,7 +147,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.86" }
+def appVersion() { return "1.7.87" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -1539,20 +1540,24 @@ def pruneMemberHistory(member) {
         while (member?.history?.size() > (memberHistoryLength != null ? memberHistoryLength : DEFAULT_memberHistoryLength)) {
             member.history.remove(0)
         }
-        // calculate the trip numbers and populate the history
-        tripNumber = 1;
-        for (i=(member.history.size-1); i>=0; i--) {
-            // if we have no trip started yet
-            if ((member.history.mkr[i] == memberBeginMarker) && (i == (member.history.size-1))) {
-                tripNumber = 0;
+        try {
+            // calculate the trip numbers and populate the history
+            tripNumber = 1;
+            for (i=(member.history.size-1); i>=0; i--) {
+                // if we have no trip started yet
+                if ((member.history.mkr[i] == memberBeginMarker) && (i == (member.history.size-1))) {
+                    tripNumber = 0;
+                }
+                // increment the trip marker
+                if (member.history.mkr[i] == memberEndMarker) {
+                    tripNumber++;
+                }
+                memberHistory = member.history[i]
+                memberHistory["tp"] = tripNumber;
             }
-            // increment the trip marker
-            if (member.history.mkr[i] == memberEndMarker) {
-                tripNumber++;
-            }
-            memberHistory = member.history[i]
-            memberHistory["tp"] = tripNumber;
-        }
+        } catch (e) {
+            // do nothing -- once we have configured and received enough history points, this will succeed
+        }        
     }
 }
 
@@ -3731,6 +3736,10 @@ def generateGoogleFriendsMap() {
                 <div id="id-lastTime" style="font-size:0.8em;color:white;font-family:arial;padding:5px"></div>
             </div>
             <script>
+                // get the params if they were passed
+                const urlParams = new URLSearchParams(window.location.search);
+                const paramMember = urlParams.get("member");
+
                 locations = [];
                 regions = [];
                 currentMember = "null";
@@ -3765,6 +3774,7 @@ def generateGoogleFriendsMap() {
                     retrieveMemberLocations("img");
                     currentZoom = ${retrieveGoogleFriendsMapZoom()};
 
+                    homePosition = new google.maps.LatLng(${getHomeRegion()?.lat}, ${getHomeRegion()?.lon});
                     const places = ["""
                         getNonFollowRegions(COLLECT_PLACES["desc"]).each { region->
                             place = state.places.find {it.desc==region}
