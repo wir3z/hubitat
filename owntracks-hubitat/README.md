@@ -125,6 +125,9 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	- Once the quota has been exhausted for the period, the application will stop generating the map until the next quote period.
 - Google Maps API key for combined family location map:
 	- Paste the API key provided into the box.
+- Map will only auto-zoom to fit members within this distance from home or a member.  
+	- Entering 0 will allow the map to zoom out to fit all members.  Entering a distance will limit the amount of zoom.
+	- If the member name is appended to the end of the Google Family Map URL, that member will be used for the auto-zoom distance check.	
 	
 #### Member History and Pin Colors
 - Enter the total number of past member locations to save (includes the slower interval locations, below).  
@@ -217,7 +220,9 @@ NOTE: A region named '+follow' is automatically created to allow iOS phones to h
 	- Their Hubitat device will only display presence information.
 	- If using the secondary hub connection, you will need to select these members as private on that hub.
 
-## Configure Region Arrived/Departed Notifications
+## Configure Stale Members and Region Arrived/Departed Notifications
+- Select device(s) to get notifications when members stop reporting locations and go stale.
+	- Notification will be sent once-per day.
 - Global enable/disable of notification devices.
 	- Select notification devices that can be used to receive notifications.
 	- Disabling a device will stop ALL member notifications, without changing each member, below.
@@ -248,6 +253,7 @@ NOTE: A region named '+follow' is automatically created to allow iOS phones to h
 ## Dashboard Web Links
 - Displays direct cloud and local web links for the family, member and recorder maps.
 - Selecting 'Disable cloud links' will prevent access to the web URL endpoints via the cloud links.
+- If the member name is appended to the end of the Google Family Map URL, that member will be used for the auto-zoom distance check.
 
 
 # Optional Features - Thumbnails, Recorder, Secondary Hub
