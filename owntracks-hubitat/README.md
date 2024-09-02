@@ -353,7 +353,11 @@ The defaults for the rest of these settings should be sufficient for verifying o
 	- Restore Defaults for 'Hub App Settings' to the recommended defaults.
 	- Restore Defaults for 'Mobile App Location Settings' to the recommended defaults.
 	- Restore Defaults for 'Mobile App Display Settings' to the recommended defaults.
-- Delete Family Members:
+- Delete or Deactivate Family Members:
+	- Deactivates selected family members (clears the mobile app URL and waypoints to prevent calling home).
+		- Only members that are not enabled will appear in the list.
+		- Enabling a member will clear the deactivation.
+		- Once selected, deactivation will occur on the next location update from the selected member.
 	- Deletes selected family members from the app and their corresponding child device.  Ensure no automations are dependent on their device before proceeding.
 
 		

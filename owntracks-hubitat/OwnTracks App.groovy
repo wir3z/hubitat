@@ -141,6 +141,7 @@
  *  1.7.87     2024-08-25      - Fixed exception in trip numbering when member has no history.
  *  1.7.88     2024-08-26      - Fixed exception if a member was deleted and past settings were not cleared.
  *  1.7.89     2024-08-31      - Refactored zoom and history selection to Google maps.  Added a user configurable distance for the auto-zoom in Google maps.  Added stale member notifications.
+ *  1.7.90     2024-09-02      - Added member deactivation to clear the mobile URL and waypoints.  Prevent location updates over 5-minutes old from triggering member presence.
 */
 
 import groovy.transform.Field
@@ -149,7 +150,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.89" }
+def appVersion() { return "1.7.90" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -194,6 +195,7 @@ def appVersion() { return "1.7.89" }
 @Field Number  DEFAULT_memberMarkerBearingDifferenceDegrees = 5
 @Field Number  DEFAULT_memberTripIdleMarkerTime = 15
 @Field Number  DEFAULT_memberBoundsRadius = 100
+@Field Number  memberMaximumLocationAgeMinutes = 5
 @Field Number  memberHistoryMinimumSpeed = 3
 @Field Number  memberVelocityMinimumTimeDifference = 5
 @Field String  memberBeginMarker = "b"
@@ -330,6 +332,13 @@ def mainPage() {
                     input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + "Select family member(s) to monitor.  Member device will be created and configured once 'Done' is pressed, below.</div>", options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                     input "privateMembers", "enum", multiple: true, title:(privateMembers ? '<div style="color:#ff0000">' : '<div>') + 'Select family member(s) to remain private.  Locations and regions will <B>NOT</b> be shared with other members or the Recorder.  Their Hubitat device will only display presence information.</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                     href(title: "Configure Stale Member and Region Arrived/Departed Notifications", description: "", style: "page", page: "configureNotifications")
+                    if (enabledMembers) {
+                        enabledMembers.each { name ->
+                            member = state.members.find {it.name==name}
+                            // cancel any deactivation
+                            member.remove("deactivate")
+                        }
+                    }
                 }
                 input name: "sectionLinks", type: "button", title: getSectionTitle(state.show.links, "Dashboard Web Links"), submitOnChange: true, style: getSectionStyle()
                 if (state.show.links) {
@@ -409,7 +418,7 @@ def mainPage() {
                 if (state.show.maintenance) {
                     input "syncMobileSettings", "enum", multiple: true, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
                     href(title: "Recommended Default Settings", description: "", style: "page", page: "resetDefaults")
-                    href(title: "Delete Family Members", description: "", style: "page", page: "deleteMembers")
+                    href(title: "Delete or Deactivate Family Members", description: "", style: "page", page: "deleteMembers")
                 }
                 input name: "sectionLogging", type: "button", title: getSectionTitle(state.show.logging, "Logging"), submitOnChange: true, style: getSectionStyle()
                 if (state.show.logging) {
@@ -551,7 +560,7 @@ def thumbnailCreation() {
             paragraph ("Creating User Thumbnails for the OwnTracks Mobile App and optional OwnTracks Recorder.\r\n\r\n" +
                        "     1. Create a thumbnail for the user at a maximum resolution 192x192 pixels in JPG format using your computer.\r" +
                        "          a. 96x96 pixels at 96 DPI create a file size of ~5kB which is optimal.\r" +
-                       "          b. Large file sizes can cause location timeouts from the mobile device.\r" +
+                       "          b. Large file sizes can cause location timeouts from the mobile device (HTTP error 504).\r" +
                        "     2. Name the thumbnail 'MyUser.jpg' where 'MyUser' is the same name as the user name (case sensitive) entered in the mobile app.\r" +
                        "     3. In Hubitat:\r" +
                        "          a. Navigate to the <a href='http://${location.hubs[0].getDataValue("localIP")}/hub/fileManager' target='_blank'>Hubitat File Manager</a> ('Settings->File Manager').\r" +
@@ -655,7 +664,7 @@ def configureSecondaryHub() {
         section(getFormat("box", "Secondary Hub Configuration")) {
             paragraph ("Allows for OwnTracks to daisy chain to multiple hubs.\r" +
                        "1. On the secondary hub, paste the host/URL from 'Mobile App Installation Instructions -> Mobile App Configuration' below.\r" +
-                       "2. Select the slider to enable mobile updates to be sent to the secondary hub UR as they arrive.\r" +
+                       "2. Select the slider to enable mobile updates to be sent to the secondary hub URL as they arrive.\r" +
                        "3. Additional hubs can be daisy chained by repeating the above on the third hub, and adding it to the second hub.\r"
             )
             input name: "secondaryHubURL", type: "text", title: "Host URL of the Seconday Hub from the OwnTracks app 'Mobile App Installation Instructions' page.", defaultValue: ""
@@ -1069,8 +1078,27 @@ def retrieveRegionsFromSecondaryHub() {
     asynchttpPost("httpCallbackMethod", postParams)
 }
 
+def getDisabledMembers() {
+    disabledMembers = []
+    state.members.each { member->
+        if (!settings?.enabledMembers.find {it==member.name}) {
+            disabledMembers << member
+        }
+    }
+    return(disabledMembers)
+}
+
 def deleteMembers() {
     return dynamicPage(name: "deleteMembers", title: "", nextPage: "mainPage") {
+        section(getFormat("box", "Deactivate Family Member(s)")) {
+            if (state.submit) {
+                paragraph "<b>${getFormat("redText", appButtonHandler(state.submit))}</b>"
+                state.submit = ""
+            }
+            input "selectDeactivateFamilyMembers", "enum", multiple: true, title:"Select family member(s) to delete their phone URL and waypoints.  Only members that are not enabled are listed.", options: getDisabledMembers()?.name?.sort(), submitOnChange: true
+            paragraph("<b>NOTE: Selected user(s) will be deactivated on their next location update.  They will no longer be able to reach the OwnTracks app without configuration!</b>")
+            input name: "deactivateMembersButton", type: "button", title: "Deactivate", state: "submit"
+        }
         section(getFormat("box", "Delete Family Member(s)")) {
             if (state.submit) {
                 paragraph "<b>${getFormat("redText", appButtonHandler(state.submit))}</b>"
@@ -1182,6 +1210,18 @@ String appButtonHandler(btn) {
         case "getRegionsFromSecondaryButton":
             retrieveRegionsFromSecondaryHub()
             result = "Regions requested from secondary hub."
+        case "deactivateMembersButton":
+            if (selectDeactivateFamilyMembers) {
+                selectDeactivateFamilyMembers.each { name ->
+                    member = state.members.find {it.name==name}
+                    // flag the member for deactivation
+                    member["deactivate"] = 1
+                }
+                result = "Deactivating family members '${selectDeactivateFamilyMembers}'"
+                logWarn(result)
+                app.removeSetting("selectDeactivateFamilyMembers")
+            }
+        break
         case "deleteMembersButton":
             if (selectFamilyMembers) {
                 selectFamilyMembers.each { name ->
@@ -1297,6 +1337,7 @@ def clearSettingFields() {
     app.removeSetting("regionRadius")
     app.removeSetting("regionLat")
     app.removeSetting("regionLon")
+    app.removeSetting("selectDeactivateFamilyMembers")
     app.removeSetting("selectFamilyMembers")
     app.removeSetting("notificationEnter")
     app.removeSetting("notificationEnterRegions")
@@ -1757,7 +1798,7 @@ def displayMemberStatus() {
             tableData += (memberEnabled ? (member.updateLocation ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
             tableData += (memberEnabled ? (member.updateDisplay ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
             tableData += (memberEnabled ? (member.getRegions ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
-            tableData += (memberEnabled ? (member.requestLocation ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
+            tableData += (memberEnabled ? (member.requestLocation ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : (member?.deactivate ? '<td style="color:#ff0000">' + (member?.deactivate == 1 ? 'Deactivating' : 'Deactivated') +'</td>' : '<td style="color:#b3b3b3"><s>--</s></td>'))
             tableData += '</tr>'
         }
         tableData += '</table></font>'
@@ -1804,7 +1845,8 @@ def webhookEventHandler() {
         logError("Username: '${sourceName}' / Device ID: '${sourceDeviceID}' reported no data from the OwnTracks app, aborting.")
     } else if (!sourceName || !sourceDeviceID) {
         // catch the exception if a webhook comes in without being configured properly
-        logWarn("Username: '${sourceName}' / Device ID: '${sourceDeviceID}' not configured in the OwnTracks app, aborting.")
+        logError("Username: '${sourceName}' / Device ID: '${sourceDeviceID}' not configured in the OwnTracks app - Deactivating unknown user.  Ensure the 'Username' and 'Device ID' are set on the OwnTracks mobile app.")
+        result = sendDeactivateUpdate([ "name":"${sourceDeviceID}" ])
     } else {
         // strip the [] around these values
         sourceName = sourceName.substring(1, (sourceName.length()-1))
@@ -1839,6 +1881,10 @@ def webhookEventHandler() {
             } else {
                 if (warnOnDisabledMember) {
                     logWarn("User: '${sourceName}' not enabled.  To enable this member, open the Hubitat OwnTracks app, select '${sourceName}' in 'Select family member(s) to monitor' box and then click 'Done'.")
+                    // if the member is flagged for deactivation
+                    if (findMember?.deactivate == 1) {
+                        result = sendDeactivateUpdate(findMember)
+                    }
                 } else {
                     logDebug("User: '${sourceName}' not enabled.  To enable this member, open the Hubitat OwnTracks app, select '${sourceName}' in 'Select family member(s) to monitor' box and then click 'Done'.")
                 }
@@ -1866,8 +1912,14 @@ def parseMessage(headers, data, member) {
 
             // log the elapsed distance and time
             logDistanceTraveledAndElapsedTime(member, data)
-            // send push event to driver
-            updateDevicePresence(member, data)
+            // calculate how many minutes the incoming location message is from current time
+            deltaTst = (((member.lastReportTime / 1000) - member?.timeStamp) / 60).toInteger()
+            // send push event to driver if the incoming location isn't stale
+            if (deltaTst < memberMaximumLocationAgeMinutes) {
+                updateDevicePresence(member, data)
+            } else {
+                logDescriptionText("Location update for user ${member.name} is ${deltaTst} minutes old.  Skipping presence update.")
+            }
             // return with the rest of the users positions and waypoints if pending
             payload = sendUpdate(member, data)
             // if the country code was not defined, replace with with hub timezone country
@@ -2271,6 +2323,14 @@ def createConfiguration(member, useDynamicLocaterAccuracy) {
     }
 }
 
+def sendClearURLConfiguration(currentMember) {
+    logDescriptionText("Clear URL for user ${currentMember.name}")
+    // remove the URL to prevent the device from calling home
+    configurationList = [ "_type": "configuration", "url": "" ]
+
+    return( [ "_type":"cmd","action":"setConfiguration", "configuration": configurationList ] )
+}
+
 private def getDistanceFromHome(data) {
     // return distance in kilometers, rounded to 3 decimal places (meters)
     distance = 0.0
@@ -2646,6 +2706,19 @@ private def sendUpdate(currentMember, data) {
     }
 
     logDebug("Updating user: ${currentMember.name} with data: ${update}")
+    return (update)
+}
+
+private def sendDeactivateUpdate(currentMember) {
+    def update = []
+    // indidate we have sent the commands
+    currentMember["deactivate"] = 2
+
+    // clear the waypoints list and URL
+	update += sendClearWaypointsRequest(currentMember)
+	update += sendClearURLConfiguration(currentMember)
+	logWarn("Deactivating user: ${currentMember.name} with data: ${update}")
+
     return (update)
 }
 
