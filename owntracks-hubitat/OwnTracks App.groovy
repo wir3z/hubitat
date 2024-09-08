@@ -142,6 +142,7 @@
  *  1.7.88     2024-08-26      - Fixed exception if a member was deleted and past settings were not cleared.
  *  1.7.89     2024-08-31      - Refactored zoom and history selection to Google maps.  Added a user configurable distance for the auto-zoom in Google maps.  Added stale member notifications.
  *  1.7.90     2024-09-02      - Added member deactivation to clear the mobile URL and waypoints.  Prevent location updates over 5-minutes old from triggering member presence.
+ *  1.7.91     2024-09-08      - Added member friend groups.
 */
 
 import groovy.transform.Field
@@ -150,7 +151,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.90" }
+def appVersion() { return "1.7.91" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -233,6 +234,10 @@ def appVersion() { return "1.7.90" }
 @Field Boolean DEFAULT_useCustomNotificationMessage = false
 @Field String  DEFAULT_notificationMessage = "NAME EVENT REGION at TIME"
 @Field Boolean DEFAULT_manualDeleteBehavior = false
+@Field Number  DEFAULT_globalGroupNumber = 0
+@Field String  DEFAULT_globalGroupName = "Default"
+@Field String  DEFAULT_groupNames = "Group "
+@Field Number  DEFAULT_maxGroups = 5
 
 // Mobile app location defaults
 @Field Number  DEFAULT_monitoring = 1
@@ -280,6 +285,7 @@ preferences {
     page(name: "advancedLocation")
     page(name: "advancedDisplay")
     page(name: "configureRegions")
+    page(name: "configureGroups")
     page(name: "addRegions")
     page(name: "editRegions")
     page(name: "deleteRegions")
@@ -329,6 +335,7 @@ def mainPage() {
                     href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
                     href(title: "Configure Hubitat App - WiFi Settings, Units, Location Performance, Device Prefix, Geocode and Map API keys", description: "", style: "page", page: "configureHubApp")
                     href(title: "Configure Regions - Add, Edit, Delete, Assign 'Home'", description: "", style: "page", page: "configureRegions")
+                    href(title: "Configure Groups - Assign Friend Groups", description: "", style: "page", page: "configureGroups")
                     input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + "Select family member(s) to monitor.  Member device will be created and configured once 'Done' is pressed, below.</div>", options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                     input "privateMembers", "enum", multiple: true, title:(privateMembers ? '<div style="color:#ff0000">' : '<div>') + 'Select family member(s) to remain private.  Locations and regions will <B>NOT</b> be shared with other members or the Recorder.  Their Hubitat device will only display presence information.</div>', options: (state.members ? state.members.name.sort() : []), submitOnChange: true
                     href(title: "Configure Stale Member and Region Arrived/Departed Notifications", description: "", style: "page", page: "configureNotifications")
@@ -414,7 +421,7 @@ def mainPage() {
                     href(title: "Mobile App Location Settings", description: "", style: "page", page: "advancedLocation")
                     href(title: "Mobile App Display Settings", description: "", style: "page", page: "advancedDisplay")
                 }
-                input name: "sectionMaintenance", type: "button", title: getSectionTitle(state.show.maintenance, "Maintenance - Sync Member Settings, Reset to Defaults, Delete Members"), submitOnChange: true, style: getSectionStyle()
+                input name: "sectionMaintenance", type: "button", title: getSectionTitle(state.show.maintenance, "Maintenance - Sync Member Settings, Reset to Defaults, Deactivate and Delete Members"), submitOnChange: true, style: getSectionStyle()
                 if (state.show.maintenance) {
                     input "syncMobileSettings", "enum", multiple: true, title:"Select family member(s) to update location, display and region settings on the next location update. The user will be registered to receive this update once 'Done' is pressed, below, and this list will be automatically cleared.", options: (enabledMembers ? enabledMembers.sort() : enabledMembers)
                     href(title: "Recommended Default Settings", description: "", style: "page", page: "resetDefaults")
@@ -444,7 +451,7 @@ def checkLocatorPriority() {
             app.updateSetting("locatorPriority", [value: DEFAULT_locatorPriority, type: "string"])
         }
         // trigger the mobile location update
-        setUpdateFlag([ "name":"" ], "updateLocation", true)
+        setUpdateFlag([ "name":"" ], "updateLocation", true, false)
         logWarn("Changing locator priority to ${LOCATOR_PRIORITY[locatorPriority]}")
     }
 }
@@ -729,7 +736,7 @@ def advancedLocation() {
             paragraph("<h3><b>Settings for Move Monitoring Mode</b></h3>")
             input name: "moveModeLocatorInterval", type: "number", title: "How often should locations be continuously sent from the device while in 'Move' mode (seconds) (2..3600), Recommended=${DEFAULT_moveModeLocatorInterval}.  <i><b>'Move' mode will result in higher battery consumption.</b></i>", required: true, range: "2..3600", defaultValue: DEFAULT_moveModeLocatorInterval
         }
-        setUpdateFlag([ "name":"" ], "updateLocation", true)
+        setUpdateFlag([ "name":"" ], "updateLocation", true, false)
     }
 }
 
@@ -749,7 +756,7 @@ def advancedDisplay() {
             input name: "notificationLocation", type: "bool", title: "Show last reported location in ongoing notification banner", defaultValue: DEFAULT_notificationLocation
             input name: "notificationGeocoderErrors", type: "bool", title: "Display Geocoder errors in the notification banner", defaultValue: DEFAULT_notificationGeocoderErrors
         }
-        setUpdateFlag([ "name":"" ], "updateDisplay", true)
+        setUpdateFlag([ "name":"" ], "updateDisplay", true, false)
     }
 }
 
@@ -836,6 +843,50 @@ def configureRegions() {
     }
 }
 
+def configureGroups() {
+    return dynamicPage(name: "configureGroups", title: "", nextPage: "mainPage") {
+        section(getFormat("box", "Configure Groups")) {
+            paragraph ("<h3>Groups are used to create isolated friend 'bubbles' to prevent locations being shared with all members.</h3>" +
+                       "For example,\r" +
+                       "     There are two defined groups with 5 members:\r" +
+                       "         - Default: A, B, C, D\r" +
+                       "         - Group 1: B, E\r" +
+                       "     1. Members A, B, C, D will see each other, but not member E\r" +
+                       "     2. Member B will see members A, B, C, D and E\r" +
+                       "     3. Member E will only see members B and E\r\r" +
+                       "How the app interacts with members in isolated friend groups:\r" +
+                       "     1. Presence detection only occurs for members in the 'Default' group.\r" +
+                       "     2. Regions are only shared with members in the 'Default' group.\r" +
+                       "     3. Only members in the 'Default' group are sent to the OwnTracks Recorder.\r" +
+                       "     4. Member locations are shared with other members in intersecting groups.\r\r" +
+                       "How the Google Friend Map interacts with members in isolated friend groups:\r\n" +
+                       "     1. By default, only members in the 'Default' group are displayed.\r" +
+                       "     2. If a member name is passed in the '&member=' suffix of the URL, they will see all members in the groups that the member is assigned to.\r" +
+                       "     3. In the above example, using the URL suffix of '&member=E' would only show members B and E on the Google map."
+                      )
+        }
+        section() {
+            if (state.submit) {
+                paragraph "<b>${appButtonHandler(state.submit)}</b>"
+                state.submit = ""
+            }
+            input name: "resetGroupsButton", type: "button", title: "Reset Member Groups and Names", state: "submit"
+            input "selectGroup", "enum", multiple: false, title: "Select group to edit name or assign members.", options: state.groups.collectEntries{[it.id, it.name]}, submitOnChange: true
+            if (selectGroup) {
+                app.updateSetting("selectFamilyMembers",[value:state.members.findAll{it.groups.find{it == selectGroup}}.name.sort(),type:"enum"])
+                app.updateSetting("groupName",[value:state.groups.find{it.id == selectGroup}.name,type:"text"])
+                input "selectFamilyMembers", "enum", multiple: true, title:"Select family member(s) to assign to this group.", options: state.members.name.sort()
+                // prevent editing the default group name
+                if (selectGroup != "${DEFAULT_globalGroupNumber}") {
+                    input name: "groupName", type: "text", title: "Group Name", required: true
+                }
+
+                input name: "saveGroupButton", type: "button", title: "Save Settings", state: "submit"
+            }
+        }
+    }
+}
+
 def configureNotifications() {
     return dynamicPage(name: "configureNotifications", title: "", nextPage: "mainPage") {
         section(getFormat("box", "Configure Stale Member Notifications")) {
@@ -877,12 +928,36 @@ def configureNotifications() {
     }
 }
 
+def memberInGlobalMemberGroup(member) {
+    // check if the member is part of the global member group (undefined or zero), or is a secondary hub update
+    if ((member.name == COMMON_CHILDNAME) || (member?.groups == null) || (member?.groups?.find {it=="${DEFAULT_globalGroupNumber}"})) {
+        return(true)
+    } else {
+        return(false)
+    }
+}
+
+def getMatchingGroupMembersForMember(member) {
+    groupMembers = []
+    // find all enabled members that contain the passed in member's group
+    settings?.enabledMembers.each { enabled->
+        enabledMember = state.members.find {it.name==enabled}
+        // if the member is part of the enabled members group, add them to the map
+        if (!(settings?.privateMembers.find {it==enabled}) && ((member?.groups == null) || (enabledMember?.groups?.intersect(member?.groups)))) {
+            groupMembers << enabledMember
+        }
+    }
+
+    return(groupMembers)
+}
+
 def getEnabledAndNotHiddenMembers() {
     allowedMembers = []
-    // build a list of enabled and not hidden members
-    settings?.enabledMembers.each { enabledMember->
-        if (!(settings?.privateMembers.find {it==enabledMember})) {
-            allowedMembers << enabledMember
+    // build a list of enabled and not hidden members, and deal with global membership
+    settings?.enabledMembers.each { enabled->
+        enabledMember = state.members.find {it.name==enabled}
+        if (!(settings?.privateMembers.find {it==enabled}) && memberInGlobalMemberGroup(enabledMember)) {
+            allowedMembers << enabled
         }
     }
     if (allowedMembers) {
@@ -892,18 +967,15 @@ def getEnabledAndNotHiddenMembers() {
     }
 }
 
-def getEnabledAndNotHiddenMemberData() {
-    memberData = []
-    allowedMembers = getEnabledAndNotHiddenMembers()
-    // sort by last report time
-    sortedMembers = state.members?.sort { it.lastReportTime }
-    sortedMembers.each { member->
-        if (allowedMembers.find {it==member.name}) {
-            memberData << member
-        }
+def getEnabledAndNotHiddenMemberData(memberName) {
+    member = state.members.find {it.name.toLowerCase()==memberName?.toLowerCase()}
+    // in case no member name is passed in, only allow global members
+    if (member == null) {
+        member = []
+        member << [ groups:"${DEFAULT_globalGroupNumber}" ]
     }
 
-    return(memberData)
+    return((getMatchingGroupMembersForMember(member)?.sort { it.lastReportTime }))
 }
 
 def getNonFollowRegions(collectRegions) {
@@ -1239,6 +1311,31 @@ String appButtonHandler(btn) {
                 app.removeSetting("selectFamilyMembers")
             }
         break
+        case "resetGroupsButton":
+            initializeGroupList(true)
+            result = "Default grouping and names assigned to groups"
+        break
+        case "saveGroupButton":
+            if (selectGroup) {
+                group = state.groups.find{it.id == selectGroup}
+                // update the name
+                if (groupName?.trim()?.length()) {
+                    if (group.name != groupName?.trim()) {
+                        group.name = groupName?.trim()
+                    }
+                }
+                // add/remove the group id from the member groups
+                state.members.each { member ->
+                    // first remove it
+                    member.groups.remove(group.id)
+                    // if we have a match add it back
+                    if (selectFamilyMembers.find {it==member.name}) {
+                        member.groups << group.id
+                    }
+                }
+                result = "Updated group name and members"
+            }
+        break
         case "clearNotificationsButton":
             if (selectFamilyMembers) {
                 member = state.members.find {it.name==selectFamilyMembers}
@@ -1323,7 +1420,7 @@ String appButtonHandler(btn) {
         // clear the setting fields
         clearSettingFields()
         // force an update of all users
-        setUpdateFlag([ "name":"" ], "updateWaypoints", updateMember)
+        setUpdateFlag([ "name":"" ], "updateWaypoints", updateMember, true)
     }
 
     return (result)
@@ -1345,6 +1442,8 @@ def clearSettingFields() {
     app.removeSetting("notificationLeaveRegions")
     app.removeSetting("selectMemberGlyph")
     app.removeSetting("memberGlyphColor")
+    app.removeSetting("selectGroup")
+    app.removeSetting("groupName")
     state.previousRegionName = null
     state.selectFamilyMembers = null
     state.selectMemberGlyph = null
@@ -1452,6 +1551,8 @@ def initializeHub(forceDefaults) {
     }
     // convert back to metric if in imperial to send out to the map
     state.memberBoundsRadius       = convertToKilometers(memberBoundsRadius)
+    // assign the default groups
+    initializeGroupList(forceDefaults)
 }
 
 def initializeMobileLocation(forceDefaults) {
@@ -1490,6 +1591,28 @@ def initializeMobileDisplay(forceDefaults) {
     if (forceDefaults || (showRegionsOnMap == null)) app.updateSetting("showRegionsOnMap", [value: DEFAULT_showRegionsOnMap, type: "bool"])
     if (forceDefaults || (notificationLocation == null)) app.updateSetting("notificationLocation", [value: DEFAULT_notificationLocation, type: "bool"])
     if (forceDefaults || (notificationGeocoderErrors == null)) app.updateSetting("notificationGeocoderErrors", [value: DEFAULT_notificationGeocoderErrors, type: "bool"])
+}
+
+def initializeGroupList(forceDefaults) {
+    // recreate the default groups
+    if (forceDefaults || (state?.groups == null)) {
+        state.groups = []
+        for (id=0; id<DEFAULT_maxGroups; id++) {
+            if (id == DEFAULT_globalGroupNumber) {
+                groupName = DEFAULT_globalGroupName
+            } else {
+                groupName = DEFAULT_groupNames + id
+            }
+            state.groups << [ "name": "${groupName}", "id": "${id}" ]
+        }
+        if (state?.members) {
+	        state.members.each { member->
+                // assign the default group number to all members
+                member.groups = []
+                member.groups << "${DEFAULT_globalGroupNumber}"
+            }
+        }
+    }
 }
 
 def updatePlusFollow() {
@@ -1551,7 +1674,10 @@ def updated() {
         if (syncSettings) {
             member.updateLocation = true
             member.updateDisplay = true
-            member.updateWaypoints = true
+            // only global members get waypoint updates
+            if (memberInGlobalMemberGroup(member)) {
+                member.updateWaypoints = true
+            }
         }
         // remove excessive history events
         pruneMemberHistory(member)
@@ -1664,7 +1790,7 @@ def generateStaleNotification() {
     // collect the names of the members that are stale
     staleMembers = state?.members.findAll{it.staleReport == true}.collect{member -> member.name}
     // send notification to mobile if selected
-    if (staleMembers) {
+    if (staleMembers && notificationStaleList) {
         def date = new Date()
         def dateFormat = "hh:mm a yyyy-MM-dd"
         SimpleDateFormat newDate = new SimpleDateFormat(dateFormat)
@@ -1864,7 +1990,7 @@ def webhookEventHandler() {
         if (!findMember?.id) {
             // add the new user to the list if they don't exist yet.  We will use the current time since not all incoming packets have a timestamp
             if (findMember == null) {
-                state.members << [ name:sourceName, deviceID:sourceDeviceID, id:null, timeStamp:(now()/1000).toInteger(), updateWaypoints:true, updateLocation:true, updateDisplay:true, dynamicLocaterAccuracy:false, getRegions:false, requestLocation:false ]
+                state.members << [ name:sourceName, deviceID:sourceDeviceID, id:null, timeStamp:(now()/1000).toInteger(), updateWaypoints:false, updateLocation:false, updateDisplay:false, dynamicLocaterAccuracy:false, getRegions:false, requestLocation:false ]
             }
             logWarn("User: '${sourceName}' not configured.  To enable this member, open the Hubitat OwnTracks app, select '${sourceName}' in 'Select family member(s) to monitor' box and then click 'Done'.")
         } else {
@@ -1925,18 +2051,26 @@ def parseMessage(headers, data, member) {
             // if the country code was not defined, replace with with hub timezone country
             if (!data.cc) { data.cc = location.getTimeZone().getID().substring(0, 2).toUpperCase() }
             // if we have the OwnTracks recorder configured, and the timestamp is valid, and the user is not marked as private, pass the location data to it
-            if (recorderURL && enableRecorder && !data.private) {
+            if (recorderURL && enableRecorder && !data.private && memberInGlobalMemberGroup(member)) {
                 def postParams = [ uri: recorderURL + RECORDER_PUBLISH_FOLDER, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(headers), body : (new JsonBuilder(data)).toPrettyString() ]
                 asynchttpPost("httpCallbackMethod", postParams)
             }
             break
         case "waypoint":
-            // append/update to the places list
-            addPlace(member, data, true)
+            // append/update to the places list for global members only
+            if (memberInGlobalMemberGroup(member)) {
+                addPlace(member, data, true)
+            } else {
+                logDescriptionText("User ${member.name} is not in the default group.  Skipping waypoint update.")
+            }
         break
         case "waypoints":
-            // update the places list
-            updatePlaces(member, data)
+            // update the places list for global members only
+            if (memberInGlobalMemberGroup(member)) {
+                updatePlaces(member, data)
+            } else {
+                logDescriptionText("User ${member.name} is not in the default group.  Skipping waypoint update.")
+            }
         break
         case "cmd":
             // parse the action
@@ -2437,7 +2571,7 @@ def addPlace(findMember, data, verboseAdd) {
                 state.places << newPlace
             }
             // force the users to get the update place list
-            setUpdateFlag(findMember, "updateWaypoints", true)
+            setUpdateFlag(findMember, "updateWaypoints", true, true)
         }
     } else {
         logDebug("Ignoring waypoint due to private member.")
@@ -2467,14 +2601,17 @@ def updateStatus(findMember, data) {
     logDebug("Updating status: ${findMember.name}")
 }
 
-private def setUpdateFlag(currentMember, newSetting, newValue) {
+private def setUpdateFlag(currentMember, newSetting, newValue, globalOnly) {
     // loop through all the enabled members
     settings?.enabledMembers.each { enabledMember->
         member = state.members.find {it.name==enabledMember}
-        // don't set the flag for the member that triggered the update
-        if (currentMember.name != member.name) {
-            member."$newSetting" = newValue
-            logDebug("${newSetting} for user ${member.name}: ${newValue}")
+        // filter out group members if the request is for global members only
+        if ((globalOnly && memberInGlobalMemberGroup(member)) || !globalOnly) {
+            // don't set the flag for the member that triggered the update
+            if (currentMember.name != member.name) {
+                member."$newSetting" = newValue
+                logDebug("${newSetting} for user ${member.name}: ${newValue}")
+            }
         }
     }
 }
@@ -2509,13 +2646,11 @@ private def sendReportStatusRequest(currentMember) {
 
 private def sendMemberPositions(currentMember, data) {
     def positions = []
-
     // check if a member has been configured to not see other member locations
     if (!settings?.privateMembers.find {it==currentMember.name}) {
-        // loop through all the enabled members
-        settings?.enabledMembers.each { enabledMember->
-            // we need to send the originating member's location back to them for their user card to be displayed on the map
-            member = state.members.find {it.name==enabledMember}
+        // loop through all the enabled group members
+        groupMembers = getMatchingGroupMembersForMember(currentMember)
+        groupMembers?.each { member->
             // Don't send the member's location back to them.  NOTE: iOS users will make a duplicate of themselves, and Android has a lag between the app displayed thumbnail and the current phone location
             // Don't send locations if a member has been configured to not see other member location
             if ((currentMember != member) && !(settings?.privateMembers.find {it==member.name}) ) {
@@ -3754,7 +3889,7 @@ def processAPIData() {
             case "members":
                 // return with the consolidated list of member information
                 def memberLocations = []
-                publicMembers = getEnabledAndNotHiddenMemberData()
+                publicMembers = getEnabledAndNotHiddenMemberData(data.payload.member)
                 publicMembers.eachWithIndex { member, index ->
                     def deviceWrapper = getChildDevice(member.id)
                     def memberLocation = [
@@ -3782,14 +3917,14 @@ def processAPIData() {
                     ]
 
                     // split out the img since that is a large data payload that we only need once during the page init
-                    if (data.payload == "img") {
+                    if (data.payload.request == "img") {
                         memberLocation["img"] = "${getEmbeddedImage(member.name)}"
                         // don't send the history on the initial page load
                         memberLocation["history"] = []
                         // clear the flag to allow the member to sync to the map
                         member.lastMapTime = 0
                     }
-                    if (data.payload == "sync") {
+                    if (data.payload.request == "sync") {
                         // clear the flag to allow the member to sync to the map
                         member.lastMapTime = 0
                     }
@@ -3800,8 +3935,6 @@ def processAPIData() {
                     // store the last location report sent to the map
                     member.lastMapTime = member.lastReportTime
                 }
-                // determine the map center based on the public members
-                publicMembers = getEnabledAndNotHiddenMemberData()
                 response = [ "members" : memberLocations ]
             break;
             case "update":
@@ -4479,10 +4612,14 @@ def generateGoogleFriendsMap() {
                         document.getElementById("id-lastTime").textContent = "Last Update: " + lastUpdate + (currentMember != "null" ? (" | Following: " + currentMember.name) : "") + (inhibitAutoZoom ? " | Tracking Paused" : "");
                     }
 
-                    function retrieveMemberLocations(payload) {
+                    function retrieveMemberLocations(request) {
+                        const dataMap = {};
+                        dataMap["request"] = request;
+                        dataMap["member"] = paramMember;
+
                         const postData = {};
                         postData["action"] = "members";
-                        postData["payload"] = payload;
+                        postData["payload"] = dataMap;
                         sendDataToHub(postData)
                     };
 

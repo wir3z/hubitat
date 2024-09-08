@@ -208,6 +208,25 @@ NOTE:  If a Google Map API key is entered in the 'Configure Hubitat App -> Googl
 
 NOTE: A region named '+follow' is automatically created to allow iOS phones to have transition reporting.  	
 
+## Configure Groups - Assign Friend Groups
+- Groups are used to create isolated friend 'bubbles' to prevent locations being shared with all members.
+### Example
+	- There are two defined groups with 5 members:
+		- Default: A, B, C, D
+		- Group 1: B, E
+	- 1. Members A, B, C, D will see each other, but not member E
+	- 2. Member B will see members A, B, C, D and E
+	- 3. Member E will only see members B and E
+### How the app interacts with members in isolated friend groups:
+	- Presence detection only occurs for members in the 'Default' group.
+	- Regions are only shared with members in the 'Default' group.
+	- Only members in the 'Default' group are sent to the OwnTracks Recorder.
+	- Member locations are shared with other members in intersecting groups.
+### How the Google Friend Map interacts with members in isolated friend groups:
+	- By default, only members in the 'Default' group are displayed.
+	- If a member name is passed in the '&member=' suffix of the URL, they will see all members in the groups that the member is assigned to.
+	- In the above example, using the URL suffix of '&member=E' would only show members B and E on the Google map."
+
 ## Select Family Member(s) to Monitor
 - Select family member(s):  
 	- Once a mobile device has connected to the URL link from 'Mobile App Configuration', it will be populated in this list, but is disabled.  Select the user to enable presence detection.
@@ -343,7 +362,7 @@ The defaults for the rest of these settings should be sufficient for verifying o
 - Display Geocoder errors in the notification banner
 
 	
-# Maintenance - Sync Member Settings, Reset to Defaults, Delete Members
+# Maintenance - Sync Member Settings, Reset to Defaults, Deactivate and Delete Members
 - Select family member(s) to update location, display and region settings on the next location update:
 	- The user will be registered to receive this update once 'Done' is pressed.
 - Recommended Default Settings
