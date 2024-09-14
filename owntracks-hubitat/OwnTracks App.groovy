@@ -143,6 +143,7 @@
  *  1.7.89     2024-08-31      - Refactored zoom and history selection to Google maps.  Added a user configurable distance for the auto-zoom in Google maps.  Added stale member notifications.
  *  1.7.90     2024-09-02      - Added member deactivation to clear the mobile URL and waypoints.  Prevent location updates over 5-minutes old from triggering member presence.
  *  1.7.91     2024-09-08      - Added member friend groups.
+ *  1.7.92     2024-09-14      - When a member info box was open on Google maps, it wouldn't automatically refresh.  Add more descriptive app permission warnings to the info box.
 */
 
 import groovy.transform.Field
@@ -151,7 +152,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.91" }
+def appVersion() { return "1.7.92" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -333,7 +334,7 @@ def mainPage() {
                 input name: "sectionInstall", type: "button", title: getSectionTitle(state.show.install, "Installation and Configuration"), submitOnChange: true, style: getSectionStyle()
                 if (state.show.install) {
                     href(title: "Mobile App Installation Instructions", description: "", style: "page", page: "installationInstructions")
-                    href(title: "Configure Hubitat App - WiFi Settings, Units, Location Performance, Device Prefix, Geocode and Map API keys", description: "", style: "page", page: "configureHubApp")
+                    href(title: "Configure Hubitat App - WiFi Settings, Units, Location Performance, Device Prefix, Geocode and Google Map API keys", description: "", style: "page", page: "configureHubApp")
                     href(title: "Configure Regions - Add, Edit, Delete, Assign 'Home'", description: "", style: "page", page: "configureRegions")
                     href(title: "Configure Groups - Assign Friend Groups", description: "", style: "page", page: "configureGroups")
                     input "enabledMembers", "enum", multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + "Select family member(s) to monitor.  Member device will be created and configured once 'Done' is pressed, below.</div>", options: (state.members ? state.members.name.sort() : []), submitOnChange: true
@@ -486,6 +487,33 @@ def configureHubApp() {
             }
             input name: "sectionMap", type: "button", title: getSectionTitle(state.show.map, "Google Map API Settings - Creates a combined family map and adds radius bubbles on the 'Region' 'Add/Edit/Delete' page maps"), submitOnChange: true, style: getSectionStyle()
             if (state.show.map) {
+                paragraph ("<h3><b>The Google Family Map dashboard URL provides detailed location and trip history for all members.  It requires signing up for a free Google Maps Javascript API key (see below).</b></h3>" +
+                       "<h2>Interacting with the map</h2>" +
+                       "<h4><b>     Selecting a member marker</b></h4>" +
+                       "          1. The map will automatically zoom and center on all family members when opened.\r" +
+                       "          2. Clicking a member marker will change tracking to that member.  The map will auto-center based on their incoming locations to ensure they are always in frame.\r" +
+                       "          3. The info box will display the last location information.  If the Android app is configured with non-optimal settings for operation, the following warnings will be listed depending on the issue:\r" +
+                       "             a. 'App battery usage: Optimized/Restricted.'  Change to 'Unrestricted' for optimal operation.\r" +
+                       "             b. 'Permissions: App can pause.'  Disable the slider to prevent Android from pausing the app if it has not be used in a while.\r" +
+                       "             c. 'Location permission: Not allowed all the time.'  Change to 'Allow all the time' and 'Use precise location'.\r" +
+                       "          3. Clicking on the map will release the member and auto-zoom to fit all members.\r" +
+                       "<h4><b>     Selecting member history</b></h4>" +
+                       "          1. When a member is selected, their past trip history is displayed fading from dark (newest) to light (oldest).\r" +
+                       "          2. Selecting a history point will display information about that trip at that point in time, hide other trips and pause auto-centering.\r" +
+                       "          3. Selecting a history line will display information for the entire trip, hide other trips and pause auto-centering.\r" +
+                       "          4. While the info window is open, clicking anywhere on the map will display all trips for that member.  Closing the info window will resume auto-centering.\r" +
+                       "          5. Trips use numbered based on how new they are in the history.  Trip #1 is the latest trip.\r" +
+                       "          6. Trips use three different markers:\r" +
+                       "             a. Hollow circle with thick border: Start location for the trip.\r" +
+                       "             b. Solid circle: Intermediate location in the trip.\r" +
+                       "             a. Hollow circle with thin border: End location for the trip.\r" +
+                       "<h4><b>     Bottom banner</b></h4>" +
+                       "          1. The bottom banner displays the last date/time that the map received an updated member location.\r" +
+                       "          2. If a member was selected, 'Following: <member>' will be displayed.\r" +
+                       "          3. If the map was dragged or history point or line was selected, the automatic pan and zoom is paused and 'Auto-Centering Paused' will be displayed.\r" +
+                       "          4. Clicking anywhere on the map will resume auto-centering when the next incoming location is received.\r\r"
+                )
+                paragraph ("<h2>Configuring the Map</h2>")
                 paragraph ("If user thumbnails have not been added to Hubitat, follow the instructions for 'Enabling User Thumbnail Instructions' to allow images to be displayed on map pins:")
                 href(title: "Enabling User Thumbnails", description: "", style: "page", page: "thumbnailCreation")
                 input name: "mapFreeOnly", type: "bool", title: "Prevent generating maps once free quota has been exhausted.  Current usage: <b>${state.mapApiUsage}/${GOOGLE_MAP_API_QUOTA} per month</b>.", defaultValue: DEFAULT_mapFreeOnly
@@ -2086,6 +2114,7 @@ def parseMessage(headers, data, member) {
                 case "restart":
                 case "reportLocation":
                 case "setConfiguration":
+                case "dump":
                 default:
                     // do nothing
                 break
@@ -2642,6 +2671,13 @@ private def sendReportStatusRequest(currentMember) {
     // Requests the status from the device
 
     return ([ "_type":"cmd","action":"status" ])
+}
+
+private def sendGetConfigurationRequest(currentMember) {
+    logDescriptionText("Request configuration for user ${currentMember.name}")
+    // Requests the configuration from the device
+
+    return ([ "_type":"cmd","action":"dump" ])
 }
 
 private def sendMemberPositions(currentMember, data) {
@@ -3903,7 +3939,9 @@ def processAPIData() {
                         "acc" :         deviceWrapper?.currentValue("accuracy"),
                         "wifi" :        member?.wifi,
                         "ps" :          member?.ps,
-                        "app" :         member?.hib || member?.bo || member?.loc,
+                        "hib" :         (member?.hib ? member?.hib : "0"),
+                        "bo" :          (member?.bo ? member?.bo : "0"),
+                        "per" :         (member?.loc ? member?.loc : "0"),
                         "stale" :       member.staleReport,
                         "bs" :          "${member?.bs}",
                         "last" :        "${deviceWrapper?.currentValue("lastLocationtime")}",
@@ -4336,6 +4374,8 @@ def generateGoogleFriendsMap() {
                     };
 
                     function followLocation() {
+                        // refresh the member data
+                        currentMember = getMember(currentMember.name);
 						// center the map on the member
 						center = {};
 						center["lat"] = currentMember.lat;
@@ -4609,7 +4649,7 @@ def generateGoogleFriendsMap() {
                     };
 
                     function updateBottomBanner() {
-                        document.getElementById("id-lastTime").textContent = "Last Update: " + lastUpdate + (currentMember != "null" ? (" | Following: " + currentMember.name) : "") + (inhibitAutoZoom ? " | Tracking Paused" : "");
+                        document.getElementById("id-lastTime").textContent = "Last Update: " + lastUpdate + (currentMember != "null" ? (" | Following: " + currentMember.name) : "") + (inhibitAutoZoom ? " | Auto-Centering Paused" : "");
                     }
 
                     function retrieveMemberLocations(request) {
@@ -4682,13 +4722,13 @@ def generateGoogleFriendsMap() {
                     const contentString =
                     "<table style='width:100%;font-size:1.0em'>" +
                         "<tr>" +
-                            "<td align='left'" + ((position.wifi == "0" || ((position.app != "null") && (position.app != "0"))) ? " style='color:red'>" : ">") + (position.wifi != "null" ? (position.wifi == "1" ? "&#128732;" : "<s>&#128732;</s>") : "") + ((location.data == "m") ? "&#128246;" : "") + "</td>" +
+                            "<td align='left'" + (((position.wifi == "0") || (position.hib != "0") || (position.bo != "0") || (position.per != "0")) ? " style='color:red'>" : ">") + (position.wifi != "null" ? (position.wifi == "1" ? "&#128732;" : "<s>&#128732;</s>") : "") + ((location.data == "m") ? "&#128246;" : "") + "</td>" +
                             "<td align='right'" + (position.ps ? " style='color:red'>" : ">") + (position.bs == "2" ? "&#9889;" : "&#128267;") + (position.bat != "null" ? position.bat + "%" : "") + "</td>" +
                         "</tr>" +
                     "</table>" +
                     "<table style='width:100%;font-size:1.0em'>" +
                         "<tr>" +
-                            "<td align='left'" + ((position.wifi == "0" || (position.app != "null" && position.app != "0")) ? " style='color:red'>" : ">") + "<b>" + position.name + "</b></td>" +
+                            "<td align='left'" + (((position.wifi == "0") || (position.hib != "0") || (position.bo != "0") || (position.per != "0")) ? " style='color:red'>" : ">") + "<b>" + position.name + "</b></td>" +
                             "<td align='right'>" + getBearingIcon(position.cog) + "</td>" +
                         "</tr>" +
                         "<tr>" +
@@ -4713,7 +4753,9 @@ def generateGoogleFriendsMap() {
                     "</table>" +
                     "<hr>" +
                     (position.stale ? "<div style='color:red'>" : "<div>") + "Last: " + position.last + "</div>" +
-                    ((position.app != "null") && (position.app != "0") ? "<div style='color:red'>&#9940;App Permissions</div>" : "")
+                    ((position.bo != "0") ? "<div style='color:red'>&#9940;App battery usage: Optimized/Restricted</div>" : "") +
+                    ((position.hib != "0") ? "<div style='color:red'>&#9940;Permissions: App can pause</div>" : "") +
+                    ((position.per != "0") ? "<div style='color:red'>&#9940;Location permission: Not allowed all the time</div>" : "")
 
                     return(contentString);
                 };

@@ -73,7 +73,7 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 		
 - Click the up arrow button in the top right of the map to trigger a 'Send Location Now' to register the device with the Hubitat App.  
 
-## Configure Hubitat App - WiFi Settings, Location Performance, Geocode and Map API keys
+## Configure Hubitat App - WiFi Settings, Location Performance, Geocode and Google Map API keys
 ### Hubitat Settings - WiFi, Units, Device Prefix
 - Enter your 'Home' WiFi SSID(s), separated by commas (optional):
 	- This will prevent devices from being 'non-present' if currently connected to these WiFi access points.

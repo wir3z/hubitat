@@ -136,12 +136,13 @@
  *  1.7.38     2024-08-10      - Added course over ground (bearing).
  *  1.7.39     2024-08-11      - Updated bearing.
  *  1.7.40     2024-08-16      - Updated trigger types.
+ *  1.7.41     2024-09-14      - Adjust member location iframe to hide the view on larger map overlay.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.40" }
+def driverVersion() { return "1.7.41" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -558,13 +559,15 @@ def generateMember(urlSource) {
                     </tr>
                 </table>
             </div>
-            <table style="width:100%;height:calc(100% - 120px)">
-                <tr align="center">
-                    <td>
-                        <iframe src="https://maps.google.com/?q=${device.currentValue("lat").toString()},${device.currentValue("lon").toString()}&z=17&output=embed&" style="height:100%;width:100%;border:none;"></iframe>
-                    </td>
-                </tr>
-            </table>
+            <div style="height:calc(100vh - 125px);width:100%;position:relative;display:flex;justify-content:center;overflow:hidden;">
+                <table style="position:absolute;width:calc(100% + 650px);height:100%">
+                    <tr align="center">
+                        <td>
+                            <iframe src="https://maps.google.com/?q=${device.currentValue("lat").toString()},${device.currentValue("lon").toString()}&z=17&output=embed&" style="height:100%;width:100%;border:none;"></iframe>
+                        </td>
+                    </tr>
+                </table>
+            </div>
             <table style="width:100%;font-size:0.8em;color:white;background:#555555">
                 <caption style="background:#555555">Last Update: ${device.currentValue("lastLocationtime")}</caption>
                 <tr align="center">
