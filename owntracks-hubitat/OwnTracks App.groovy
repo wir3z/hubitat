@@ -144,6 +144,7 @@
  *  1.7.90     2024-09-02      - Added member deactivation to clear the mobile URL and waypoints.  Prevent location updates over 5-minutes old from triggering member presence.
  *  1.7.91     2024-09-08      - Added member friend groups.
  *  1.7.92     2024-09-14      - When a member info box was open on Google maps, it wouldn't automatically refresh.  Add more descriptive app permission warnings to the info box.
+ *  1.7.93     2024-09-18      - Members were not getting sorted based on last location time.  Fixed Google maps member order to display the last reported member and member in focus on top.
 */
 
 import groovy.transform.Field
@@ -152,7 +153,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.92" }
+def appVersion() { return "1.7.93" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -1914,6 +1915,8 @@ def checkStaleMembers() {
             logDebug("${member.name}'s position is stale.  Requesting a high accuracy location update.")
         }
     }
+    // sort by last report time
+    state.members?.sort { it.lastReportTime }
 }
 
 def displayMemberStatus() {
@@ -2815,6 +2818,7 @@ private def sendConfiguration(currentMember) {
     if (highAccuracyOnPing) {
 //        configurationList.experimentalFeatures = "showExperimentalPreferenceUI,locationPingUsesHighAccuracyLocationRequest"
         configurationList.experimentalFeatures = "locationPingUsesHighAccuracyLocationRequest"
+//        configurationList.experimentalFeatures = ""
     }
 
     // append the extra app configurations if enabled
@@ -4201,6 +4205,7 @@ def generateGoogleFriendsMap() {
                     };
 
                     function addMemberMarkers() {
+                        currentMember = getMember("${retrieveGoogleFriendsMapMember()}");
                         // place the members on the map
                         for (let member=0; member<locations.length; member++) {
                             const namePin = document.createElement("div");
@@ -4230,7 +4235,7 @@ def generateGoogleFriendsMap() {
                                     lng: locations[member].lng
                                 },
                                 title: locations[member].name,
-                                zIndex: locations[member].zIndex,
+                                zIndex: (currentMember.name == locations[member].name ? maxZIndex : locations[member].zIndex),
                                 content: pin.element
                             });
 
@@ -4255,15 +4260,11 @@ def generateGoogleFriendsMap() {
                                     map.setZoom(currentZoom);
                                 }
 
-                                if (currentMember.name != marker.title) {
-                                    // restores the marker index of the previous marker
-                                    restoreMarkerIndex(currentMember);
-                                    // assign the new current member so that the history can update
-                                    currentMember = getMember(marker.title);
-                                } else {
-                                    currentMember = getMember(marker.title);
-                                }
+                                // assign the new current member so that the history can update
+                                currentMember = getMember(marker.title);
 
+                                // restores the marker index of the previous marker
+                                restoreMarkerIndex();
                                 // if a marker is clicked, then assign it a higher index so it comes out in front
                                 marker.zIndex = maxZIndex;
                                 infoWindowVisible = -1;
@@ -4352,7 +4353,6 @@ def generateGoogleFriendsMap() {
                             // save the marker and history
                             markers.push({marker, history});
                         };
-                        currentMember = getMember("${retrieveGoogleFriendsMapMember()}");
                         fitMapBounds();
                         showHideHistory();
                     };
@@ -4476,13 +4476,10 @@ def generateGoogleFriendsMap() {
                         }
                     };
 
-                    function restoreMarkerIndex(member) {
+                    function restoreMarkerIndex() {
                         // assigns an index to a matching member
                         for (let loc=0; loc<locations.length; loc++) {
-                            if (markers[loc].marker.title == member.name) {
-                                markers[loc].marker.zIndex = member.zIndex;
-                                break;
-                            }
+                            markers[loc].marker.zIndex = locations[loc].zIndex;
                         }
                     };
 
@@ -4601,6 +4598,10 @@ def generateGoogleFriendsMap() {
 						if (data?.members?.length) {
 							if (locations.length) {
 								// Incoming order may be different due to zIndex changes, so we need to search for matches
+                                // first reset so that we can apply the updated zIndex from the incoming data
+                                for (let loc=0; loc<locations.length; loc++) {
+                                    markers[loc].marker.zIndex = 1
+                                }
 								for (let mem=0; mem<data.members.length; mem++) {
 									for (let loc=0; loc<locations.length; loc++) {
 										if (locations[loc].id == data.members[mem].id) {
@@ -4619,15 +4620,15 @@ def generateGoogleFriendsMap() {
 												}
 											}
 											// keep the selected member in focus
-											if (markers[loc].marker.title == historyMember) {
-												markers[loc].marker.zIndex = locations.length+1;
+											if ((markers[loc].marker.title == currentMember.name) || (markers[loc].marker.title == historyMember)) {
+												markers[loc].marker.zIndex = maxZIndex;
 												// if a history info box is open
 												if (infoWindowVisible >= 0) {
 													infoWindow.setPosition(markers[loc].history[infoWindowVisible].radius.getCenter());
 													infoWindow.setContent(historyContent(markers[loc].marker.title, locations[loc].history, infoWindowVisible, false));
 												}
 											} else {
-												markers[loc].marker.zIndex = data.members[mem].zIndex;
+    										    markers[loc].marker.zIndex = data.members[mem].zIndex;
 											}
 										}
 									}
