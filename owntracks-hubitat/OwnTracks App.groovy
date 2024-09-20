@@ -145,6 +145,7 @@
  *  1.7.91     2024-09-08      - Added member friend groups.
  *  1.7.92     2024-09-14      - When a member info box was open on Google maps, it wouldn't automatically refresh.  Add more descriptive app permission warnings to the info box.
  *  1.7.93     2024-09-18      - Members were not getting sorted based on last location time.  Fixed Google maps member order to display the last reported member and member in focus on top.
+ *  1.7.94     2024-09-19      - Recreates missing member devices should they be deleted from the Hubitat device menu and not the app.
 */
 
 import groovy.transform.Field
@@ -153,7 +154,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.93" }
+def appVersion() { return "1.7.94" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -345,7 +346,7 @@ def mainPage() {
                         enabledMembers.each { name ->
                             member = state.members.find {it.name==name}
                             // cancel any deactivation
-                            member.remove("deactivate")
+                            member?.remove("deactivate")
                         }
                     }
                 }
@@ -1686,7 +1687,7 @@ def updated() {
         // default to false
         syncSettings = false
         // create the child if it doesn't exist
-        if (member.id == null) {
+        if ((member.id == null) || (getChildDevice(member.id) == null)) {
             createChild(member.name)
             // force the update to the new device
             syncSettings = true
@@ -1984,7 +1985,7 @@ def nightlyMaintenance() {
     settings?.enabledMembers.each { enabledMember->
         member = state.members.find {it.name==enabledMember}
         deviceWrapper = getChildDevice(member.id)
-        deviceWrapper.generatePastLocationsTile()
+        deviceWrapper?.generatePastLocationsTile()
     }
     // check if we need to notify on stale locations
     generateStaleNotification()
@@ -2525,7 +2526,7 @@ def removePlaces() {
     def deleteEntries = true
     // loop through all the enabled members to see if any have outstanding waypoint updates
     settings?.enabledMembers.each { enabledMember->
-        if (state.members.find {it.name==enabledMember}.updateWaypoints) {
+        if (state.members.find {it.name==enabledMember}?.updateWaypoints) {
             deleteEntries = false;
         }
     }
