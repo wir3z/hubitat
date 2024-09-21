@@ -146,6 +146,7 @@
  *  1.7.92     2024-09-14      - When a member info box was open on Google maps, it wouldn't automatically refresh.  Add more descriptive app permission warnings to the info box.
  *  1.7.93     2024-09-18      - Members were not getting sorted based on last location time.  Fixed Google maps member order to display the last reported member and member in focus on top.
  *  1.7.94     2024-09-19      - Recreates missing member devices should they be deleted from the Hubitat device menu and not the app.
+ *  1.7.95     2024-09-21      - Member status now indicates configurations that will impact location performance.  Default to high accuarcy mode for better performance.  Fix issue where history compression was removing a marker at a direction transition.
 */
 
 import groovy.transform.Field
@@ -154,7 +155,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.94" }
+def appVersion() { return "1.7.95" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -224,7 +225,7 @@ def appVersion() { return "1.7.94" }
 @Field Number  DEFAULT_warnOnNoUpdateHours = 12
 @Field Number  DEFAULT_staleLocationWatchdogInterval = 900
 @Field Boolean DEFAULT_highAccuracyOnPing = true
-@Field Boolean DEFAULT_highPowerMode = false
+@Field Boolean DEFAULT_highPowerMode = true
 @Field Number  DEFAULT_googleMapsZoom = 0
 @Field String  DEFAULT_googleMapsMember = "null"
 @Field Boolean DEFAULT_descriptionTextOutput = true
@@ -726,9 +727,6 @@ def advancedHub() {
             input name: "warnOnNoUpdateHours", type: "number", title: "Highlight members on the 'Member Status' that have not reported a location for this many hours (1..168)", range: "1..168", defaultValue: DEFAULT_warnOnNoUpdateHours
             input name: "warnOnDisabledMember", type: "bool", title: "Display a warning in the logs if a family member reports a location but is not enabled", defaultValue: DEFAULT_warnOnDisabledMember
             input name: "warnOnMemberSettings", type: "bool", title: "Display a warning in the logs if a family member app settings are not configured for optimal operation", defaultValue: DEFAULT_warnOnMemberSettings
-            if (getAndroidMembers()) {
-                input name: "highAccuracyOnPing", type: "bool", title: "Request a high accuracy location from members on their next location report after a ping update to keep location fresh (<b>Android ONLY</b>)", defaultValue: DEFAULT_highAccuracyOnPing
-            }
         }
     }
 }
@@ -743,8 +741,14 @@ def advancedLocation() {
             input name: "resetLocationDefaultsButton", type: "button", title: "Restore Defaults", state: "submit"
             input name: "monitoring", type: "enum", title: "Location reporting mode, Recommended=${MONITORING_MODES[DEFAULT_monitoring]}", required: true, options: MONITORING_MODES, defaultValue: DEFAULT_monitoring, submitOnChange: true
             if (getAndroidMembers()) {
-                input name: "highPowerMode", type: "bool", title: "Use GPS for higher accuracy/performance.  <b>NOTE:</b> This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (<b>Android ONLY</b>)", defaultValue: DEFAULT_highPowerMode
                 input name: "ping", type: "number", title: "Device will send a location interval at this heart beat interval (minutes) (15..360), Recommended=${DEFAULT_ping} (<b>Android ONLY</b>)", required: true, range: "15..60", defaultValue: DEFAULT_ping
+                input name: "highPowerMode", type: "bool", title: "Use GPS for high accuracy locations.  <b>NOTE:</b> This will consume slightly more battery but will offer better performance in areas with poor WiFi/Cell coverage. (<b>Android ONLY</b>)", defaultValue: DEFAULT_highPowerMode, submitOnChange: true
+                // if in high power mode, default to high accuracy pings
+                if (highPowerMode) {
+                    app.updateSetting("highAccuracyOnPing", [value: true, type: "bool"])
+                } else {
+                    input name: "highAccuracyOnPing", type: "bool", title: "Request a high accuracy location from members on their next location report after a ping update to keep location fresh (<b>Android ONLY</b>)", defaultValue: DEFAULT_highAccuracyOnPing
+                }
             }
             input name: "ignoreInaccurateLocations", type: "number", title: "Do not send a location if the accuracy is greater than the given (${getSmallUnits()}) (0..${displayMFtVal(2000)}) Recommended=${displayMFtVal(DEFAULT_ignoreInaccurateLocations)}", required: true, range: "0..${displayMFtVal(2000)}", defaultValue: displayMFtVal(DEFAULT_ignoreInaccurateLocations)
             input name: "ignoreStaleLocations", type: "number", title: "Number of days after which location updates from friends are assumed stale and removed (0..7), Recommended=${DEFAULT_ignoreStaleLocations}", required: true, range: "0..7", defaultValue: DEFAULT_ignoreStaleLocations
@@ -1933,8 +1937,7 @@ def displayMemberStatus() {
         tableData += '<th>Last Location Report</th>'
         tableData += '<th>Last Location Fix</th>'
         tableData += '<th>Update Region</th>'
-        tableData += '<th>Update Location</th>'
-        tableData += '<th>Update Display</th>'
+        tableData += '<th>Update Configuration</th>'
         tableData += '<th>Get Regions</th>'
         tableData += '<th>Request Location</th>'
         tableData += '</tr>'
@@ -1953,10 +1956,20 @@ def displayMemberStatus() {
             tableData += (memberEnabled ? ((member.staleReport ? '<td style="color:#ff0000">' + member.lastReportDate + ' (' + member.numberHoursReport + ' hrs ago)' : '<td>' + member.lastReportDate) + '</td>') : '<td style="color:#b3b3b3"><s>' + member.lastReportDate + '</s></td>')
             tableData += (memberEnabled ? ((member.staleFix ? '<td style="color:#ff0000">' + member.lastFixDate + ' (' + member.numberHoursFix + ' hrs ago)' : '<td>' + member.lastFixDate) + '</td>') : '<td style="color:#b3b3b3"><s>' + member.lastFixDate + '</s></td>')
             tableData += (memberEnabled ? (member.updateWaypoints ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
-            tableData += (memberEnabled ? (member.updateLocation ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
-            tableData += (memberEnabled ? (member.updateDisplay ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
+            tableData += (memberEnabled ? ((member.updateLocation | member.updateDisplay) ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
             tableData += (memberEnabled ? (member.getRegions ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : '<td style="color:#b3b3b3"><s>--</s></td>')
             tableData += (memberEnabled ? (member.requestLocation ? '<td style="color:#ff9900">Pending' : '<td>No') + '</td>' : (member?.deactivate ? '<td style="color:#ff0000">' + (member?.deactivate == 1 ? 'Deactivating' : 'Deactivated') +'</td>' : '<td style="color:#b3b3b3"><s>--</s></td>'))
+            tableData += '</tr>'
+            // display members in non-optimal configurations
+            tableData += '<tr style="color:#ff0000">'
+            tableData += '<td></td>'
+            tableData += '<td>'
+            tableData += ((member.cmd == 0) ? '* OwnTracks app "remote configuration" disabled<br>' : '')
+            tableData += ((member.bo == 1) ? '* Battery usage is set to "optimized" or "restricted"<br>' : '')
+            tableData += ((member.hib == 1) ? '* "Pause app activity if unused" is enabled<br>' : '')
+            tableData += ((member.loc < 0) ? '* Location persmission is not set to "Allow all the time" and "Use precise location"<br>' : '')
+            tableData += ((member.ps == 1) ? '* Phone in battery saver mode' : '')
+            tableData += '</td>'
             tableData += '</tr>'
         }
         tableData += '</table></font>'
@@ -2261,8 +2274,8 @@ def getHistoryMarker(member, data) {
             if ((member.speed <= memberHistoryMinimumSpeed) && (member.history.spd[historyLength] <= memberHistoryMinimumSpeed)) {
                 removeMarker = true
             }
-            // if we are travelling in roughly the same direction
-            if (removeMemberMarkersWithSameBearing && (getCompassDifference(member.bearing, member.history.cog[historyLength]) <= memberMarkerBearingDifferenceDegrees)) {
+            // if we are travelling in roughly the same direction - check the last two points so that we do not remove a marker during a direction transition
+            if (removeMemberMarkersWithSameBearing && (getCompassDifference(member.bearing, member.history.cog[historyLength]) <= memberMarkerBearingDifferenceDegrees) && (getCompassDifference(member.history.cog[historyLength], member.history.cog[historyLength-1]) <= memberMarkerBearingDifferenceDegrees)) {
                 removeMarker = true
             }
         }
@@ -2617,6 +2630,11 @@ def updateStatus(findMember, data) {
     findMember.ps   = data?.android?.ps
     findMember.bo   = data?.android?.bo
     findMember.loc  = data?.android?.loc
+    findMember.cmd  = (data?.android?.cmd != null ? data?.android?.cmd : 1)
+    if (findMember.cmd == 0) {
+        logWarn("'Remote Configuration' not enabled.  Open the Owntracks app for ${findMember.name} and select 'Preferences -> Advanced-> Remote configuration'")
+    }
+
     /*
     log.debug (data?.iOS?.deviceSystemName)
     log.debug (data?.iOS?.deviceUserInterfaceIdiom)
@@ -2819,7 +2837,8 @@ private def sendConfiguration(currentMember) {
     if (highAccuracyOnPing) {
 //        configurationList.experimentalFeatures = "showExperimentalPreferenceUI,locationPingUsesHighAccuracyLocationRequest"
         configurationList.experimentalFeatures = "locationPingUsesHighAccuracyLocationRequest"
-//        configurationList.experimentalFeatures = ""
+    } else {
+        configurationList.experimentalFeatures = ""
     }
 
     // append the extra app configurations if enabled
@@ -3947,6 +3966,7 @@ def processAPIData() {
                         "hib" :         (member?.hib ? member?.hib : "0"),
                         "bo" :          (member?.bo ? member?.bo : "0"),
                         "per" :         (member?.loc ? member?.loc : "0"),
+                        "cmd" :         member?.cmd,
                         "stale" :       member.staleReport,
                         "bs" :          "${member?.bs}",
                         "last" :        "${deviceWrapper?.currentValue("lastLocationtime")}",
@@ -4757,7 +4777,8 @@ def generateGoogleFriendsMap() {
                     (position.stale ? "<div style='color:red'>" : "<div>") + "Last: " + position.last + "</div>" +
                     ((position.bo != "0") ? "<div style='color:red'>&#9940;App battery usage: Optimized/Restricted</div>" : "") +
                     ((position.hib != "0") ? "<div style='color:red'>&#9940;Permissions: App can pause</div>" : "") +
-                    ((position.per != "0") ? "<div style='color:red'>&#9940;Location permission: Not allowed all the time</div>" : "")
+                    ((position.per != "0") ? "<div style='color:red'>&#9940;Location permission: Not allowed all the time</div>" : "") +
+                    ((position.cmd == 0) ? "<div style='color:red'>&#9940;OwnTracks app setting 'Remote Configuration' is not enabled</div>" : "")
 
                     return(contentString);
                 };

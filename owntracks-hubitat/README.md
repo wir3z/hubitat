@@ -331,10 +331,11 @@ The defaults for the rest of these settings should be sufficient for verifying o
 - Location reporting mode
 	- 'significant' - location updates are based on distance moved and time elapsed.  Best balance for battery consumption and performance.
 	- 'move' - Continuously reports locations based on the configured interval.  Will result in much higher battery consumption.
-- Mobile App Location Performance (Android Only)	
-    - Use GPS for higher accuracy/performance.  NOTE: This will consume more battery but will offer better performance in areas with poor WiFi/Cell coverage. (Android ONLY)
 - Device will send a location interval at this heart beat interval (minutes) (Android Only)
 	- The mobile will report a location on intervals of this many minutes, regardless if it is moving
+- Mobile App Location Performance (Android Only)	
+    - Use GPS for high accuracy locations.  NOTE: This will consume slightly more battery but will offer better performance in areas with poor WiFi/Cell coverage. (Android ONLY)
+    - Request a high accuracy location from members on their next location report after a ping update to keep location fresh. (Android ONLY)
 - Do not send a location if the accuracy is greater than the given distance
 	- Prevents the phone from returning locations if the accuracy is larger than the entered distance
 - Number of days after which location updates from friends are assumed stale and removed
