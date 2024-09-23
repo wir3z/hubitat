@@ -146,7 +146,7 @@
  *  1.7.92     2024-09-14      - When a member info box was open on Google maps, it wouldn't automatically refresh.  Add more descriptive app permission warnings to the info box.
  *  1.7.93     2024-09-18      - Members were not getting sorted based on last location time.  Fixed Google maps member order to display the last reported member and member in focus on top.
  *  1.7.94     2024-09-19      - Recreates missing member devices should they be deleted from the Hubitat device menu and not the app.
- *  1.7.95     2024-09-21      - Member status now indicates configurations that will impact location performance.  Default to high accuarcy mode for better performance.  Fix issue where history compression was removing a marker at a direction transition.
+ *  1.8.0      2024-09-23      - Member status now indicates configurations that will impact location performance.  Fix issue where history compression was not properly removing markers at direction transitions.  Google Friends map will auto-update when the main app updates.
 */
 
 import groovy.transform.Field
@@ -155,7 +155,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.7.95" }
+def appVersion() { return "1.8.0" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -197,7 +197,7 @@ def appVersion() { return "1.7.95" }
 @Field Number  DEFAULT_memberHistoryRepeat = 300
 @Field Boolean DEFAULT_displayAllMembersHistory = false
 @Field Boolean DEFAULT_removeMemberMarkersWithSameBearing = true
-@Field Number  DEFAULT_memberMarkerBearingDifferenceDegrees = 5
+@Field Number  DEFAULT_memberMarkerBearingDifferenceDegrees = 10
 @Field Number  DEFAULT_memberTripIdleMarkerTime = 15
 @Field Number  DEFAULT_memberBoundsRadius = 100
 @Field Number  memberMaximumLocationAgeMinutes = 5
@@ -2248,6 +2248,20 @@ def getCompassDifference(bearing1, bearing2) {
     }
 }
 
+def removeHistoryPoint(member) {
+    // calculate the angle between the three points
+    d12 = haversine(member.latitude.toDouble(), member.longitude.toDouble(),member.history[member.history.size-1].lat.toDouble(), member.history[member.history.size-1].lng.toDouble())
+    d13 = haversine(member.latitude.toDouble(), member.longitude.toDouble(),member.history[member.history.size-2].lat.toDouble(), member.history[member.history.size-2].lng.toDouble())
+    d23 = haversine(member.history[member.history.size-1].lat.toDouble(), member.history[member.history.size-1].lng.toDouble(),member.history[member.history.size-2].lat.toDouble(), member.history[member.history.size-2].lng.toDouble())
+
+    // check if the angle deviation is within range
+    if ((180 - Math.toDegrees(Math.acos(((d12*d12) + (d23*d23) - (d13*d13)) / (2*d12*d23)))) <= memberMarkerBearingDifferenceDegrees) {
+        return (true)
+    } else {
+        return (false)
+    }
+}
+
 def getHistoryMarker(member, data) {
     // default to the "middle" marker
     marker = memberMiddleMarker
@@ -2275,7 +2289,7 @@ def getHistoryMarker(member, data) {
                 removeMarker = true
             }
             // if we are travelling in roughly the same direction - check the last two points so that we do not remove a marker during a direction transition
-            if (removeMemberMarkersWithSameBearing && (getCompassDifference(member.bearing, member.history.cog[historyLength]) <= memberMarkerBearingDifferenceDegrees) && (getCompassDifference(member.history.cog[historyLength], member.history.cog[historyLength-1]) <= memberMarkerBearingDifferenceDegrees)) {
+            if (removeMemberMarkersWithSameBearing && removeHistoryPoint(member)) {
                 removeMarker = true
             }
         }
@@ -3949,7 +3963,7 @@ def processAPIData() {
             case "members":
                 // return with the consolidated list of member information
                 def memberLocations = []
-                publicMembers = getEnabledAndNotHiddenMemberData(data.payload.member)
+                publicMembers = getEnabledAndNotHiddenMemberData(data.payload?.member)
                 publicMembers.eachWithIndex { member, index ->
                     def deviceWrapper = getChildDevice(member.id)
                     def memberLocation = [
@@ -3998,7 +4012,7 @@ def processAPIData() {
                     // store the last location report sent to the map
                     member.lastMapTime = member.lastReportTime
                 }
-                response = [ "members" : memberLocations ]
+                response = [ "members" : memberLocations, "appVersion" : appVersion() ]
             break;
             case "update":
                 member = state.members.find {it.name==data.payload}
@@ -4056,6 +4070,8 @@ def generateGoogleFriendsMap() {
                 // get the params if they were passed
                 const urlParams = new URLSearchParams(window.location.search);
                 const paramMember = urlParams.get("member");
+                const webAppVersion = "${appVersion()}";
+                console.log("Google Friends Map version " + webAppVersion)
 
                 locations = [];
                 regions = [];
@@ -4695,6 +4711,13 @@ def generateGoogleFriendsMap() {
                         })
                         .then(response => response.json())
                         .then(data => {
+                            // check if the web app needs to reload so that it can update
+                            if (data.appVersion) {
+                                if (data.appVersion != webAppVersion) {
+                                    console.log("Reloading Web App");
+                                    location.reload();
+                                }
+                            }
                             // process return data
                             updateLocations(data);
                         })

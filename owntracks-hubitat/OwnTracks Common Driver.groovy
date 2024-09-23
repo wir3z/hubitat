@@ -27,12 +27,13 @@
  *  1.7.6      2024-03-15      - Added configuration map tile.
  *  1.7.7      2024-03-23      - Changed the GoogleFriendsLocation tile generation.
  *  1.7.8      2024-04-07      - Changed cloud/local URL sourcing.
+ *  1.8.0      2024-09-23      - Up-reved version to match app.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.8" }
+def driverVersion() { return "1.8.0" }
 
 @Field Boolean DEFAULT_displayFriendsTile = false
 @Field String  CLOUD_URL_SOURCE = "[cloud.hubitat.com]"

@@ -137,12 +137,13 @@
  *  1.7.39     2024-08-11      - Updated bearing.
  *  1.7.40     2024-08-16      - Updated trigger types.
  *  1.7.41     2024-09-14      - Adjust member location iframe to hide the view on larger map overlay.
+ *  1.8.0      2024-09-23      - Up-reved version to match app.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.7.41" }
+def driverVersion() { return "1.8.0" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
