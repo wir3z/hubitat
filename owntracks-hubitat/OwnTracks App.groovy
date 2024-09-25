@@ -147,7 +147,7 @@
  *  1.7.93     2024-09-18      - Members were not getting sorted based on last location time.  Fixed Google maps member order to display the last reported member and member in focus on top.
  *  1.7.94     2024-09-19      - Recreates missing member devices should they be deleted from the Hubitat device menu and not the app.
  *  1.8.0      2024-09-23      - Member status now indicates configurations that will impact location performance.  Fix issue where history compression was not properly removing markers at direction transitions.  Google Friends map will auto-update when the main app updates.
- *  1.8.1      2024-09-24      - Member status would inaccuratly indicate a permission error for iOS phones.
+ *  1.8.1      2024-09-24      - Member status would inaccurately indicate a permission error for iOS phones.
 */
 
 import groovy.transform.Field
