@@ -147,6 +147,7 @@
  *  1.7.93     2024-09-18      - Members were not getting sorted based on last location time.  Fixed Google maps member order to display the last reported member and member in focus on top.
  *  1.7.94     2024-09-19      - Recreates missing member devices should they be deleted from the Hubitat device menu and not the app.
  *  1.8.0      2024-09-23      - Member status now indicates configurations that will impact location performance.  Fix issue where history compression was not properly removing markers at direction transitions.  Google Friends map will auto-update when the main app updates.
+ *  1.8.1      2024-09-24      - Member status would inaccuratly indicate a permission error for iOS phones.
 */
 
 import groovy.transform.Field
@@ -155,7 +156,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.0" }
+def appVersion() { return "1.8.1" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -1964,11 +1965,11 @@ def displayMemberStatus() {
             tableData += '<tr style="color:#ff0000">'
             tableData += '<td></td>'
             tableData += '<td>'
-            tableData += ((member.cmd == 0) ? '* OwnTracks app "remote configuration" disabled<br>' : '')
-            tableData += ((member.bo == 1) ? '* Battery usage is set to "optimized" or "restricted"<br>' : '')
-            tableData += ((member.hib == 1) ? '* "Pause app activity if unused" is enabled<br>' : '')
-            tableData += ((member.loc < 0) ? '* Location persmission is not set to "Allow all the time" and "Use precise location"<br>' : '')
-            tableData += ((member.ps == 1) ? '* Phone in battery saver mode' : '')
+            tableData += ((member?.cmd == 0) ? '* OwnTracks app "remote configuration" disabled<br>' : '')
+            tableData += ((member?.bo == 1) ? '* Battery usage is set to "optimized" or "restricted"<br>' : '')
+            tableData += ((member?.hib == 1) ? '* "Pause app activity if unused" is enabled<br>' : '')
+            tableData += (((member?.loc != null) && (member?.loc < 0)) ? '* Location permission is not set to "Allow all the time" and "Use precise location"<br>' : '')
+            tableData += ((member?.ps == 1) ? '* Phone in battery saver mode' : '')
             tableData += '</td>'
             tableData += '</tr>'
         }
