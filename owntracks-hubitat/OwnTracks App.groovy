@@ -148,6 +148,7 @@
  *  1.7.94     2024-09-19      - Recreates missing member devices should they be deleted from the Hubitat device menu and not the app.
  *  1.8.0      2024-09-23      - Member status now indicates configurations that will impact location performance.  Fix issue where history compression was not properly removing markers at direction transitions.  Google Friends map will auto-update when the main app updates.
  *  1.8.1      2024-09-24      - Member status would inaccurately indicate a permission error for iOS phones.
+ *  1.8.2      2024-09-27      - High power mode gets disabled when in a region.
 */
 
 import groovy.transform.Field
@@ -156,7 +157,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.1" }
+def appVersion() { return "1.8.2" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -421,7 +422,6 @@ def mainPage() {
                 input name: "sectionAdvanced", type: "button", title: getSectionTitle(state.show.advanced, "Advanced Settings - Hub and Mobile"), submitOnChange: true, style: getSectionStyle()
                 if (state.show.advanced) {
                     paragraph("The default settings provide the best balance of accuracy/power.  To view or modify advanced settings, select the items below.")
-                    checkLocatorPriority()
                     href(title: "Hub App Settings", description: "", style: "page", page: "advancedHub")
                     href(title: "Mobile App Location Settings", description: "", style: "page", page: "advancedLocation")
                     href(title: "Mobile App Display Settings", description: "", style: "page", page: "advancedDisplay")
@@ -443,21 +443,11 @@ def mainPage() {
     }
 }
 
-def checkLocatorPriority() {
-    // check if we need to
-    if (state.highPowerMode != highPowerMode) {
-        state.highPowerMode = highPowerMode
-        // remove the old enum so we can re-assign it
-        app.removeSetting("locatorPriority")
-        // change the setting
-        if (highPowerMode) {
-            app.updateSetting("locatorPriority", [value: DYNAMIC_INTERVALS.locatorPriority, type: "string"])
-        } else {
-            app.updateSetting("locatorPriority", [value: DEFAULT_locatorPriority, type: "string"])
-        }
-        // trigger the mobile location update
-        setUpdateFlag([ "name":"" ], "updateLocation", true, false)
-        logWarn("Changing locator priority to ${LOCATOR_PRIORITY[locatorPriority]}")
+def getLocatorPriority(inRegion) {
+    if (highPowerMode && !inRegion) {
+        return(DYNAMIC_INTERVALS.locatorPriority)
+    } else {
+        return(DEFAULT_locatorPriority)
     }
 }
 
@@ -1502,7 +1492,6 @@ def initialize(forceDefaults) {
     if (state.accessToken == null) state.accessToken = ""
     if (state.members == null) state.members = []
     if (state.places == null) state.places = []
-    if (state.highPowerMode == null) state.highPowerMode = DEFAULT_highPowerMode
     if (state.mapApiUsage == null) state.mapApiUsage = 0
     if (state.lastGoogleFriendsLocationTime == null) state.lastGoogleFriendsLocationTime = 0
     if (state.lastReportTime == null) state.lastReportTime = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date())
@@ -1525,12 +1514,6 @@ def initialize(forceDefaults) {
     if (forceDefaults) app.updateSetting("descriptionTextOutput", [value: DEFAULT_descriptionTextOutput, type: "bool"])
     if (forceDefaults) app.updateSetting("debugOutput", [value: DEFAULT_debugOutput, type: "bool"])
     if (forceDefaults || (debugResetHours == null)) app.updateSetting("debugResetHours", [value: DEFAULT_debugResetHours, type: "number"])
-
-    // in order to set the default enum's we need to remove the existing setting
-    if (forceDefaults) {
-        app.removeSetting("locatorPriority")
-    }
-    if (locatorPriority == null) app.updateSetting("locatorPriority", [value: DEFAULT_locatorPriority, type: "string"])
 
     // assign the defaults to the hub settings
     initializeHub(forceDefaults)
@@ -1753,6 +1736,11 @@ def updated() {
     schedule("0 0 0 * * ? *", nightlyMaintenance)
     nightlyMaintenance()
     removePlaces()
+
+    //TODO cleanup - remove in a future release
+    app.removeSetting("locatorPriority")
+    state.remove("highPowerMode")
+    //TODO cleanup - remove in a future release
 }
 
 def refresh() {
@@ -2461,22 +2449,27 @@ def checkRegionConfiguration(member, data) {
         def closestWaypointRadius = 0
         def closestWaypointDistance = -1
 
-        // check if we need to apply this to the home region only, or all regions
+        // loop through all the waypoints, and find the one that is closet to the location
+        state.places.each { waypoint->
+            // check our distance from the waypoint
+            distanceToWaypoint = ((haversine(data.lat.toDouble(), data.lon.toDouble(), waypoint.lat.toDouble(), waypoint.lon.toDouble()))*1000).round(0)
+            // if we are closest, then save that waypoint
+            if ((closestWaypointDistance == -1) || (distanceToWaypoint < closestWaypointDistance)) {
+                closestWaypointDistance = distanceToWaypoint.toDouble()
+                closestWaypointRadius = waypoint.rad.toDouble()
+            }
+        }
+        // check if the member is inside a region
+        //currentlyInRegion = (closestWaypointDistance <= closestWaypointRadius)
+        //TODO - testing this for performance - need to add a toggle to select this in the settings - FALSE is the normal setting
+        currentlyInRegion = false
+
+
+        // check if we need to apply this to the home region only then we will overwrite the all regions
         if (regionHighAccuracyRadiusHomeOnly) {
             // only switch to faster reporting when near home
             closestWaypointDistance = (getDistanceFromHome(data)*1000).toDouble()
             closestWaypointRadius = getHomeRegion()?.rad.toDouble()
-        } else {
-             // loop through all the waypoints, and find the one that is closet to the location
-            state.places.each { waypoint->
-                // check our distance from the waypoint
-                distanceToWaypoint = ((haversine(data.lat.toDouble(), data.lon.toDouble(), waypoint.lat.toDouble(), waypoint.lon.toDouble()))*1000).round(0)
-                // if we are closest, then save that waypoint
-                if ((closestWaypointDistance == -1) || (distanceToWaypoint < closestWaypointDistance)) {
-                    closestWaypointDistance = distanceToWaypoint.toDouble()
-                    closestWaypointRadius = waypoint.rad.toDouble()
-                }
-            }
         }
 
         // catch the exception if no regions have been defined
@@ -2487,11 +2480,13 @@ def checkRegionConfiguration(member, data) {
         }
 
         // check if we are outside our region radius, and within our greater than the radius + regionHighAccuracyRadius
-        return (createConfiguration(member, ((closestWaypointDistance > closestWaypointRadius) && (closestWaypointDistance < (closestWaypointRadius + regionHighAccuracyRadius.toDouble())))))
+        return (createConfiguration(member, currentlyInRegion, ((closestWaypointDistance > closestWaypointRadius) && (closestWaypointDistance < (closestWaypointRadius + regionHighAccuracyRadius.toDouble())))))
     }
 }
 
-def createConfiguration(member, useDynamicLocaterAccuracy) {
+def createConfiguration(member, currentlyInRegion, useDynamicLocaterAccuracy) {
+    def updateConfiguration = false
+
     // check if we need to force a high accuracy update
     if (useDynamicLocaterAccuracy) {
         // switch to locatorPriority=high power and pegLocatorFastestIntervalToInterval=false (dynamic interval)
@@ -2501,15 +2496,23 @@ def createConfiguration(member, useDynamicLocaterAccuracy) {
                             ]
     } else {
         // switch to settings.  Recommended locatorPriority=balanced power and pegLocatorFastestIntervalToInterval=true (fixed interval)
+        // if in a region, use balanced power to prevent location jitter
         configurationList = [ "_type": "configuration",
                              "pegLocatorFastestIntervalToInterval": pegLocatorFastestIntervalToInterval,
-                             "locatorPriority": locatorPriority,
+                             "locatorPriority": getLocatorPriority(currentlyInRegion),
                             ]
     }
-
     if (member?.dynamicLocaterAccuracy != useDynamicLocaterAccuracy) {
         // assign the new state
         member.dynamicLocaterAccuracy = useDynamicLocaterAccuracy
+        updateConfiguration = true
+    }
+    if (member?.currentlyInRegion != currentlyInRegion) {
+        // assign the new state
+        member.currentlyInRegion = currentlyInRegion
+        updateConfiguration = true
+    }
+    if (updateConfiguration) {
         // return with the dynamic configuration
         return( [ "_type":"cmd","action":"setConfiguration", "configuration": configurationList ] )
     } else {
@@ -2830,7 +2833,7 @@ private def sendConfiguration(currentMember) {
                                 // dynamic configurations
                                 "pegLocatorFastestIntervalToInterval" : pegLocatorFastestIntervalToInterval, // Request that the location provider deliver updates no faster than the requested locator interval
                                 "monitoring" :                          monitoring.toInteger(),              // Monitoring mode (quiet, manual, significant, move)
-                                "locatorPriority" :                     locatorPriority,                     // source/power setting for location updates (no power, low power, balanced power, high power)
+                                "locatorPriority" :                     getLocatorPriority(false),           // source/power setting for location updates (no power, low power, balanced power, high power)
                                 "locatorDisplacement" :                 state.locatorDisplacement,           // How far should the device travel (in metres) before receiving another location
                                 "locatorInterval" :                     locatorInterval,                     // How often should locations be requested from the device (seconds)
                                 "moveModeLocatorInterval" :             moveModeLocatorInterval,             // How often should locations be requested from the device whilst in Move mode (seconds)
