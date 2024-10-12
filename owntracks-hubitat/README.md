@@ -320,6 +320,8 @@ The defaults for the rest of these settings should be sufficient for verifying o
 	- If enabled, a warning will be disabled each time a member reports a location, but is not selected.
 - Display a warning in the logs if a family member app settings are not configured for optimal operation:
 	- If enabled, a warning will be displayed each time a user reports a location with non-optimal phone settings.
+- Turn off high accuracy locations when the member is inside a region to reduce location jitter and power consumption. (Android ONLY)
+	- If selected, high accuracy locations will be disabled when inside any region.
 - Request a high accuracy location from members on their next location report after a ping/manual update to keep location fresh (Android ONLY):
 	- If selected, members reporting stale locations will be requested to send a high accuracy location on their next location report
 	

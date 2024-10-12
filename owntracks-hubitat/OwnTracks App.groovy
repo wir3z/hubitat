@@ -148,7 +148,7 @@
  *  1.7.94     2024-09-19      - Recreates missing member devices should they be deleted from the Hubitat device menu and not the app.
  *  1.8.0      2024-09-23      - Member status now indicates configurations that will impact location performance.  Fix issue where history compression was not properly removing markers at direction transitions.  Google Friends map will auto-update when the main app updates.
  *  1.8.1      2024-09-24      - Member status would inaccurately indicate a permission error for iOS phones.
- *  1.8.2      2024-09-27      - High power mode gets disabled when in a region.
+ *  1.8.2      2024-09-27      - Return last member locations in a JSON message when the mobile app setup URL is requested.  Allow high power mode to be disabled when in a region.
 */
 
 import groovy.transform.Field
@@ -228,6 +228,7 @@ def appVersion() { return "1.8.2" }
 @Field Number  DEFAULT_staleLocationWatchdogInterval = 900
 @Field Boolean DEFAULT_highAccuracyOnPing = true
 @Field Boolean DEFAULT_highPowerMode = true
+@Field Boolean DEFAULT_lowPowerModeInRegion = false
 @Field Number  DEFAULT_googleMapsZoom = 0
 @Field String  DEFAULT_googleMapsMember = "null"
 @Field Boolean DEFAULT_descriptionTextOutput = true
@@ -458,7 +459,7 @@ def configureHubApp() {
             initializeHub(false)
         }
         section() {
-            input name: "sectionHubsettings", type: "button", title: getSectionTitle(state.show.hubsettings, "Hubitat Settings - WiFi Settings, Location Performance, Units, Device Prefix"), submitOnChange: true, style: getSectionStyle()
+            input name: "sectionHubsettings", type: "button", title: getSectionTitle(state.show.hubsettings, "Hubitat Settings - WiFi Settings, Units, Device Prefix"), submitOnChange: true, style: getSectionStyle()
             if (state.show.hubsettings) {
                 input "homeSSID", "string", title:"Enter your 'Home' WiFi SSID(s), separated by commas.  Used to prevent devices from being 'non-present' if currently connected to these WiFi access point(s).", defaultValue: ""
                 input name: "wifiPresenceKeepRadius", type: "enum", title: "SSID will only be used for presence detection when a member is within this radius from home, Recommended=${displayMFtVal(DEFAULT_wifiPresenceKeepRadius)}", defaultValue: "${DEFAULT_wifiPresenceKeepRadius}", options: (imperialUnits ? [0:'disabled',250:'820 ft',500:'1640 ft',750:'2461 ft',2000:'1.2 mi',5000:'3.1 mi',10000:'6.2 mi'] : [0:'disabled',250:'250 m',500:'500 m',750:'750 m',2000:'2 km',5000:'5 km',10000:'10 km'])
@@ -737,6 +738,7 @@ def advancedLocation() {
                 // if in high power mode, default to high accuracy pings
                 if (highPowerMode) {
                     app.updateSetting("highAccuracyOnPing", [value: true, type: "bool"])
+                    input name: "lowPowerModeInRegion", type: "bool", title: "Turn off high accuracy locations when the member is inside a region to reduce location jitter and power consumption. (<b>Android ONLY</b>)", defaultValue: DEFAULT_lowPowerModeInRegion
                 } else {
                     input name: "highAccuracyOnPing", type: "bool", title: "Request a high accuracy location from members on their next location report after a ping update to keep location fresh (<b>Android ONLY</b>)", defaultValue: DEFAULT_highAccuracyOnPing
                 }
@@ -1511,6 +1513,7 @@ def initialize(forceDefaults) {
     if (deviceNamePrefix == null) app.updateSetting("deviceNamePrefix", [value: DEFAULT_CHILDPREFIX, type: "string"])
     if (forceDefaults || (imageCards == null)) app.updateSetting("imageCards", [value: DEFAULT_imageCards, type: "bool"])
     if (forceDefaults || (highPowerMode == null)) app.updateSetting("highPowerMode", [value: DEFAULT_highPowerMode, type: "bool"])
+    if (forceDefaults || (lowPowerModeInRegion == null)) app.updateSetting("lowPowerModeInRegion", [value: DEFAULT_lowPowerModeInRegion, type: "bool"])
     if (forceDefaults) app.updateSetting("descriptionTextOutput", [value: DEFAULT_descriptionTextOutput, type: "bool"])
     if (forceDefaults) app.updateSetting("debugOutput", [value: DEFAULT_debugOutput, type: "bool"])
     if (forceDefaults || (debugResetHours == null)) app.updateSetting("debugResetHours", [value: DEFAULT_debugResetHours, type: "number"])
@@ -2459,11 +2462,12 @@ def checkRegionConfiguration(member, data) {
                 closestWaypointRadius = waypoint.rad.toDouble()
             }
         }
-        // check if the member is inside a region
-        //currentlyInRegion = (closestWaypointDistance <= closestWaypointRadius)
-        //TODO - testing this for performance - need to add a toggle to select this in the settings - FALSE is the normal setting
-        currentlyInRegion = false
-
+        // check if the member is inside a region and we are in high power mode, and we want to reduce power inside regions
+        if (highPowerMode && lowPowerModeInRegion) {
+            currentlyInRegion = (closestWaypointDistance <= closestWaypointRadius)
+        } else {
+            currentlyInRegion = false
+        }
 
         // check if we need to apply this to the home region only then we will overwrite the all regions
         if (regionHighAccuracyRadiusHomeOnly) {
@@ -5023,6 +5027,51 @@ def checkAttributeLimit(tiledata) {
     }
 }
 
+def generateMemberDeviceStatus() {
+    def memberLocations = []
+    // loop through all the enabled members
+    settings?.enabledMembers.each { enabledMember->
+        member = state.members.find {it.name==enabledMember}
+        deviceWrapper = getChildDevice(member.id)
+        if (deviceWrapper) {
+            def memberLocation = [
+                "name" :                "${member.name}",
+                "SSID" :                "${deviceWrapper?.currentValue("SSID")}",
+                "accuracy" :            "${deviceWrapper?.currentValue("accuracy")}",
+                "address" :             "${deviceWrapper?.currentValue("address")}",
+                "altitude" :            "${deviceWrapper?.currentValue("altitude")}",
+                "battery" :             "${deviceWrapper?.currentValue("battery")}",
+                "batteryStatus" :       "${deviceWrapper?.currentValue("batteryStatus")}",
+                "bearing" :             "${deviceWrapper?.currentValue("bearing")}",
+                "dataConnection" :      "${deviceWrapper?.currentValue("dataConnection")}",
+                "distanceFromHome" :    "${deviceWrapper?.currentValue("distanceFromHome")}",
+                "imperialUnits" :       "${deviceWrapper?.currentValue("imperialUnits")}",
+                "lastLocationtime" :    "${deviceWrapper?.currentValue("lastLocationtime")}",
+                "lastSpeed" :           "${deviceWrapper?.currentValue("lastSpeed")}",
+                "lat" :                 "${deviceWrapper?.currentValue("lat")}",
+                "location" :            "${deviceWrapper?.currentValue("location")}",
+                "lon" :                 "${deviceWrapper?.currentValue("lon")}",
+                "monitoringMode" :      "${deviceWrapper?.currentValue("monitoringMode")}",
+                "presence" :            "${deviceWrapper?.currentValue("presence")}",
+                "since" :               "${deviceWrapper?.currentValue("since")}",
+                "sinceTime" :           "${deviceWrapper?.currentValue("sinceTime")}",
+                "sourceTopic" :         "${deviceWrapper?.currentValue("sourceTopic")}",
+                "streetAddress" :       "${deviceWrapper?.currentValue("streetAddress")}",
+                "switch" :              "${deviceWrapper?.currentValue("switch")}",
+                "transitionDirection" : "${deviceWrapper?.currentValue("transitionDirection")}",
+                "transitionRegion" :    "${deviceWrapper?.currentValue("transitionRegion")}",
+                "transitionTime" :      "${deviceWrapper?.currentValue("transitionTime")}",
+                "triggerSource" :       "${deviceWrapper?.currentValue("triggerSource")}",
+                "verticalAccuracy" :    "${deviceWrapper?.currentValue("verticalAccuracy")}",
+                "wifi" :                "${deviceWrapper?.currentValue("wifi")}",
+            ]
+            memberLocations << memberLocation
+        }
+    }
+
+    return(memberLocations)
+}
+
 private def isCloudLinkEnabled(requestURL) {
     if ((requestURL == HUBITAT_CLOUD_URL) && (disableCloudLinks == true)) {
         logWarn("Cloud links are disabled.  Open the Hubitat OwnTracks app, and enable in 'Dashboard Web Links'.")
@@ -5096,10 +5145,15 @@ def regionUpdate() {
 }
 
 private def webhookGetHandler() {
-    testMember = [ "updateWaypoints":true, "updateLocation":true, "updateDisplay":true, "dynamicLocaterAccuracy":true ]
-    result = sendUpdate(testMember, [ "t":"p", "lat":12.345, "lon":-123.45678 ] )
-    logWarn "ADDED FOR TESTING THROUGH THE BROWSER LINK - not currently handled"
-    return render(contentType: "text/html", data: result, status: 200)
+    if (isCloudLinkEnabled(request.HOST)) {
+        logDescriptionText("Web request for member device status.")
+        payload = new JsonBuilder(generateMemberDeviceStatus()).toPrettyString()
+    } else {
+        logDescriptionText("Cloud web links are disabled.")
+        payload = []
+    }
+
+    return render(contentType: "text/html", data: payload, status: 200)
 }
 
 private def syncHttpGet(url) {
