@@ -148,7 +148,8 @@
  *  1.7.94     2024-09-19      - Recreates missing member devices should they be deleted from the Hubitat device menu and not the app.
  *  1.8.0      2024-09-23      - Member status now indicates configurations that will impact location performance.  Fix issue where history compression was not properly removing markers at direction transitions.  Google Friends map will auto-update when the main app updates.
  *  1.8.1      2024-09-24      - Member status would inaccurately indicate a permission error for iOS phones.
- *  1.8.2      2024-09-27      - Return last member locations in a JSON message when the mobile app setup URL is requested.  Allow high power mode to be disabled when in a region.
+ *  1.8.2      2024-10-12      - Return last member locations in a JSON message when the mobile app setup URL is requested.  Allow high power mode to be disabled when in a region.
+ *  1.8.3      2024-10-13      - Added missing "members" in JSON.
 */
 
 import groovy.transform.Field
@@ -157,7 +158,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.2" }
+def appVersion() { return "1.8.3" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -5069,7 +5070,7 @@ def generateMemberDeviceStatus() {
         }
     }
 
-    return(memberLocations)
+    return(["members" : memberLocations])
 }
 
 private def isCloudLinkEnabled(requestURL) {
