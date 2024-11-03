@@ -151,6 +151,7 @@
  *  1.8.2      2024-10-12      - Return last member locations in a JSON message when the mobile app setup URL is requested.  Allow high power mode to be disabled when in a region.
  *  1.8.4      2024-10-13      - Added missing "members" in JSON.
  *  1.8.5      2024-10-26      - Cleanup migration.  Fixed issue if thumbnails were enabled, but no image files were loaded in the hub.
+ *  1.8.6      2024-11-03      - Added radius around the Google Friends Map member pin that scales based on their location accuracy.
 */
 
 import groovy.transform.Field
@@ -159,7 +160,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.5" }
+def appVersion() { return "1.8.6" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -194,6 +195,7 @@ def appVersion() { return "1.8.5" }
 @Field String  DEFAULT_REGION_NEW_GLYPH_COLOR = "black"          // "#000000" - "Black"
 @Field String  DEFAULT_REGION_HOME_GLYPH_COLOR = "DarkSlateGrey" // "#2f4f4f" - "DarkSlateGrey"
 @Field String  DEFAULT_REGION_GLYPH_COLOR = "Maroon"             // "#800000" - "Maroon"
+@Field Number  DEFAULT_memberAccuracyRadiusOpacity = 1.0
 @Field Number  DEFAULT_memberHistoryLength = 60
 @Field Number  DEFAULT_maxMemberHistoryLength = 60
 @Field Number  DEFAULT_memberHistoryScale = 1.0
@@ -519,6 +521,7 @@ def configureHubApp() {
                 paragraph ("<a href='${getAttributeURL("[cloud.hubitat.com]", "googlemap")}' target='_blank'>Test map API key</a>")
                 input name: "memberBoundsRadius", type: "number", title: "Map will only auto-zoom to fit members within this distance from home (${getLargeUnits()}) (0..${displayKmMiVal(6400).toInteger()}) Recommended=${displayKmMiVal(DEFAULT_memberBoundsRadius).toInteger()}, Show all members=0", range: "0..${displayKmMiVal(6400).toInteger()}", defaultValue: displayKmMiVal(DEFAULT_memberBoundsRadius).toInteger(), submitOnChange: true
                 paragraph ("<h2>Member History and Pin Colors</h2>")
+                input name: "memberAccuracyRadiusOpacity", type: "decimal", title: "Opacity value for the member accuracy radius, 0=disabled (0.0..3.0):", range: "0.0..3.0", defaultValue: DEFAULT_memberAccuracyRadiusOpacity
                 input name: "memberHistoryLength", type: "number", title: "Number of total past member locations to save (0..${DEFAULT_maxMemberHistoryLength}):", range: "0..${DEFAULT_maxMemberHistoryLength}", defaultValue: DEFAULT_memberHistoryLength
                 input name: "memberTripIdleMarkerTime", type: "number", title: "Time in minutes between adjacent history locations to denote an end of trip (5..60):", range: "5..60", defaultValue: DEFAULT_memberTripIdleMarkerTime
                 input name: "removeMemberMarkersWithSameBearing", type: "bool", title: "Remove previous history location if member is moving in the same direction.", defaultValue: DEFAULT_removeMemberMarkersWithSameBearing, submitOnChange: true
@@ -1555,6 +1558,7 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (regionPinColor == null)) app.updateSetting("regionPinColor", [value: DEFAULT_REGION_PIN_COLOR, type: "string"])
     if (forceDefaults || (regionGlyphColor == null)) app.updateSetting("regionGlyphColor", [value: DEFAULT_REGION_GLYPH_COLOR, type: "string"])
     if (forceDefaults || (regionHomeGlyphColor == null)) app.updateSetting("regionHomeGlyphColor", [value: DEFAULT_REGION_HOME_GLYPH_COLOR, type: "string"])
+    if (forceDefaults || (memberAccuracyRadiusOpacity == null)) app.updateSetting("memberAccuracyRadiusOpacity", [value: DEFAULT_memberAccuracyRadiusOpacity, type: "decimal"])
     if (forceDefaults || (memberHistoryLength == null)) app.updateSetting("memberHistoryLength", [value: DEFAULT_memberHistoryLength, type: "number"])
     if (forceDefaults || (memberHistoryScale == null)) app.updateSetting("memberHistoryScale", [value: DEFAULT_memberHistoryScale, type: "decimal"])
     if (forceDefaults || (memberHistoryStroke == null)) app.updateSetting("memberHistoryStroke", [value: DEFAULT_memberHistoryStroke, type: "decimal"])
@@ -4285,6 +4289,22 @@ def generateGoogleFriendsMap() {
                                 content: pin.element
                             });
 
+                            // place the member's accuracy radius
+                            const markerRadius = new google.maps.Circle({
+                                map,
+                                center:{
+                                    lat: locations[member].lat,
+                                    lng: locations[member].lng
+                                },
+                                radius: locations[member].acc,
+                                strokeColor: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
+                                strokeOpacity: "${(memberAccuracyRadiusOpacity != 0 ? 0.17 : 0)}",
+                                strokeWeight: 1,
+                                fillColor: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
+                                fillOpacity: 0.05 * "${(memberAccuracyRadiusOpacity == null ? DEFAULT_memberAccuracyRadiusOpacity : memberAccuracyRadiusOpacity)}",
+                                visible: true,
+                            });
+
                             // Add a click listener for each marker, and set up the info window
                             marker.addListener("click", () => {
                                 infoWindow.close();
@@ -4397,7 +4417,7 @@ def generateGoogleFriendsMap() {
                                 history.push({radius,bearingLine});
     						};
                             // save the marker and history
-                            markers.push({marker, history});
+                            markers.push({marker, history, markerRadius});
                         };
                         fitMapBounds();
                         showHideHistory();
@@ -4658,6 +4678,8 @@ def generateGoogleFriendsMap() {
 											center["lat"] = data.members[mem].lat;
 											center["lng"] = data.members[mem].lng;
 											markers[loc].marker.position = center;
+											markers[loc].markerRadius.setCenter(center);
+											markers[loc].markerRadius.setRadius(data.members[mem].acc);
 											// update the past history markers
 											for (let past=0; past<data.members[mem].history.length; past++) {
 												markers[loc].history[past].radius.setOptions({ center: { lat: data.members[mem].history[past].lat, lng: data.members[mem].history[past].lng }});

@@ -130,6 +130,9 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	- If the member name is appended to the end of the Google Family Map URL, that member will be used for the auto-zoom distance check.	
 	
 #### Member History and Pin Colors
+- Enter the opacity value for the member accuracy radius
+	- Creates a radius circle around the member scaled to the location accuracy.
+	- Entering 0 disables the radius, the higher the number, the lest opaque the radius.
 - Enter the total number of past member locations to save (includes the slower interval locations, below).  
 	- Entering 0 will disable the member history.
 - Time in minutes between adjacent history locations to denote an end of trip
