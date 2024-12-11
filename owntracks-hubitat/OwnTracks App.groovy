@@ -152,6 +152,7 @@
  *  1.8.4      2024-10-13      - Added missing "members" in JSON.
  *  1.8.5      2024-10-26      - Cleanup migration.  Fixed issue if thumbnails were enabled, but no image files were loaded in the hub.
  *  1.8.6      2024-11-03      - Added radius around the Google Friends Map member pin that scales based on their location accuracy.
+ *  1.8.7      2024-12-10	   - Changed map and geocode limits to match upcoming Google changes.
 */
 
 import groovy.transform.Field
@@ -160,7 +161,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.6" }
+def appVersion() { return "1.8.7" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -179,7 +180,7 @@ def appVersion() { return "1.8.6" }
 @Field static final Map GEOCODE_KEY = [ 1: "&key=", 2: "&format=json&apiKey=", 3: "&key=" ]
 @Field static final Map ADDRESS_JSON = [ 1: "formatted_address", 2: "formatted", 3: "formatted" ]
 @Field static final Map GEOCODE_USAGE_COUNTER = [ 1: "googleUsage", 2: "geoapifyUsage", 3: "opencageUsage" ]
-@Field static final Map GEOCODE_QUOTA = [ 1: 40000, 2: 3000, 3: 2500 ]
+@Field static final Map GEOCODE_QUOTA = [ 1: 10000, 2: 3000, 3: 2500 ]
 @Field static final Map GEOCODE_QUOTA_INTERVAL_DAILY = [ 1: false, 2: true, 3: true ]
 @Field static final Map GEOCODE_API_KEY_LINK = [ 1: "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>", 2: "<a href='https://apidocs.geoapify.com/docs/geocoding/reverse-geocoding/#about' target='_blank'>Sign up for a Geoapify API Key</a>", 3: "<a href='https://opencagedata.com/api#quickstart' target='_blank'>Sign up for a Opencage API Key</a>" ]
 @Field static final List URL_SOURCE = [ "[cloud.hubitat.com]", "[local.com]" ]
@@ -212,7 +213,7 @@ def appVersion() { return "1.8.6" }
 @Field String  memberBeginMarker = "b"
 @Field String  memberMiddleMarker = "m"
 @Field String  memberEndMarker = "e"
-@Field Number  GOOGLE_MAP_API_QUOTA = 28500
+@Field Number  GOOGLE_MAP_API_QUOTA = 10000
 @Field String  GOOGLE_MAP_API_KEY_LINK = "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>"
 @Field String  RECORDER_PUBLISH_FOLDER = "/pub"
 @Field String  MQTT_TOPIC_PREFIX = "owntracks"
