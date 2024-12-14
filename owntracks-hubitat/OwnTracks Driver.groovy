@@ -138,12 +138,13 @@
  *  1.7.40     2024-08-16      - Updated trigger types.
  *  1.7.41     2024-09-14      - Adjust member location iframe to hide the view on larger map overlay.
  *  1.8.0      2024-09-23      - Up-reved version to match app.
+ *  1.8.1      2024-12-14      - Ignore duplicate transition events if they occur within 5-seconds of the previous one.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.8.0" }
+def driverVersion() { return "1.8.1" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -167,6 +168,7 @@ def driverVersion() { return "1.8.0" }
 @Field String  DEFAULT_privateLocation = "Private"
 @Field Boolean DEFAULT_lastLocationViewTracks = false
 @Field Number  DEFAULT_pastLocationSearchWindow = 0.5
+@Field Number  DEFAULT_transitionDeadBandSeconds = 5
 
 metadata {
   definition (
@@ -308,22 +310,30 @@ def departed() {
 }
 
 def updatePresenceEvent(dataEvent, presenceState) {
-    createNotificationEvent(state.homeName, dataEvent, new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()), presenceState)
+    createNotificationEvent(state.homeName, dataEvent, new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()), (now()/1000).toInteger(), presenceState)
     generateTiles()
 }
 
-def createNotificationEvent(dataRegion, dataEvent, dataTime, presenceState) {
-    sendEvent( name: "transitionRegion", value: dataRegion )
-    sendEvent( name: "transitionTime", value: dataTime )
-    sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION[dataEvent] )
-    descriptionText = device.displayName +  " has ${TRANSITION_PHRASES[dataEvent]} " + dataRegion
-    logDescriptionText("$descriptionText")
-    parent.generateTransitionNotification(state.memberName, TRANSITION_PHRASES[dataEvent], dataRegion, dataTime)
-    // create a presence event if a state was passed
-    if (presenceState) {
-        descriptionText = device.displayName + " is " + presenceState
-        sendEvent (name: "presence", value: presenceState, descriptionText: descriptionText)
-        logDescriptionText("$descriptionText")
+def createNotificationEvent(dataRegion, dataEvent, dataTime, dataTst, presenceState) {
+    lastTime = device.currentValue("sinceTime")
+    if (lastTime == null) lastTime = 0
+    deadBandWindow = (DEFAULT_transitionDeadBandSeconds - (dataTst - lastTime))
+  	descriptionText = device.displayName +  " has ${TRANSITION_PHRASES[dataEvent]} " + dataRegion
+    // skip transition notification updates if duplicates are received within the deadband window
+    if ((dataRegion == device.currentValue("transitionRegion")) && (TRANSITION_DIRECTION[dataEvent] == device.currentValue("transitionDirection")) && (deadBandWindow > 0)) {
+        logDescriptionText ("Skipping duplicate transition event: '$descriptionText' occured $deadBandWindow seconds ago.")
+    } else {
+	    sendEvent( name: "transitionRegion", value: dataRegion )
+    	sendEvent( name: "transitionTime", value: dataTime )
+	    sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION[dataEvent] )
+	    logDescriptionText("$descriptionText")
+    	parent.generateTransitionNotification(state.memberName, TRANSITION_PHRASES[dataEvent], dataRegion, dataTime)
+	    // create a presence event if a state was passed
+    	if (presenceState) {
+	        descriptionText = device.displayName + " is " + presenceState
+    	    sendEvent (name: "presence", value: presenceState, descriptionText: descriptionText)
+	        logDescriptionText("$descriptionText")
+    	}
     }
 }
 
@@ -446,12 +456,12 @@ Boolean generatePresenceEvent(member, homeName, data) {
             currentLocation = data.desc
             // only allow the transition event / notifications for non-home regions.  Home will be addressed in the presence check below
             if (state.homeName != data.desc) {
+                // create the notification event, update the transition and log the message
+                createNotificationEvent(data.desc, data.event, locationTime, data.tst, "")
                 // only update the time if there was a state change
                 if ((device.currentValue('transitionDirection') != data.event) || (device.currentValue('transitionRegion') != data.desc)) {
                     sendEvent( name: "sinceTime", value: data.tst, isStateChange: true )
                 }
-                // create the notification event, update the transition and log the message
-                createNotificationEvent(data.desc, data.event, locationTime, "")
             }
         } else {
             // if we are in a region stored in the app
@@ -497,7 +507,7 @@ Boolean generatePresenceEvent(member, homeName, data) {
     memberPresence = (data.memberAtHome ? "present" : "not present")
     if (state.memberPresence != memberPresence) {
         // in case we missed the transition event, update the attributes to align to the presence
-        createNotificationEvent(state.homeName, (data.memberAtHome ? "enter" : "leave"), locationTime, memberPresence)
+        createNotificationEvent(state.homeName, (data.memberAtHome ? "enter" : "leave"), locationTime, data.tst, memberPresence)
     }
     state.memberPresence = memberPresence
     sendEvent( name: "location", value: currentLocation )
