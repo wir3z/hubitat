@@ -2075,12 +2075,12 @@ def parseMessage(headers, data, member) {
         case "transition":
             // store the last report time for the Google friends map
             state.lastReportTime = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date())
+            // log the elapsed distance and time
+            logDistanceTraveledAndElapsedTime(member, data)
             updateMemberAttributes(headers, data, member)
             // flag the data as private if necessary, but let the raw message pass to the secondary hub to be filtered
             data.private = ((settings?.privateMembers.find {it==member.name}) ? true : false)
 
-            // log the elapsed distance and time
-            logDistanceTraveledAndElapsedTime(member, data)
             // calculate how many minutes the incoming location message is from current time
             deltaTst = (((member.lastReportTime / 1000) - member?.timeStamp) / 60).toInteger()
             // send push event to driver if the incoming location isn't stale
