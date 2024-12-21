@@ -153,6 +153,7 @@
  *  1.8.5      2024-10-26      - Cleanup migration.  Fixed issue if thumbnails were enabled, but no image files were loaded in the hub.
  *  1.8.6      2024-11-03      - Added radius around the Google Friends Map member pin that scales based on their location accuracy.
  *  1.8.7      2024-12-10	   - Changed map and geocode limits to match upcoming Google changes.
+ *  1.8.8      2024-12-20	   - Fixed location debug logging.
 */
 
 import groovy.transform.Field
@@ -161,7 +162,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.7" }
+def appVersion() { return "1.8.8" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]

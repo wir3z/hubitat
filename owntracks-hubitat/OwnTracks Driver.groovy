@@ -139,12 +139,13 @@
  *  1.7.41     2024-09-14      - Adjust member location iframe to hide the view on larger map overlay.
  *  1.8.0      2024-09-23      - Up-reved version to match app.
  *  1.8.1      2024-12-14      - Ignore duplicate transition events if they occur within 5-seconds of the previous one.
+ *  1.8.2      2024-12-20      - Force an update to the transition attributes to eliminate cache delays.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.8.1" }
+def driverVersion() { return "1.8.2" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -323,15 +324,15 @@ def createNotificationEvent(dataRegion, dataEvent, dataTime, dataTst, presenceSt
     if ((dataRegion == device.currentValue("transitionRegion")) && (TRANSITION_DIRECTION[dataEvent] == device.currentValue("transitionDirection")) && (deadBandWindow > 0)) {
         logDescriptionText ("Skipping duplicate transition event: '$descriptionText' occured $deadBandWindow seconds ago.")
     } else {
-	    sendEvent( name: "transitionRegion", value: dataRegion )
-    	sendEvent( name: "transitionTime", value: dataTime )
-	    sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION[dataEvent] )
+	    sendEvent( name: "transitionRegion", value: dataRegion, isStateChange: true )
+    	sendEvent( name: "transitionTime", value: dataTime, isStateChange: true )
+	    sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION[dataEvent], isStateChange: true )
 	    logDescriptionText("$descriptionText")
     	parent.generateTransitionNotification(state.memberName, TRANSITION_PHRASES[dataEvent], dataRegion, dataTime)
 	    // create a presence event if a state was passed
     	if (presenceState) {
 	        descriptionText = device.displayName + " is " + presenceState
-    	    sendEvent (name: "presence", value: presenceState, descriptionText: descriptionText)
+    	    sendEvent (name: "presence", value: presenceState, descriptionText: descriptionText, isStateChange: true )
 	        logDescriptionText("$descriptionText")
     	}
     }
