@@ -155,6 +155,7 @@
  *  1.8.7      2024-12-10	   - Changed map and geocode limits to match upcoming Google changes.
  *  1.8.8      2024-12-20	   - Fixed location debug logging.
  *  1.8.9      2024-12-21	   - Changed app to single threaded.
+ *  1.8.10     2025-01-08	   - Allow all new regions to be added to member notifications if enabled.  Fixed issue where the last notification region/device couldn't be deselected.
 */
 
 import groovy.transform.Field
@@ -163,7 +164,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.9" }
+def appVersion() { return "1.8.10" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -247,6 +248,7 @@ def appVersion() { return "1.8.9" }
 @Field Boolean DEFAULT_mapFreeOnly = true
 @Field Boolean DEFAULT_useCustomNotificationMessage = false
 @Field String  DEFAULT_notificationMessage = "NAME EVENT REGION at TIME"
+@Field Boolean DEFAULT_addNewRegionsToMemberNotificationList = false
 @Field Boolean DEFAULT_manualDeleteBehavior = false
 @Field Number  DEFAULT_globalGroupNumber = 0
 @Field String  DEFAULT_globalGroupName = "Default"
@@ -956,6 +958,7 @@ def configureNotifications() {
             }
         }
         section(getFormat("line", "")) {
+            input name: "addNewRegionsToMemberNotificationList", type: "bool", title: "Add each new created region to all member notifications", defaultValue: DEFAULT_addNewRegionsToMemberNotificationList
             input name: "useCustomNotificationMessage", type: "bool", title: "Use a custom notification message.  The default message format is '<b>$DEFAULT_notificationMessage</b>'", defaultValue: DEFAULT_useCustomNotificationMessage, submitOnChange: true
             if (useCustomNotificationMessage) {
                 input name: "notificationMessage", type: "textarea", title: "Enter notification message.  Variables are case sensitive.", defaultValue: DEFAULT_notificationMessage, submitOnChange: true
@@ -1266,6 +1269,8 @@ String appButtonHandler(btn) {
                         logDescriptionText(result)
                         success = true
                         updateMember = true
+            			// update the member notifications if enabled
+			            addPlaceToMemberNotifications(data.tst)                        
                     }
                 }
             }
@@ -1386,10 +1391,10 @@ String appButtonHandler(btn) {
         case "saveNotificationsButton":
             if (selectFamilyMembers) {
                 member = state.members.find {it.name==selectFamilyMembers}
-                if (notificationEnter)         member.enterDevices = notificationEnter - "Toggle All On/Off"
-                if (notificationEnterRegions)  member.enterRegions = notificationEnterRegions - "Toggle All On/Off"
-                if (notificationLeave)         member.leaveDevices = notificationLeave - "Toggle All On/Off"
-                if (notificationLeaveRegions)  member.leaveRegions = notificationLeaveRegions - "Toggle All On/Off"
+                if (notificationEnter)         (member.enterDevices = notificationEnter - "Toggle All On/Off") 			else member.enterDevices = null
+                if (notificationEnterRegions)  (member.enterRegions = notificationEnterRegions - "Toggle All On/Off") 	else member.enterRegions = null
+                if (notificationLeave)         (member.leaveDevices = notificationLeave - "Toggle All On/Off") 			else member.leaveDevices = null
+                if (notificationLeaveRegions)  (member.leaveRegions = notificationLeaveRegions - "Toggle All On/Off") 	else member.leaveRegions = null
                 result = "Updated notification settings for family member '${selectFamilyMembers}'"
             }
         break
@@ -1555,6 +1560,7 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (geocodeProvider == null)) app.updateSetting("geocodeProvider", [value: DEFAULT_geocodeProvider, type: "number"])
     if (forceDefaults || (geocodeFreeOnly == null)) app.updateSetting("geocodeFreeOnly", [value: DEFAULT_geocodeFreeOnly, type: "bool"])
     if (forceDefaults || (useCustomNotificationMessage == null)) app.updateSetting("useCustomNotificationMessage", [value: DEFAULT_useCustomNotificationMessage, type: "bool"])
+    if (forceDefaults || (addNewRegionsToMemberNotificationList == null)) app.updateSetting("addNewRegionsToMemberNotificationList", [value: DEFAULT_addNewRegionsToMemberNotificationList, type: "bool"])
     if (forceDefaults || (notificationMessage == null)) app.updateSetting("notificationMessage", [value: DEFAULT_notificationMessage, type: "string"])
     if (forceDefaults || (mapFreeOnly == null)) app.updateSetting("mapFreeOnly", [value: DEFAULT_mapFreeOnly, type: "bool"])
     if (forceDefaults || (manualDeleteBehavior == null)) app.updateSetting("manualDeleteBehavior", [value: DEFAULT_manualDeleteBehavior, type: "bool"])
@@ -2649,10 +2655,23 @@ def addPlace(findMember, data, verboseAdd) {
             }
             // force the users to get the update place list
             setUpdateFlag(findMember, "updateWaypoints", true, true)
+            // update the member notifications if enabled
+            addPlaceToMemberNotifications(data.tst)
         }
     } else {
         logDebug("Ignoring waypoint due to private member.")
     }
+}
+
+def addPlaceToMemberNotifications(tst) {
+    if (addNewRegionsToMemberNotificationList) {
+	    // add regions from each member's notification list if they allowed
+    	state?.members.each { member->
+            if (member.enterRegions)  (member.enterRegions << tst) else (member.enterRegions = [ tst ])
+            if (member.leaveRegions)  (member.leaveRegions << tst) else (member.leaveRegions = [ tst ])
+            logDescriptionText("Adding enter/leave notifications for region '${state.places.find {it.tst==tst}.desc}' to member ${member.name}")
+        }
+    }    
 }
 
 def updateStatus(findMember, data) {

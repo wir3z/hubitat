@@ -263,6 +263,8 @@ NOTE: A region named '+follow' is automatically created to allow iOS phones to h
 	- 'Save Settings' button
 		- Saves all notification settings for the selected member.
 	NOTE: The notifications can be checked by clicking the 'Arrived' and 'Departed' buttons in that member's Hubitat device.
+- Add each new created region to all member notifications
+	- If enabled, every newly created region will automatically be added to all members enter/leave notifications.
 - Use a custom notification message
 	- By default, the push notification is in the format 'NAME EVENT REGION at TIME'.  Enabled the slider to change the push notification.
 	- The upper case variables are case sensitive:
