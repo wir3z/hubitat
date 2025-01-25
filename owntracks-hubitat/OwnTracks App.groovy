@@ -156,6 +156,7 @@
  *  1.8.8      2024-12-20	   - Fixed location debug logging.
  *  1.8.9      2024-12-21	   - Changed app to single threaded.
  *  1.8.10     2025-01-08	   - Allow all new regions to be added to member notifications if enabled.  Fixed issue where the last notification region/device couldn't be deselected.
+ *  1.8.11     2025-01-25	   - Fixed issue creating a new region.
 */
 
 import groovy.transform.Field
@@ -164,7 +165,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.10" }
+def appVersion() { return "1.8.11" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -1262,7 +1263,8 @@ String appButtonHandler(btn) {
                         logWarn(result)
                     } else {
                         // create the waypoint map - NOTE: the app keys off the "tst" field as a unique identifier
-                        def newPlace = [ "_type": "waypoint", "desc": "${regionName}", "lat": regionLat.toDouble().round(6), "lon": regionLon.toDouble().round(6), "rad": convertToMeters(regionRadius), "tst": (now()/1000).toInteger() ]
+                        currentTst = (now()/1000).toInteger()
+                        def newPlace = [ "_type": "waypoint", "desc": "${regionName}", "lat": regionLat.toDouble().round(6), "lon": regionLon.toDouble().round(6), "rad": convertToMeters(regionRadius), "tst": currentTst ]
                         // add the new place
                         state.places << newPlace
                         result = "Region '${regionName}' has been added."
@@ -1270,7 +1272,7 @@ String appButtonHandler(btn) {
                         success = true
                         updateMember = true
             			// update the member notifications if enabled
-			            addPlaceToMemberNotifications(data.tst)                        
+			            addPlaceToMemberNotifications(currentTst)                        
                     }
                 }
             }
