@@ -33,7 +33,7 @@
       "namespace": "lpakula",
       "location": "https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20Common%20Driver.groovy",
       "required": true,
-      "version": "1.8.0"
+      "version": "1.8.1"
     }
   ]
 }
