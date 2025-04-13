@@ -157,6 +157,7 @@
  *  1.8.9      2024-12-21	   - Changed app to single threaded.
  *  1.8.10     2025-01-08	   - Allow all new regions to be added to member notifications if enabled.  Fixed issue where the last notification region/device couldn't be deselected.
  *  1.8.11     2025-01-25	   - Fixed issue creating a new region.
+ *  1.8.12     2025-04-13      - Rephrased the member group reset button.
 */
 
 import groovy.transform.Field
@@ -165,7 +166,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.11" }
+def appVersion() { return "1.8.12" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -909,7 +910,7 @@ def configureGroups() {
                 paragraph "<b>${appButtonHandler(state.submit)}</b>"
                 state.submit = ""
             }
-            input name: "resetGroupsButton", type: "button", title: "Reset Member Groups and Names", state: "submit"
+            input name: "resetGroupsButton", type: "button", title: "Reset Member Groupings and Custom Names to Defaults", state: "submit"
             input "selectGroup", "enum", multiple: false, title: "Select group to edit name or assign members.", options: state.groups.collectEntries{[it.id, it.name]}, submitOnChange: true
             if (selectGroup) {
                 app.updateSetting("selectFamilyMembers",[value:state.members.findAll{it.groups.find{it == selectGroup}}.name.sort(),type:"enum"])
@@ -1272,7 +1273,7 @@ String appButtonHandler(btn) {
                         success = true
                         updateMember = true
             			// update the member notifications if enabled
-			            addPlaceToMemberNotifications(currentTst)                        
+			            addPlaceToMemberNotifications(currentTst)
                     }
                 }
             }
@@ -1370,7 +1371,7 @@ String appButtonHandler(btn) {
                 // add/remove the group id from the member groups
                 state.members.each { member ->
                     // first remove it
-                    member.groups.remove(group.id)
+                    member.groups?.remove(group.id)
                     // if we have a match add it back
                     if (selectFamilyMembers.find {it==member.name}) {
                         member.groups << group.id
@@ -2673,7 +2674,7 @@ def addPlaceToMemberNotifications(tst) {
             if (member.leaveRegions)  (member.leaveRegions << tst) else (member.leaveRegions = [ tst ])
             logDescriptionText("Adding enter/leave notifications for region '${state.places.find {it.tst==tst}.desc}' to member ${member.name}")
         }
-    }    
+    }
 }
 
 def updateStatus(findMember, data) {
@@ -3219,7 +3220,6 @@ private def reverseGeocode(lat,lon) {
             return(response.results."$address"[0])
         }
     }
-
     return("$lat,$lon")
 }
 

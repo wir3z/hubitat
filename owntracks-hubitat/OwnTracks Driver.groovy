@@ -140,12 +140,13 @@
  *  1.8.0      2024-09-23      - Up-reved version to match app.
  *  1.8.1      2024-12-14      - Ignore duplicate transition events if they occur within 5-seconds of the previous one.
  *  1.8.2      2024-12-20      - Force an update to the transition attributes to eliminate cache delays.
+ *  1.8.3      2025-04-13      - Send the "switch off" during installation.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.8.2" }
+def driverVersion() { return "1.8.3" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -247,6 +248,7 @@ preferences {
 def installed() {
     log.info "${device.name}: Location Tracker User Driver Installed"
     sendEvent( name: "sinceTime", value: now(), isStateChange: true )
+    sendEvent( name: "switch", value: "off" )
     state.driverVersion = driverVersion()
     state.memberPresence = ""
     state.memberName = ""
