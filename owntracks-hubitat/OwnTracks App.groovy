@@ -158,6 +158,7 @@
  *  1.8.10     2025-01-08	   - Allow all new regions to be added to member notifications if enabled.  Fixed issue where the last notification region/device couldn't be deselected.
  *  1.8.11     2025-01-25	   - Fixed issue creating a new region.
  *  1.8.12     2025-04-13      - Rephrased the member group reset button.
+ *  1.8.13     2025-05-01      - Fixed issue where passing a member name to the Google Family Map needed to be in lowercase.
 */
 
 import groovy.transform.Field
@@ -166,7 +167,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.12" }
+def appVersion() { return "1.8.13" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -4501,7 +4502,7 @@ def generateGoogleFriendsMap() {
                             distancePosition = homePosition;
                             // check if we passed in a member that we would like bounds around
                             for (let loc=0; loc<markers.length; loc++) {
-                                if (paramMember == markers[loc].marker.title.toLowerCase()) {
+                                if (paramMember.toLowerCase() == markers[loc].marker.title.toLowerCase()) {
                                     distancePosition = markers[loc].marker.position;
                                     break;
                                 }
