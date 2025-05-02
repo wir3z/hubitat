@@ -146,6 +146,9 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 - Distance between repeat arrows on the history lines
 	- Enter the number of pixels between each directional arrow on the history lines.  The smaller the number, the closer the arrows are together.
 	- Enter '0' to place a single arrow in the middle of each line.
+- Save the last followed member between map reloads
+	- When this slider is enabled, the the last followed member will be used on the map initial load or refresh.
+	- When this slider is disabled, last followed member is reset and all users are displayed.
 - Enable to display all member(s) history on map.  Disable to only display history of selected member on map.
 	- When this slider is enabled, the past history dots will appear on the Google Map for ALL members all the time.  
 	- When this slider is disabled, past history is only displayed when a member is clicked (selected).  Once you on the map to de-select the member, the history is hidden.

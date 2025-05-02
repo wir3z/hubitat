@@ -159,6 +159,7 @@
  *  1.8.11     2025-01-25	   - Fixed issue creating a new region.
  *  1.8.12     2025-04-13      - Rephrased the member group reset button.
  *  1.8.13     2025-05-01      - Fixed issue where passing a member name to the Google Family Map needed to be in lowercase.
+ *  1.8.14     2025-05-02      - Added a Google Maps setting to use the last followed member when the Google Map reloads.
 */
 
 import groovy.transform.Field
@@ -167,7 +168,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.13" }
+def appVersion() { return "1.8.14" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -242,6 +243,7 @@ def appVersion() { return "1.8.13" }
 @Field Boolean DEFAULT_lowPowerModeInRegion = false
 @Field Number  DEFAULT_googleMapsZoom = 0
 @Field String  DEFAULT_googleMapsMember = "null"
+@Field Boolean DEFAULT_useLastGoogleFriendsMapMember = false
 @Field Boolean DEFAULT_descriptionTextOutput = true
 @Field Boolean DEFAULT_debugOutput = false
 @Field Number  DEFAULT_debugResetHours = 1
@@ -540,6 +542,7 @@ def configureHubApp() {
                 input name: "memberHistoryScale", type: "decimal", title: "Scale value for the past member locations dots (1.0..3.0):", range: "1.0..3.0", defaultValue: DEFAULT_memberHistoryScale
                 input name: "memberHistoryStroke", type: "decimal", title: "Scale value for the past member locations lines (1.0..3.0):", range: "1.0..3.0", defaultValue: DEFAULT_memberHistoryStroke
                 input name: "memberHistoryRepeat", type: "number", title: "Distance between repeat arrows on the history lines. '0' will place a single arrow in the middle of the line (0..1000):", range: "0..1000", defaultValue: DEFAULT_memberHistoryRepeat
+                input name: "useLastGoogleFriendsMapMember", type: "bool", title: "Save the last followed member between map reloads", defaultValue: DEFAULT_useLastGoogleFriendsMapMember
                 input name: "displayAllMembersHistory", type: "bool", title: "Enable to display all member(s) history on map.  Disable to only display history of selected member on map.", defaultValue: DEFAULT_displayAllMembersHistory
                 input name: "memberPinColor", type: "string", title: "<b>Member pin color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (MidnightBlue) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#191970):", defaultValue: DEFAULT_MEMBER_PIN_COLOR
                 input "selectMemberGlyph", "enum", multiple: false, title:"Select family member to change glyph and history color.", options: state.members.name.sort(), submitOnChange: true
@@ -1525,6 +1528,7 @@ def initialize(forceDefaults) {
     }
 
     // assign hubitat defaults
+    if (useLastGoogleFriendsMapMember == null) app.updateSetting("useLastGoogleFriendsMapMember", [value: DEFAULT_useLastGoogleFriendsMapMember, type: "bool"])
     if (homeSSID == null) app.updateSetting("homeSSID", [value: "", type: "string"])
     if (imperialUnits == null) app.updateSetting("imperialUnits", [value: DEFAULT_imperialUnits, type: "bool"])
     if (disableCloudLinks == null) app.updateSetting("disableCloudLinks", [value: DEFAULT_disableCloudLinks, type: "bool"])
@@ -4108,7 +4112,10 @@ def generateGoogleFriendsMap() {
             <script>
                 // get the params if they were passed
                 const urlParams = new URLSearchParams(window.location.search);
-                const paramMember = urlParams.get("member");
+                paramMember = urlParams.get("member");
+				if ((paramMember == null) || (paramMember == undefined)) {
+					paramMember = "null"
+				}
                 const webAppVersion = "${appVersion()}";
                 console.log("Google Friends Map version " + webAppVersion)
 
@@ -4281,7 +4288,11 @@ def generateGoogleFriendsMap() {
                     };
 
                     function addMemberMarkers() {
-                        currentMember = getMember("${retrieveGoogleFriendsMapMember()}");
+						if (${useLastGoogleFriendsMapMember}) {
+                        	currentMember = getMember("${retrieveGoogleFriendsMapMember()}");
+						} else {
+							currentMember = getMember("${DEFAULT_googleMapsMember}");
+						}
                         // place the members on the map
                         for (let member=0; member<locations.length; member++) {
                             const namePin = document.createElement("div");
