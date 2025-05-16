@@ -160,6 +160,7 @@
  *  1.8.12     2025-04-13      - Rephrased the member group reset button.
  *  1.8.13     2025-05-01      - Fixed issue where passing a member name to the Google Family Map needed to be in lowercase.
  *  1.8.14     2025-05-02      - Added a Google Maps setting to use the last followed member when the Google Map reloads.
+ *  1.8.15	   2025-05-16	   - Added a member drawer to the bottom of the Google Family Map.  Clicking on a thumbnail will follow that user.
 */
 
 import groovy.transform.Field
@@ -168,7 +169,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.14" }
+def appVersion() { return "1.8.15" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -4104,13 +4105,18 @@ def generateGoogleFriendsMap() {
     APIKey = getGoogleMapsAPIKey()
     if (APIKey && isMapAllowed(true) && isCloudLinkEnabled(request.HOST)) {
         htmlData = """
-        <div style="width:100%;height:100%;margin:5px">
-            <div id="map" style="width:100%;height:calc(100% - 25px)"></div>
-            <div id="footer" style="width:100%;color:white;background:#555555;text-align:center">
-                <div id="id-lastTime" style="font-size:0.8em;color:white;font-family:arial;padding:5px"></div>
-            </div>
+        <div style="width:100%;height:100%;margin:5px;overflow:hidden">
+            <div id="map" style="width:100%;height:100%"></div>
+    		<div id="footer" style="position:relative;width:100%;text-align:center">
+        		<div id="id-drawer" style="position:absolute;bottom:0px;width:100%;cursor:ns-resize;transition:height 0.5s ease-in-out;height:45px;font-size:0.8em;color:white;font-family:arial">
+	        		<div style="background:#555555">&#128316</div>
+	        		<div id="id-lastTime" style="background:#555555;height:35px"></div>
+					<div id="id-members" style="margin-top:5px; display:inline-block;background:#FFFFFF"></div>
+					<canvas id="circleCanvas" width="40" height="40" style="display:none"></canvas>
+		        </div>
+		    </div>
             <script>
-                // get the params if they were passed
+				// get the params if they were passed
                 const urlParams = new URLSearchParams(window.location.search);
                 paramMember = urlParams.get("member");
 				if ((paramMember == null) || (paramMember == undefined)) {
@@ -4119,21 +4125,13 @@ def generateGoogleFriendsMap() {
                 const webAppVersion = "${appVersion()}";
                 console.log("Google Friends Map version " + webAppVersion)
 
+                markers = [];
                 locations = [];
                 regions = [];
                 currentMember = "null";
                 historyMember = "null";
                 lastUpdate = "Unknown";
-
-                function getMember(memberName) {
-                    // returns the member map based on a name match
-                    for (let loc=0; loc<locations.length; loc++) {
-                        if (locations[loc].name == memberName) {
-                            return(locations[loc]);
-                        }
-                    }
-                    return("null");
-                }
+				registerDrawerListener = true;
 
                 function initMap() {
                     const infoWindow = new google.maps.InfoWindow();
@@ -4142,12 +4140,18 @@ def generateGoogleFriendsMap() {
                     const minRadiusGradient = 0.1;
                     const minEndpointStrokeGradient = 0.4;
                     const maxZIndex = google.maps.Marker.MAX_ZINDEX - 1000;
-                    const markers = [];
                     // -2=close, -1=marker open, 0+=history sample open
                     infoWindowVisible = -2;
                     inhibitAutoZoom = false;
                     tripNumber = 0;
                     tripMember = "null";
+                    const drawerMinHeight = 45;
+                    const drawerMaxHeight = window.innerHeight - drawerMinHeight;
+                    drawerIsDragging = false;
+                    drawerStartY = 0;
+					drawerStartHeight = 0;
+
+					addDrawerListener();
                     // get the member data with thumbnail images
                     retrieveMemberLocations("img");
                     // restore the previous zoom level on the init
@@ -4287,6 +4291,34 @@ def generateGoogleFriendsMap() {
                         updateBottomBanner();
                     };
 
+                    function getMember(memberName) {
+                        // returns the member map based on a name match
+                        for (let loc=0; loc<locations.length; loc++) {
+                            if (locations[loc].name == memberName) {
+                                return(locations[loc]);
+                            }
+                        }
+                        return("null");
+                    }
+
+					function followMemberMarker(marker) {
+                        // assign the new current member so that the history can update
+                        currentMember = getMember(marker.title);
+
+                        // restores the marker index of the previous marker
+                        restoreMarkerIndex();
+                        // if a marker is clicked, then assign it a higher index so it comes out in front
+                        marker.zIndex = maxZIndex;
+                        infoWindowVisible = -1;
+                        postData = {};
+                        postData["zoom"] = currentZoom;
+                        postData["member"] = currentMember.name;
+                        sendDataToHub(postData);
+                        changeHistoryFocus(currentMember);
+                        updateBottomBanner();
+                        showHideHistory();
+					};
+
                     function addMemberMarkers() {
 						if (${useLastGoogleFriendsMapMember}) {
                         	currentMember = getMember("${retrieveGoogleFriendsMapMember()}");
@@ -4364,20 +4396,7 @@ def generateGoogleFriendsMap() {
                                 }
 
                                 // assign the new current member so that the history can update
-                                currentMember = getMember(marker.title);
-
-                                // restores the marker index of the previous marker
-                                restoreMarkerIndex();
-                                // if a marker is clicked, then assign it a higher index so it comes out in front
-                                marker.zIndex = maxZIndex;
-                                infoWindowVisible = -1;
-                                postData = {};
-                                postData["zoom"] = currentZoom;
-                                postData["member"] = currentMember.name;
-                                sendDataToHub(postData);
-                                changeHistoryFocus(currentMember);
-                                updateBottomBanner();
-                                showHideHistory();
+								followMemberMarker(marker);
                             });
 
                             // create history circles for the past locations
@@ -4459,7 +4478,6 @@ def generateGoogleFriendsMap() {
                         fitMapBounds();
                         showHideHistory();
                     };
-
 
                     function fitMapBounds() {
                         // if a member isn't selected, fit all members
@@ -4708,8 +4726,15 @@ def generateGoogleFriendsMap() {
 								for (let mem=0; mem<data.members.length; mem++) {
 									for (let loc=0; loc<locations.length; loc++) {
 										if (locations[loc].id == data.members[mem].id) {
+											// save a previous image to prevent the copy from deleting it
+											if ("img" in locations[loc]) {
+												img = locations[loc].img
+											} else {
+												img = ""
+											}
 											// update the location data
 											locations[loc] = data.members[mem];
+											locations[loc].img = img;
 											// update the marker data
 											center = {};
 											center["lat"] = data.members[mem].lat;
@@ -4754,9 +4779,71 @@ def generateGoogleFriendsMap() {
 						}
                     };
 
-                    function updateBottomBanner() {
+					function updateBottomBanner() {
                         document.getElementById("id-lastTime").textContent = "Last Update: " + lastUpdate + (currentMember != "null" ? (" | Following: " + currentMember.name) : "") + (inhibitAutoZoom ? " | Auto-Centering Paused" : "");
-                    }
+
+						let membersContent = "";
+                        for (let member = 0; member < locations.length; member++) {
+							if (member > 0) {
+								membersContent += "<hr>"
+							}
+							if (locations[member].img) {
+								src = locations[member].img
+							} else {
+								//<canvas id="circleCanvas" width="40" height="40" style="display:none"></canvas>
+                                let canvas = document.getElementById("circleCanvas");
+                                let ctx = canvas.getContext("2d");
+
+                                // Draw blue outer circle
+                                ctx.beginPath();
+                                ctx.arc(20, 20, 20, 0, Math.PI * 2);
+                                ctx.fillStyle = "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}";
+                                ctx.fill();
+
+                                // Draw red inner circle
+                                ctx.beginPath();
+                                ctx.arc(20, 20, 10, 0, Math.PI * 2);
+                                ctx.fillStyle = locations[member].color;
+                                ctx.fill();
+
+                                // Convert canvas to data URL
+                                src = canvas.toDataURL();
+							}
+
+							membersContent +=
+                                "<table style='width:100%;font-size:1.0em'>" +
+                                    "<tr>" +
+										"<td rowspan='5'><img src='" + src + "' width='40' height='40' data-member='" + member + "'></td>" +
+                                        "<td align='left'" + (((locations[member].wifi == "0") || (locations[member].hib != "0") || (locations[member].bo != "0") || (locations[member].per != "0")) ? " style='color:red'>" : ">") + ((locations[member].data == "m") ? "&#128246;" + (locations[member].wifi != "null" ? (locations[member].wifi == "0" ? "<s>&#128732;</s>" : "") : "") : (locations[member].data == "w" ? "&#128732;" : "")) + "</td>" +
+                                        "<td align='right'" + (locations[member].ps ? " style='color:red'>" : ">") + (locations[member].bs == "2" ? "&#9889;" : "&#128267;") + (locations[member].bat != "null" ? locations[member].bat + "%" : "") + "</td>" +
+                                    "</tr>" +
+                                    "<tr>" +
+            			                "<td align='left'" + (((locations[member].wifi == "0") || (locations[member].hib != "0") || (locations[member].bo != "0") || (locations[member].per != "0")) ? " style='color:red'>" : ">") + "<b>" + locations[member].name + "</b></td>" +
+			                            "<td align='right'>" + getBearingIcon(locations[member].cog) + "</td>" +
+                                    "</tr>" +
+                                    "<tr>" +
+                                        "<td align='left'>" + locations[member].loc + "</td>" +
+										"<td align='right'>" + (locations[member].dfh != 'null' ? locations[member].dfh + " ${getLargeUnits()}" : "&nbsp;") + "</td>" +
+                                    "</tr>" +
+                                    "<tr>" +
+                                        "<td align='left'>" + "Since: " + locations[member].since + "</td>" +
+			                            "<td align='right'>" + locations[member].spd + " ${getVelocityUnits()} </td>" +
+                                    "</tr>" +
+                                    "<tr>" +
+										"<td align='left' " + (locations[member].stale ? "style='color:red'>" : "style='color:gray'>") + "Last: " + locations[member].last + "</td>" +
+                                    "</tr>" +
+                                "</table>"
+                        }
+						document.getElementById("id-members").innerHTML = membersContent;
+						if (registerDrawerListener) {
+							registerDrawerListener = false;
+                            document.getElementById("id-members").addEventListener("click", function (event) {
+                                if (event.target.tagName === "IMG") {
+                                    handleDrawerImageClick(event.target.getAttribute("data-member"));
+                                }
+                            });
+						}
+                 	};
 
                     function retrieveMemberLocations(request) {
                         const dataMap = {};
@@ -4790,6 +4877,75 @@ def generateGoogleFriendsMap() {
                             updateLocations(data);
                         })
                         .catch(error => { console.error('Error fetching data:', error); })
+                    };
+
+                    function startDrawerDrag(event) {
+                        drawer = document.getElementById("id-drawer");
+
+                        drawerIsDragging = true;
+                        drawerStartY = event.touches ? event.touches[0].clientY : event.clientY;
+                        drawerStartHeight = drawer.offsetHeight;
+                        document.body.style.userSelect = "none";
+                    }
+
+                    function moveDrawerDrag(event) {
+                        drawer = document.getElementById("id-drawer");
+
+                        if (!drawerIsDragging) return;
+                        let currentY = event.touches ? event.touches[0].clientY : event.clientY;
+                        let newHeight = drawerStartHeight + (drawerStartY - currentY);
+
+                        if (newHeight >= drawerMinHeight && newHeight <= drawerMaxHeight) {
+                            drawer.style.transition = "none";
+                            drawer.style.height = newHeight + "px";
+                        }
+                    }
+
+                    function endDrawerDrag() {
+                        drawer = document.getElementById("id-drawer");
+
+                        drawerIsDragging = false;
+                        drawer.style.transition = "height 0.3s ease-in-out";
+                        document.body.style.userSelect = "auto";
+
+                        // Auto-close if dragged down too far
+                        if (drawer.offsetHeight < drawerMinHeight + 20) {
+                            drawer.style.height = drawerMinHeight + "px";
+                            // Prevent scrolling when drawer is closed
+                            document.body.style.overflow = "hidden";
+                        } else {
+                            // Allow scrolling when drawer is open
+                            document.body.style.overflow = "auto";
+                        }
+                    }
+
+                    function addDrawerListener() {
+                        drawer = document.getElementById("id-drawer");
+
+                        drawer.addEventListener("mousedown", startDrawerDrag);
+                        drawer.addEventListener("touchstart", startDrawerDrag, { passive: true });
+
+                        document.addEventListener("mousemove", moveDrawerDrag);
+                        document.addEventListener("touchmove", moveDrawerDrag, { passive: true });
+
+                        document.addEventListener("mouseup", endDrawerDrag);
+                        document.addEventListener("touchend", endDrawerDrag);
+                    };
+
+                    function handleDrawerImageClick(member) {
+						// assign the new current member so that the history can update
+                        for (let loc=0; loc<locations.length; loc++) {
+                            if (markers[loc].marker.title == locations[member].name) {
+                                // Close the drawer completely
+                                let drawer = document.getElementById("id-drawer");
+                                drawer.style.height = drawerMinHeight + "px";
+                                document.body.style.overflow = "hidden";
+
+                                followMemberMarker(markers[loc].marker);
+								map.setCenter(markers[loc].marker.position);
+                                return;
+                            }
+                        }
                     };
 
                     // Poll for member data every 5000ms
@@ -4835,7 +4991,7 @@ def generateGoogleFriendsMap() {
                     const contentString =
                     "<table style='width:100%;font-size:1.0em'>" +
                         "<tr>" +
-                            "<td align='left'" + (((position.wifi == "0") || (position.hib != "0") || (position.bo != "0") || (position.per != "0")) ? " style='color:red'>" : ">") + (position.wifi != "null" ? (position.wifi == "1" ? "&#128732;" : "<s>&#128732;</s>") : "") + ((location.data == "m") ? "&#128246;" : "") + "</td>" +
+                            "<td align='left'" + (((position.wifi == "0") || (position.hib != "0") || (position.bo != "0") || (position.per != "0")) ? " style='color:red'>" : ">") + ((position.data == "m") ? "&#128246;" + (position.wifi != "null" ? (position.wifi == "0" ? "<s>&#128732;</s>" : "") : "") : (position.data == "w" ? "&#128732;" : "")) + "</td>" +
                             "<td align='right'" + (position.ps ? " style='color:red'>" : ">") + (position.bs == "2" ? "&#9889;" : "&#128267;") + (position.bat != "null" ? position.bat + "%" : "") + "</td>" +
                         "</tr>" +
                     "</table>" +
@@ -4865,7 +5021,7 @@ def generateGoogleFriendsMap() {
                         "</tr>" +
                     "</table>" +
                     "<hr>" +
-                    (position.stale ? "<div style='color:red'>" : "<div>") + "Last: " + position.last + "</div>" +
+                    (position.stale ? "<div style='color:red'>" : "<div style='color:black'>") + "Last: " + position.last + "</div>" +
                     ((position.bo != "0") ? "<div style='color:red'>&#9940;App battery usage: Optimized/Restricted</div>" : "") +
                     ((position.hib != "0") ? "<div style='color:red'>&#9940;Permissions: App can pause</div>" : "") +
                     ((position.per != "0") ? "<div style='color:red'>&#9940;Location permission: Not allowed all the time</div>" : "") +
