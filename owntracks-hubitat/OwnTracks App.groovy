@@ -161,6 +161,7 @@
  *  1.8.13     2025-05-01      - Fixed issue where passing a member name to the Google Family Map needed to be in lowercase.
  *  1.8.14     2025-05-02      - Added a Google Maps setting to use the last followed member when the Google Map reloads.
  *  1.8.15	   2025-05-16	   - Added a member drawer to the bottom of the Google Family Map.  Clicking on a thumbnail will follow that user.
+ *  1.8.17	   2025-05-18	   - Add the ability to scale the thumbnail size Google Family Map member drawer.
 */
 
 import groovy.transform.Field
@@ -169,7 +170,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.15" }
+def appVersion() { return "1.8.17" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -210,6 +211,7 @@ def appVersion() { return "1.8.15" }
 @Field Number  DEFAULT_memberHistoryScale = 1.0
 @Field Number  DEFAULT_memberHistoryStroke = 1.0
 @Field Number  DEFAULT_memberHistoryRepeat = 300
+@Field Number  DEFAULT_memberThumbnailScale = 1.0
 @Field Boolean DEFAULT_displayAllMembersHistory = false
 @Field Boolean DEFAULT_removeMemberMarkersWithSameBearing = true
 @Field Number  DEFAULT_memberMarkerBearingDifferenceDegrees = 10
@@ -560,6 +562,7 @@ def configureHubApp() {
                     }
                     input name: "memberGlyphColor", type: "string", title: "<b>${selectMemberGlyph} glyph and history color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (Purple) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#800080):", defaultValue: (selectedMember?.color ? selectedMember.color : DEFAULT_MEMBER_GLYPH_COLOR), submitOnChange: true
                 }
+                input name: "memberThumbnailScale", type: "decimal", title: "Scale value for the member thumbnails in the map drawer. (0.5..2.0):", range: "0.5..2.0", defaultValue: DEFAULT_memberThumbnailScale
                 paragraph ("<h2>Region Pin Colors</h2>")
                 input name: "regionPinColor", type: "string", title: "<b>Region pin color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (DarkRed) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#b22222):", defaultValue: DEFAULT_REGION_PIN_COLOR
                 input name: "regionGlyphColor", type: "string", title: "<b>Region glyph color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (Maroon) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#800000):", defaultValue: DEFAULT_REGION_GLYPH_COLOR
@@ -1582,6 +1585,7 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (memberHistoryScale == null)) app.updateSetting("memberHistoryScale", [value: DEFAULT_memberHistoryScale, type: "decimal"])
     if (forceDefaults || (memberHistoryStroke == null)) app.updateSetting("memberHistoryStroke", [value: DEFAULT_memberHistoryStroke, type: "decimal"])
     if (forceDefaults || (memberHistoryRepeat == null)) app.updateSetting("memberHistoryRepeat", [value: DEFAULT_memberHistoryRepeat, type: "number"])
+    if (forceDefaults || (memberThumbnailScale == null)) app.updateSetting("memberThumbnailScale", [value: DEFAULT_memberThumbnailScale, type: "decimal"])
     if (forceDefaults || (displayAllMembersHistory == null)) app.updateSetting("displayAllMembersHistory", [value: DEFAULT_displayAllMembersHistory, type: "bool"])
     if (forceDefaults || (memberTripIdleMarkerTime == null)) app.updateSetting("memberTripIdleMarkerTime", [value: DEFAULT_memberTripIdleMarkerTime, type: "number"])
     if (forceDefaults || (memberMarkerBearingDifferenceDegrees == null)) app.updateSetting("memberMarkerBearingDifferenceDegrees", [value: DEFAULT_memberMarkerBearingDifferenceDegrees, type: "number"])
@@ -4790,7 +4794,6 @@ def generateGoogleFriendsMap() {
 							if (locations[member].img) {
 								src = locations[member].img
 							} else {
-								//<canvas id="circleCanvas" width="40" height="40" style="display:none"></canvas>
                                 let canvas = document.getElementById("circleCanvas");
                                 let ctx = canvas.getContext("2d");
 
@@ -4810,10 +4813,11 @@ def generateGoogleFriendsMap() {
                                 src = canvas.toDataURL();
 							}
 
+							thumbnailSize = 40 * ${(memberThumbnailScale == null ? DEFAULT_memberThumbnailScale : memberThumbnailScale)};
 							membersContent +=
                                 "<table style='width:100%;font-size:1.0em'>" +
                                     "<tr>" +
-										"<td rowspan='5'><img src='" + src + "' width='40' height='40' data-member='" + member + "'></td>" +
+										"<td rowspan='5'><img src='" + src + "' width='" + thumbnailSize + "' height='" + thumbnailSize + "' data-member='" + member + "'></td>" +
                                         "<td align='left'" + (((locations[member].wifi == "0") || (locations[member].hib != "0") || (locations[member].bo != "0") || (locations[member].per != "0")) ? " style='color:red'>" : ">") + ((locations[member].data == "m") ? "&#128246;" + (locations[member].wifi != "null" ? (locations[member].wifi == "0" ? "<s>&#128732;</s>" : "") : "") : (locations[member].data == "w" ? "&#128732;" : "")) + "</td>" +
                                         "<td align='right'" + (locations[member].ps ? " style='color:red'>" : ">") + (locations[member].bs == "2" ? "&#9889;" : "&#128267;") + (locations[member].bat != "null" ? locations[member].bat + "%" : "") + "</td>" +
                                     "</tr>" +

@@ -157,6 +157,8 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	- or an HTML color code starting with # (ie: #191970) (https://www.w3schools.com/colors/colors_picker.asp)
 	- Select each member from the drop box and change their respective glyph/history colors.  
 	- NOTE:  If thumbnails are enabled, the image will replace the pin's glyph.
+- Scale value for the member thumbnails in the map drawer.
+	- Swiping up from the button of the Google Family Map will display the member information drawer.  This scaler changes the thumbnail or colored dot sizes.
 
 #### Region Pin Colors
 - Change the region pin color, as well as the glyph (center circle of the pin) colors.
