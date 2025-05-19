@@ -162,6 +162,7 @@
  *  1.8.14     2025-05-02      - Added a Google Maps setting to use the last followed member when the Google Map reloads.
  *  1.8.15	   2025-05-16	   - Added a member drawer to the bottom of the Google Family Map.  Clicking on a thumbnail will follow that user.
  *  1.8.17	   2025-05-18	   - Add the ability to scale the thumbnail size Google Family Map member drawer.
+ *  1.8.18	   2025-05-19	   - Changed the drawer behavior to allow a single click/tap to open/close vs dragging.  Increased width up to 500 pixels.
 */
 
 import groovy.transform.Field
@@ -170,7 +171,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.17" }
+def appVersion() { return "1.8.18" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -4113,9 +4114,9 @@ def generateGoogleFriendsMap() {
             <div id="map" style="width:100%;height:100%"></div>
     		<div id="footer" style="position:relative;width:100%;text-align:center">
         		<div id="id-drawer" style="position:absolute;bottom:0px;width:100%;cursor:ns-resize;transition:height 0.5s ease-in-out;height:45px;font-size:0.8em;color:white;font-family:arial">
-	        		<div style="background:#555555">&#128316</div>
+	        		<div id="id-up_down" style="background:#555555">&#128316</div>
 	        		<div id="id-lastTime" style="background:#555555;height:35px"></div>
-					<div id="id-members" style="margin-top:5px; display:inline-block;background:#FFFFFF"></div>
+					<div id="id-members" style="display:inline-block;background:#FFFFFF;width:100%;max-width:500px"></div>
 					<canvas id="circleCanvas" width="40" height="40" style="display:none"></canvas>
 		        </div>
 		    </div>
@@ -4151,9 +4152,7 @@ def generateGoogleFriendsMap() {
                     tripMember = "null";
                     const drawerMinHeight = 45;
                     const drawerMaxHeight = window.innerHeight - drawerMinHeight;
-                    drawerIsDragging = false;
-                    drawerStartY = 0;
-					drawerStartHeight = 0;
+                    drawerExpanded = false;
 
 					addDrawerListener();
                     // get the member data with thumbnail images
@@ -4817,7 +4816,7 @@ def generateGoogleFriendsMap() {
 							membersContent +=
                                 "<table style='width:100%;font-size:1.0em'>" +
                                     "<tr>" +
-										"<td rowspan='5'><img src='" + src + "' width='" + thumbnailSize + "' height='" + thumbnailSize + "' data-member='" + member + "'></td>" +
+										"<td align='center' rowspan='5'><img src='" + src + "' width='" + thumbnailSize + "' height='" + thumbnailSize + "' data-member='" + member + "'></td>" +
                                         "<td align='left'" + (((locations[member].wifi == "0") || (locations[member].hib != "0") || (locations[member].bo != "0") || (locations[member].per != "0")) ? " style='color:red'>" : ">") + ((locations[member].data == "m") ? "&#128246;" + (locations[member].wifi != "null" ? (locations[member].wifi == "0" ? "<s>&#128732;</s>" : "") : "") : (locations[member].data == "w" ? "&#128732;" : "")) + "</td>" +
                                         "<td align='right'" + (locations[member].ps ? " style='color:red'>" : ">") + (locations[member].bs == "2" ? "&#9889;" : "&#128267;") + (locations[member].bat != "null" ? locations[member].bat + "%" : "") + "</td>" +
                                     "</tr>" +
@@ -4883,57 +4882,34 @@ def generateGoogleFriendsMap() {
                         .catch(error => { console.error('Error fetching data:', error); })
                     };
 
-                    function startDrawerDrag(event) {
-                        drawer = document.getElementById("id-drawer");
+                    function toggleDrawer() {
+                        let drawer = document.getElementById("id-drawer");
+                        let members = document.getElementById("id-members");
+						let upDown = document.getElementById("id-up_down")
 
-                        drawerIsDragging = true;
-                        drawerStartY = event.touches ? event.touches[0].clientY : event.clientY;
-                        drawerStartHeight = drawer.offsetHeight;
-                        document.body.style.userSelect = "none";
-                    }
+                        let fullContentHeight = members.offsetTop + members.offsetHeight;
 
-                    function moveDrawerDrag(event) {
-                        drawer = document.getElementById("id-drawer");
-
-                        if (!drawerIsDragging) return;
-                        let currentY = event.touches ? event.touches[0].clientY : event.clientY;
-                        let newHeight = drawerStartHeight + (drawerStartY - currentY);
-
-                        if (newHeight >= drawerMinHeight && newHeight <= drawerMaxHeight) {
-                            drawer.style.transition = "none";
-                            drawer.style.height = newHeight + "px";
-                        }
-                    }
-
-                    function endDrawerDrag() {
-                        drawer = document.getElementById("id-drawer");
-
-                        drawerIsDragging = false;
-                        drawer.style.transition = "height 0.3s ease-in-out";
-                        document.body.style.userSelect = "auto";
-
-                        // Auto-close if dragged down too far
-                        if (drawer.offsetHeight < drawerMinHeight + 20) {
+                        if (drawerExpanded) {
+                            // Close the drawer
+                            drawer.style.transition = "height 0.3s ease-in-out";
                             drawer.style.height = drawerMinHeight + "px";
-                            // Prevent scrolling when drawer is closed
                             document.body.style.overflow = "hidden";
+							upDown.innerHTML = "&#128316";
                         } else {
-                            // Allow scrolling when drawer is open
+                            // Open the drawer fully
+                            drawer.style.transition = "height 0.3s ease-in-out";
+                            drawer.style.height = Math.min(drawerMaxHeight, fullContentHeight) + "px";
                             document.body.style.overflow = "auto";
+							upDown.innerHTML = "&#128317";
                         }
+
+                        // Toggle the state
+                        drawerExpanded = !drawerExpanded;
                     }
 
                     function addDrawerListener() {
                         drawer = document.getElementById("id-drawer");
-
-                        drawer.addEventListener("mousedown", startDrawerDrag);
-                        drawer.addEventListener("touchstart", startDrawerDrag, { passive: true });
-
-                        document.addEventListener("mousemove", moveDrawerDrag);
-                        document.addEventListener("touchmove", moveDrawerDrag, { passive: true });
-
-                        document.addEventListener("mouseup", endDrawerDrag);
-                        document.addEventListener("touchend", endDrawerDrag);
+    					drawer.addEventListener("click", toggleDrawer);
                     };
 
                     function handleDrawerImageClick(member) {
