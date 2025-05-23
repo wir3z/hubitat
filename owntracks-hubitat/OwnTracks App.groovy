@@ -163,6 +163,7 @@
  *  1.8.15	   2025-05-16	   - Added a member drawer to the bottom of the Google Family Map.  Clicking on a thumbnail will follow that user.
  *  1.8.17	   2025-05-18	   - Add the ability to scale the thumbnail size Google Family Map member drawer.
  *  1.8.18	   2025-05-19	   - Changed the drawer behavior to allow a single click/tap to open/close vs dragging.  Increased width up to 500 pixels.
+ *  1.8.19	   2025-05-23	   - Added scalers to the map zoom in mobile portrait mode and the drawer member details.
 */
 
 import groovy.transform.Field
@@ -171,7 +172,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.18" }
+def appVersion() { return "1.8.19" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -213,6 +214,7 @@ def appVersion() { return "1.8.18" }
 @Field Number  DEFAULT_memberHistoryStroke = 1.0
 @Field Number  DEFAULT_memberHistoryRepeat = 300
 @Field Number  DEFAULT_memberThumbnailScale = 1.0
+@Field Number  DEFAULT_memberDrawerScale = 1.0
 @Field Boolean DEFAULT_displayAllMembersHistory = false
 @Field Boolean DEFAULT_removeMemberMarkersWithSameBearing = true
 @Field Number  DEFAULT_memberMarkerBearingDifferenceDegrees = 10
@@ -245,6 +247,7 @@ def appVersion() { return "1.8.18" }
 @Field Boolean DEFAULT_highAccuracyOnPing = true
 @Field Boolean DEFAULT_highPowerMode = true
 @Field Boolean DEFAULT_lowPowerModeInRegion = false
+@Field Number  DEFAULT_mobileBrowserScale = 2.0
 @Field Number  DEFAULT_googleMapsZoom = 0
 @Field String  DEFAULT_googleMapsMember = "null"
 @Field Boolean DEFAULT_useLastGoogleFriendsMapMember = false
@@ -534,6 +537,7 @@ def configureHubApp() {
                 paragraph (GOOGLE_MAP_API_KEY_LINK + " -- <i><b>'Maps JavaScript API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard' target='_blank'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Maps JavaScript API</b>.</i>")
                 input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:", submitOnChange: true
                 paragraph ("<a href='${getAttributeURL("[cloud.hubitat.com]", "googlemap")}' target='_blank'>Test map API key</a>")
+                input name: "mobileBrowserScale", type: "decimal", title: "Scale value for the mobile browser when in portrait mode. (1.0..3.0), default: ${DEFAULT_mobileBrowserScale}:", range: "1.0..3.0", defaultValue: DEFAULT_mobileBrowserScale
                 input name: "memberBoundsRadius", type: "number", title: "Map will only auto-zoom to fit members within this distance from home (${getLargeUnits()}) (0..${displayKmMiVal(6400).toInteger()}) Recommended=${displayKmMiVal(DEFAULT_memberBoundsRadius).toInteger()}, Show all members=0", range: "0..${displayKmMiVal(6400).toInteger()}", defaultValue: displayKmMiVal(DEFAULT_memberBoundsRadius).toInteger(), submitOnChange: true
                 paragraph ("<h2>Member History and Pin Colors</h2>")
                 input name: "memberAccuracyRadiusOpacity", type: "decimal", title: "Opacity value for the member accuracy radius, 0=disabled (0.0..3.0):", range: "0.0..3.0", defaultValue: DEFAULT_memberAccuracyRadiusOpacity
@@ -563,7 +567,8 @@ def configureHubApp() {
                     }
                     input name: "memberGlyphColor", type: "string", title: "<b>${selectMemberGlyph} glyph and history color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (Purple) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#800080):", defaultValue: (selectedMember?.color ? selectedMember.color : DEFAULT_MEMBER_GLYPH_COLOR), submitOnChange: true
                 }
-                input name: "memberThumbnailScale", type: "decimal", title: "Scale value for the member thumbnails in the map drawer. (0.5..2.0):", range: "0.5..2.0", defaultValue: DEFAULT_memberThumbnailScale
+                input name: "memberThumbnailScale", type: "decimal", title: "Scale value for the member thumbnails in the map drawer. (0.5..2.0), default: ${DEFAULT_memberThumbnailScale}:", range: "0.5..2.0", defaultValue: DEFAULT_memberThumbnailScale
+                input name: "memberDrawerScale", type: "decimal", title: "Scale value for the member details in the map drawer. (1.0..1.5), default: ${DEFAULT_memberDrawerScale}:", range: "1.0..1.5", defaultValue: DEFAULT_memberDrawerScale
                 paragraph ("<h2>Region Pin Colors</h2>")
                 input name: "regionPinColor", type: "string", title: "<b>Region pin color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (DarkRed) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#b22222):", defaultValue: DEFAULT_REGION_PIN_COLOR
                 input name: "regionGlyphColor", type: "string", title: "<b>Region glyph color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (Maroon) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#800000):", defaultValue: DEFAULT_REGION_GLYPH_COLOR
@@ -1587,6 +1592,8 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (memberHistoryStroke == null)) app.updateSetting("memberHistoryStroke", [value: DEFAULT_memberHistoryStroke, type: "decimal"])
     if (forceDefaults || (memberHistoryRepeat == null)) app.updateSetting("memberHistoryRepeat", [value: DEFAULT_memberHistoryRepeat, type: "number"])
     if (forceDefaults || (memberThumbnailScale == null)) app.updateSetting("memberThumbnailScale", [value: DEFAULT_memberThumbnailScale, type: "decimal"])
+    if (forceDefaults || (memberDrawerScale == null)) app.updateSetting("memberDrawerScale", [value: DEFAULT_memberDrawerScale, type: "decimal"])
+    if (forceDefaults || (mobileBrowserScale == null)) app.updateSetting("mobileBrowserScale", [value: DEFAULT_mobileBrowserScale, type: "decimal"])   
     if (forceDefaults || (displayAllMembersHistory == null)) app.updateSetting("displayAllMembersHistory", [value: DEFAULT_displayAllMembersHistory, type: "bool"])
     if (forceDefaults || (memberTripIdleMarkerTime == null)) app.updateSetting("memberTripIdleMarkerTime", [value: DEFAULT_memberTripIdleMarkerTime, type: "number"])
     if (forceDefaults || (memberMarkerBearingDifferenceDegrees == null)) app.updateSetting("memberMarkerBearingDifferenceDegrees", [value: DEFAULT_memberMarkerBearingDifferenceDegrees, type: "number"])
@@ -4138,6 +4145,24 @@ def generateGoogleFriendsMap() {
                 lastUpdate = "Unknown";
 				registerDrawerListener = true;
 
+                function isMobile() {
+                    return /android|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(navigator.userAgent);
+                }
+
+                function isPortrait() {
+                    return (window.matchMedia("(orientation: portrait)").matches)
+                }
+
+                function adjustZoom() {
+                    if (isMobile() && isPortrait()) {
+                        document.body.style.zoom = 100 * ${(mobileBrowserScale == null ? DEFAULT_mobileBrowserScale : mobileBrowserScale)} + "%";
+                    } else {
+                        document.body.style.zoom = "100%";
+                    }
+                }
+                adjustZoom();
+                window.addEventListener('resize', adjustZoom);
+
                 function initMap() {
                     const infoWindow = new google.maps.InfoWindow();
                     const maxGradient = 0.9;
@@ -4812,9 +4837,9 @@ def generateGoogleFriendsMap() {
                                 src = canvas.toDataURL();
 							}
 
-							thumbnailSize = 40 * ${(memberThumbnailScale == null ? DEFAULT_memberThumbnailScale : memberThumbnailScale)};
+							thumbnailSize = 50 * ${(memberThumbnailScale == null ? DEFAULT_memberThumbnailScale : memberThumbnailScale)};
 							membersContent +=
-                                "<table style='width:100%;font-size:1.0em'>" +
+									"<table style='width:100%;font-size:${(memberDrawerScale == null ? DEFAULT_memberDrawerScale : memberDrawerScale)}em'>" +
                                     "<tr>" +
 										"<td align='center' rowspan='5'><img src='" + src + "' width='" + thumbnailSize + "' height='" + thumbnailSize + "' data-member='" + member + "'></td>" +
                                         "<td align='left'" + (((locations[member].wifi == "0") || (locations[member].hib != "0") || (locations[member].bo != "0") || (locations[member].per != "0")) ? " style='color:red'>" : ">") + ((locations[member].data == "m") ? "&#128246;" + (locations[member].wifi != "null" ? (locations[member].wifi == "0" ? "<s>&#128732;</s>" : "") : "") : (locations[member].data == "w" ? "&#128732;" : "")) + "</td>" +
