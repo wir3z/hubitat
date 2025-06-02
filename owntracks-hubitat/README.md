@@ -125,8 +125,6 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	- Once the quota has been exhausted for the period, the application will stop generating the map until the next quote period.
 - Google Maps API key for combined family location map:
 	- Paste the API key provided into the box.
-- Scale value for the mobile browser when in portrait mode.
-	- When the phone is in Portrait mode, the map is displayed with small fonts.  This scaler increases the zoom of the map in portrait mode to match that of landscape mode.
 - Map will only auto-zoom to fit members within this distance from home or a member.  
 	- Entering 0 will allow the map to zoom out to fit all members.  Entering a distance will limit the amount of zoom.
 	- If the member name is appended to the end of the Google Family Map URL, that member will be used for the auto-zoom distance check.	

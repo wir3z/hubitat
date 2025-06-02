@@ -164,6 +164,7 @@
  *  1.8.17	   2025-05-18	   - Add the ability to scale the thumbnail size Google Family Map member drawer.
  *  1.8.18	   2025-05-19	   - Changed the drawer behavior to allow a single click/tap to open/close vs dragging.  Increased width up to 500 pixels.
  *  1.8.19	   2025-05-23	   - Added scalers to the map zoom in mobile portrait mode and the drawer member details.
+ *  1.8.20	   2025-06-01	   - Fixed the zoom issues and removed the mobile portrait mode zoom for the Google Family map.  Fixed race condition when the thumbnails were loading on the family map.  Fixed issue where new users were not being added to the default group.
 */
 
 import groovy.transform.Field
@@ -172,7 +173,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.19" }
+def appVersion() { return "1.8.20" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -214,7 +215,7 @@ def appVersion() { return "1.8.19" }
 @Field Number  DEFAULT_memberHistoryStroke = 1.0
 @Field Number  DEFAULT_memberHistoryRepeat = 300
 @Field Number  DEFAULT_memberThumbnailScale = 1.0
-@Field Number  DEFAULT_memberDrawerScale = 1.0
+@Field Number  DEFAULT_memberDrawerScale = 1.3
 @Field Boolean DEFAULT_displayAllMembersHistory = false
 @Field Boolean DEFAULT_removeMemberMarkersWithSameBearing = true
 @Field Number  DEFAULT_memberMarkerBearingDifferenceDegrees = 10
@@ -247,7 +248,6 @@ def appVersion() { return "1.8.19" }
 @Field Boolean DEFAULT_highAccuracyOnPing = true
 @Field Boolean DEFAULT_highPowerMode = true
 @Field Boolean DEFAULT_lowPowerModeInRegion = false
-@Field Number  DEFAULT_mobileBrowserScale = 2.0
 @Field Number  DEFAULT_googleMapsZoom = 0
 @Field String  DEFAULT_googleMapsMember = "null"
 @Field Boolean DEFAULT_useLastGoogleFriendsMapMember = false
@@ -537,7 +537,6 @@ def configureHubApp() {
                 paragraph (GOOGLE_MAP_API_KEY_LINK + " -- <i><b>'Maps JavaScript API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard' target='_blank'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Maps JavaScript API</b>.</i>")
                 input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:", submitOnChange: true
                 paragraph ("<a href='${getAttributeURL("[cloud.hubitat.com]", "googlemap")}' target='_blank'>Test map API key</a>")
-                input name: "mobileBrowserScale", type: "decimal", title: "Scale value for the mobile browser when in portrait mode. (1.0..3.0), default: ${DEFAULT_mobileBrowserScale}:", range: "1.0..3.0", defaultValue: DEFAULT_mobileBrowserScale
                 input name: "memberBoundsRadius", type: "number", title: "Map will only auto-zoom to fit members within this distance from home (${getLargeUnits()}) (0..${displayKmMiVal(6400).toInteger()}) Recommended=${displayKmMiVal(DEFAULT_memberBoundsRadius).toInteger()}, Show all members=0", range: "0..${displayKmMiVal(6400).toInteger()}", defaultValue: displayKmMiVal(DEFAULT_memberBoundsRadius).toInteger(), submitOnChange: true
                 paragraph ("<h2>Member History and Pin Colors</h2>")
                 input name: "memberAccuracyRadiusOpacity", type: "decimal", title: "Opacity value for the member accuracy radius, 0=disabled (0.0..3.0):", range: "0.0..3.0", defaultValue: DEFAULT_memberAccuracyRadiusOpacity
@@ -1593,7 +1592,6 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (memberHistoryRepeat == null)) app.updateSetting("memberHistoryRepeat", [value: DEFAULT_memberHistoryRepeat, type: "number"])
     if (forceDefaults || (memberThumbnailScale == null)) app.updateSetting("memberThumbnailScale", [value: DEFAULT_memberThumbnailScale, type: "decimal"])
     if (forceDefaults || (memberDrawerScale == null)) app.updateSetting("memberDrawerScale", [value: DEFAULT_memberDrawerScale, type: "decimal"])
-    if (forceDefaults || (mobileBrowserScale == null)) app.updateSetting("mobileBrowserScale", [value: DEFAULT_mobileBrowserScale, type: "decimal"])   
     if (forceDefaults || (displayAllMembersHistory == null)) app.updateSetting("displayAllMembersHistory", [value: DEFAULT_displayAllMembersHistory, type: "bool"])
     if (forceDefaults || (memberTripIdleMarkerTime == null)) app.updateSetting("memberTripIdleMarkerTime", [value: DEFAULT_memberTripIdleMarkerTime, type: "number"])
     if (forceDefaults || (memberMarkerBearingDifferenceDegrees == null)) app.updateSetting("memberMarkerBearingDifferenceDegrees", [value: DEFAULT_memberMarkerBearingDifferenceDegrees, type: "number"])
@@ -2063,7 +2061,7 @@ def webhookEventHandler() {
         if (!findMember?.id) {
             // add the new user to the list if they don't exist yet.  We will use the current time since not all incoming packets have a timestamp
             if (findMember == null) {
-                state.members << [ name:sourceName, deviceID:sourceDeviceID, id:null, timeStamp:(now()/1000).toInteger(), updateWaypoints:false, updateLocation:false, updateDisplay:false, dynamicLocaterAccuracy:false, getRegions:false, requestLocation:false ]
+                state.members << [ name:sourceName, deviceID:sourceDeviceID, id:null, groups:["0"], timeStamp:(now()/1000).toInteger(), updateWaypoints:false, updateLocation:false, updateDisplay:false, dynamicLocaterAccuracy:false, getRegions:false, requestLocation:false ]
             }
             logWarn("User: '${sourceName}' not configured.  To enable this member, open the Hubitat OwnTracks app, select '${sourceName}' in 'Select family member(s) to monitor' box and then click 'Done'.")
         } else {
@@ -3422,499 +3420,507 @@ def generateConfigMap() {
     APIKey = getGoogleMapsAPIKey()
     if (APIKey && isMapAllowed(true) && isCloudLinkEnabled(request.HOST)) {
         htmlData = """
-        <div style="width:100%;height:100%;margin:5px">
-            <table style="width:100%">
-                <tr>
-                    <td align="left"><select id="id-region" style="font-size:1.0em"></select></td>
-                    <td align="right"><input id="id-address" placeholder="" size="40" style="font-size:1.0em"></input></td>
-                </tr>
-            </table>
-            <div id="map" style="width:100%;height:95%;"></div>
-            <script>
-                const places = ["""
-                    getNonFollowRegions(COLLECT_PLACES["desc"]).each { region->
-                        place = state.places.find {it.desc==region}
-                        htmlData += """{lat:${place.lat},lng:${place.lon},rad:${place.rad},desc:"${place.desc}",tst:${place.tst}},"""
-                    }
-                    htmlData += """
-                ];
-
-                // get the params if they were passed
-                const urlParams = new URLSearchParams(window.location.search);
-                const paramLat = urlParams.get("lat");
-                const paramLon = urlParams.get("lon");
-                mapLat = ${location.getLatitude()};
-                mapLon = ${location.getLongitude()};
-                homeRegion = "${getHomeRegion()?.tst}";
-                addNewPin = false;
-                mapStartingCoordinates();
-
-                function mapStartingCoordinates() {
-                    const homeLat = ${getHomeRegion()?.lat};
-                    const homeLon = ${getHomeRegion()?.lon};
-                    // default to the hub lat/lon
-                    // if we passed coordinates, use them, if not, use the home coordinates
-                    // preference:  param coordinates -> home coordinates -> hub coordinates
-                    if (paramLat && paramLon) {
-                        mapLat = paramLat;
-                        mapLon = paramLon;
-                        addNewPin = true;
-                    } else {
-                        // checking if it exists is still passing for "" so we do this the messy way
-                        if ((homeLat != "") && (homeLat != null) && (homeLon != "") && (homeLon != null)) {
-                            mapLat = homeLat;
-                            mapLon = homeLon;
+		<html>
+		<head>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+		</head>
+		<body>
+            <div style="width:100%;height:100%;margin:5px">
+                <table style="width:100%">
+                    <tr>
+                        <td align="left"><select id="id-region" style="font-size:1.0em"></select></td>
+                        <td align="right"><input id="id-address" placeholder="" size="40" style="font-size:1.0em"></input></td>
+                    </tr>
+                </table>
+                <div id="map" style="width:100%;height:95%;"></div>
+                <script>
+                    const places = ["""
+                        getNonFollowRegions(COLLECT_PLACES["desc"]).each { region->
+                            place = state.places.find {it.desc==region}
+                            htmlData += """{lat:${place.lat},lng:${place.lon},rad:${place.rad},desc:"${place.desc}",tst:${place.tst}},"""
                         }
-                    }
-                };
+                        htmlData += """
+                    ];
 
-                function initMap() {
-                    const infoWindow = new google.maps.InfoWindow();
-                    const markers = [];
-                    lastIndex = "";
-                    lastPosition = "";
-                    updateRegionSelector()
-                    addRegionListener()
-                    updateAddressInput()
-                    addAddressListener()
+                    // get the params if they were passed
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const paramLat = urlParams.get("lat");
+                    const paramLon = urlParams.get("lon");
+                    mapLat = ${location.getLatitude()};
+                    mapLon = ${location.getLongitude()};
+                    homeRegion = "${getHomeRegion()?.tst}";
+                    addNewPin = false;
+                    mapStartingCoordinates();
 
-                    map = new google.maps.Map(
-                        document.getElementById("map"),
-                        {
-                            zoom:17,
-                            center: {
-                                lat: parseFloat(mapLat),
-                                lng: parseFloat(mapLon)
-                            },
-                            mapId:"owntracks",
-                        }
-                    );
-                    // add pre-existing markers
-                    for (let idx = 0; idx < places.length; idx++) {
-                        createMarker(places[idx], idx);
-                        if ((places[idx].lat == paramLat) && (places[idx].lng == paramLon)) {
-                            // matches existing pin, so do not add a new one
-                            addNewPin = false;
+                    function mapStartingCoordinates() {
+                        const homeLat = ${getHomeRegion()?.lat};
+                        const homeLon = ${getHomeRegion()?.lon};
+                        // default to the hub lat/lon
+                        // if we passed coordinates, use them, if not, use the home coordinates
+                        // preference:  param coordinates -> home coordinates -> hub coordinates
+                        if (paramLat && paramLon) {
+                            mapLat = paramLat;
+                            mapLon = paramLon;
+                            addNewPin = true;
+                        } else {
+                            // checking if it exists is still passing for "" so we do this the messy way
+                            if ((homeLat != "") && (homeLat != null) && (homeLon != "") && (homeLon != null)) {
+                                mapLat = homeLat;
+                                mapLon = homeLon;
+                            }
                         }
                     };
-                    // add new marker if lat/lon was passed to the URL, and it was not a pre-existing URL
-                    if (addNewPin) {
-                        addMarker({ lat: parseFloat(paramLat), lng: parseFloat(paramLon) });
-                    }
 
-                    addInfoListener();
-                    map.addListener('click', (evt) => {
-                        infoWindow.close(map);
-                        // first remove any unsaved markers, if any
-                        deleteUnsavedMarkers();
-                        addMarker({ lat: evt.latLng.lat(), lng: evt.latLng.lng() })
+                    function initMap() {
+                        const infoWindow = new google.maps.InfoWindow();
+                        const markers = [];
+                        lastIndex = "";
+                        lastPosition = "";
                         updateRegionSelector()
-                    });
+                        addRegionListener()
+                        updateAddressInput()
+                        addAddressListener()
 
-                    function addMarker(region) {
-                        newMarker = { lat: region.lat, lng: region.lng, rad: ${DEFAULT_RADIUS}, desc: '', tst: Math.trunc((new Date().getTime())/1000) };
-                        createMarker(newMarker, places.length);
-                        displayInfo(region, places.length, true);
-                        infoWindow.open(map, markers[markers.length - 1].marker);
-                    }
-
-                    function createMarker(markerElement, index) {
-                        const pin = new google.maps.marker.PinElement(
+                        map = new google.maps.Map(
+                            document.getElementById("map"),
                             {
-                                background: "${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
-                                borderColor: "${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
-                            }
-                        );
-                        // change the pin glyph if it is home or just a region
-                        changePinGlyph(index, pin, (markerElement.tst == homeRegion));
-                        const marker = new google.maps.marker.AdvancedMarkerElement(
-                            {
-                                map,
-                                position:{
-                                    lat: markerElement.lat,
-                                    lng: markerElement.lng,
+                                zoom:17,
+                                center: {
+                                    lat: parseFloat(mapLat),
+                                    lng: parseFloat(mapLon)
                                 },
-                                title: markerElement.desc,
-                                gmpDraggable: true,
-                                content: pin.element,
-                                zIndex: markerElement.tst
+                                mapId:"owntracks",
                             }
                         );
-                        const radius = new google.maps.Circle(
-                            {
-                                map,
-                                center:{
-                                    lat: markerElement.lat,
-                                    lng: markerElement.lng,
-                                },
-                                radius: markerElement.rad,
-                                strokeOpacity: 0.17,
-                                strokeWeight: 1,
-                                fillOpacity: 0.17
+                        // add pre-existing markers
+                        for (let idx = 0; idx < places.length; idx++) {
+                            createMarker(places[idx], idx);
+                            if ((places[idx].lat == paramLat) && (places[idx].lng == paramLon)) {
+                                // matches existing pin, so do not add a new one
+                                addNewPin = false;
                             }
-                        );
-                        // set the color based on a new or pre-existing pin
-                        changeRadiusColor(radius, index);
-
-                        marker.addListener('drag', function(evt) {
-                            radius.setCenter(evt.latLng);
-                        });
-                        marker.addListener("dragend", (evt) => {
-                            displayInfo({ lat: evt.latLng.lat(), lng: evt.latLng.lng() }, index, true);
-                            infoWindow.open(map, marker);
-                            updateRegionSelector()
-                        });
-                        marker.addListener("click", (evt) => {
-                            displayInfo({ lat: evt.latLng.lat(), lng: evt.latLng.lng() }, index, true);
-                            infoWindow.open(map, marker);
-                            updateRegionSelector()
-                        });
-
-                        // save the markers and radiuses
-                        markers.push({ marker, radius, pin });
-                    };
-
-                    function changePinGlyph(index, pin, home) {
-                        if (home) {
-                            pin.glyphColor = "${(regionHomeGlyphColor == null ? DEFAULT_REGION_HOME_GLYPH_COLOR : regionHomeGlyphColor)	}";
-                            pin.scale = 2.0;
-                        } else {
-                            if (index == places.length) {
-                                pin.scale = 1.5;
-                                pin.background = "${DEFAULT_REGION_NEW_PIN_COLOR}";
-                                pin.glyphColor = "${DEFAULT_REGION_NEW_GLYPH_COLOR}";
-                            } else {
-                                pin.scale = 1.0;
-                                pin.background = "${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}";
-                                pin.glyphColor = "${(regionGlyphColor == null ? DEFAULT_REGION_GLYPH_COLOR : regionGlyphColor)}";
-                            }
+                        };
+                        // add new marker if lat/lon was passed to the URL, and it was not a pre-existing URL
+                        if (addNewPin) {
+                            addMarker({ lat: parseFloat(paramLat), lng: parseFloat(paramLon) });
                         }
-                    };
 
-                    function changeRadiusColor(radius, index) {
-                        // if this is a new (unsaved) pin, then change the color
-                        if (index != places.length) {
-                            radius.setOptions({
-                                strokeColor: "${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
-                                fillColor: "${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}"
-                            });
-                        }
-                    };
-
-                    function deleteUnsavedMarkers() {
-                        // we have an unsaved marker on the place, so delete it and remove it from the map of markers
-                        if (markers.length > places.length) {
-                            markers[markers.length - 1].marker.setMap(null);
-                            markers[markers.length - 1].radius.setMap(null);
-                            markers.pop();
-                        }
-                    };
-
-                    function updateRegionSelector() {
-                        const regionSelector = document.getElementById("id-region");
-                        // clear exisitng and then add the elements from the places list
-                        regionSelector.innerHTML = "";
-                        const option = document.createElement("option");
-                        option.text = "Select a region";
-                        regionSelector.appendChild(option);
-                        places.forEach((place) => {
-                            const option = document.createElement("option");
-                            option.text = place.desc;
-                            option.value = place.tst;
-                            regionSelector.appendChild(option);
-                        });
-                    }
-
-                    function updateAddressInput() {
-                        const address = document.getElementById("id-address");
-                        address.value = "";
-                        address.placeholder = (${isGeocodeAllowed()} ? "Search for address" : "Requires a Geocode API key for address lookup")
-                    }
-
-                    function displayInfo(event, index, addressLookup) {
-                        map.setCenter(event);
-                        infoWindow.close();
-                        infoWindow.setPosition(event);
-                        // deal with the first time the map loads and there is no position to display.  The reverseGeocode callback will update this next time.
-                        if (lastPosition == "") {
-                            lastPosition = "" + event.lat.toFixed(6) + "," + event.lng.toFixed(6) + "";
-                        }
-                        infoWindow.setContent(infoContent(lastPosition, index));
-                        if (addressLookup) {
-                            // request the address lookup and populate the window in the callback
-                            reverseGeocode(event, index);
-                        }
-                    };
-
-                    function displayButtons(index) {
-                        const nameBox = document.getElementById("id-name");
-                        const setHomeButton = document.getElementById("id-sethome");
-                        const homeButton = document.getElementById("id-home");
-                        const deleteButton = document.getElementById("id-delete");
-                        const saveButton = document.getElementById("id-save");
-
-                        if (nameBox.value.trim() == "") {
-                            setHomeButton.style.display = "none";
-                            homeButton.style.display = "none";
-                            deleteButton.style.display = "none";
-                            saveButton.style.display = "none";
-                        } else {
-                            if (markers[index].marker.zIndex == homeRegion) {
-                                setHomeButton.style.display = "none";
-                                homeButton.style.display = "block";
-                            } else {
-                                if (index < places.length) {
-                                    setHomeButton.style.display = "block";
-                                } else {
-                                    setHomeButton.style.display = "none";
-                                }
-                                homeButton.style.display = "none";
-                            }
-                            if (index < places.length) {
-                                deleteButton.style.display = "block";
-                            }
-                            saveButton.style.display = "block";
-                        }
-                    };
-
-                    function addRegionListener() {
-                        const regionBox = document.getElementById("id-region");
-                        regionBox.addEventListener("change", function() {
-                            const regionTst = regionBox.options[regionBox.selectedIndex].value;
-                            for (let idx = 0; idx < markers.length; idx++) {
-                                if (markers[idx].marker.zIndex == regionTst) {
-                                    displayInfo({ lat: markers[idx].marker.position.lat, lng: markers[idx].marker.position.lng }, idx, false);
-                                    infoWindow.open(map, markers[idx].marker);
-                                }
-                            }
-                        });
-                    };
-
-                    function addAddressListener() {
-                        const addressBox = document.getElementById("id-address");
-                        addressBox.addEventListener("keypress", function() {
-                            if (event.key === 'Enter') {
-                                address = addressBox.value.trim();
-                                if (address) {
-                                    dataMap = {};
-                                    dataMap["address"] = address;
-                                    sendDataToHub(dataMap, "geocode");
-                                }
-                                // clear the input box
-                                updateAddressInput();
-                            }
-                        });
-                    };
-
-                    function reverseGeocode(event, index) {
-                        const dataMap = {};
-                        dataMap["lat"] = event.lat.toFixed(6);
-                        dataMap["lon"] = event.lng.toFixed(6);
-                        dataMap["index"] = index;
-                        return(sendDataToHub(dataMap, "reversegeocode"));
-                    }
-
-                    function addInfoListener() {
-                        google.maps.event.addListener(infoWindow, "domready", function () {
-                            const saveButton = document.getElementById("id-save");
-                            const setHomeButton = document.getElementById("id-sethome");
-                            const deleteButton = document.getElementById("id-delete");
-                            const homeButton = document.getElementById("id-home");
-                            const nameBox = document.getElementById("id-name");
-                            const radBox = document.getElementById("id-rad");
-                            const markerIndex = document.getElementById("id-index");
-
-                            // check if we need to undo changes to the last marker
-                            if (lastIndex) {
-                                if (lastIndex != markerIndex.value) {
-                                    if (lastIndex < (markers.length-1)) {
-                                        // check if we have an unsaved marker to delete, if so, don't try to revert it's information
-                                        const lastLatLng = new google.maps.LatLng(places[lastIndex].lat, places[lastIndex].lng);
-                                        markers[lastIndex].marker.position = lastLatLng;
-                                        markers[lastIndex].radius.setCenter(lastLatLng);
-                                        markers[lastIndex].radius.setRadius(places[lastIndex].rad);
-                                    }
-                                }
-                            }
-                            lastIndex = markerIndex.value;
-
-                            if (markerIndex.value < (markers.length-1)) {
-                                deleteUnsavedMarkers();
-                            }
-
-                            // only set the box values if they are blank.
-                            if (markerIndex.value < places.length) {
-                                nameBox.value = places[markerIndex.value].desc;
-                                radBox.value = convertRadiusToFeet(places[markerIndex.value].rad);
-                            } else {
-                                nameBox.value = "";
-                                radBox.value = convertRadiusToFeet(${DEFAULT_RADIUS});
-                            }
-                            markers[markerIndex.value].radius.setRadius(convertRadiusToMeters(radBox.value));
-
-                            // show/hide the buttons when the window opens
-                            displayButtons(markerIndex.value);
-
-                            saveButton.addEventListener("click", function () {
-                                console.log("Saving Region: " + nameBox.value);
-                                // add a new marker
-                                if (markerIndex.value == places.length) {
-                                    places[markerIndex.value] = {lat:0.0,lng:0.0,rad:0,desc:"",tst:0};
-                                }
-                                markers[markerIndex.value].marker.title = nameBox.value;
-                                markers[markerIndex.value].marker.rad = convertRadiusToMeters(radBox.value);
-                                places[markerIndex.value].desc = markers[markerIndex.value].marker.title;
-                                places[markerIndex.value].rad = markers[markerIndex.value].marker.rad;
-                                places[markerIndex.value].lat = markers[markerIndex.value].marker.position.lat;
-                                places[markerIndex.value].lng = markers[markerIndex.value].marker.position.lng;
-                                places[markerIndex.value].tst = markers[markerIndex.value].marker.zIndex;
-
-                                // set the color since the pin is saved
-                                changeRadiusColor(markers[markerIndex.value].radius, markerIndex.value);
-                                changePinGlyph(markerIndex.value, markers[markerIndex.value].pin, (markers[markerIndex.value].marker.zIndex == homeRegion));
-                                displayButtons(markerIndex.value);
-                                sendDataToHub(markerDataMap(markers[markerIndex.value]), "save");
-                                alert("'" + markers[markerIndex.value].marker.title + "' saved.");
-                                updateRegionSelector()
-                            });
-                            setHomeButton.addEventListener("click", function () {
-                                console.log("Setting Home Region: " + markers[markerIndex.value].marker.title);
-                                for (let idx = 0; idx < places.length; idx++) {
-                                    if (markers[idx].marker.zIndex == homeRegion) {
-                                        // switch the home pin
-                                        changePinGlyph(idx, markers[idx].pin, false);
-                                    }
-                                };
-                                homeRegion = markers[markerIndex.value].marker.zIndex;
-                                changePinGlyph(markerIndex.value, markers[markerIndex.value].pin, true);
-                                displayButtons(markerIndex.value);
-                                sendDataToHub(markerDataMap(markers[markerIndex.value]), "home");
-                            });
-                            deleteButton.addEventListener("click", function () {
-                                console.log("Deleting Region: " + markers[markerIndex.value].marker.title);
-                                markers[markerIndex.value].marker.setMap(null);
-                                markers[markerIndex.value].radius.setMap(null);
-                                infoWindow.close();
-                                sendDataToHub(markerDataMap(markers[markerIndex.value]), "delete");
-                                if (markers[markerIndex.value].marker.zIndex == homeRegion) {
-                                    alert("'Home' region deleted.\\n\\nCreate or select a location and click 'Set Home' to assign a new 'Home' location.");
-                                } else {
-                                    alert("'" + markers[markerIndex.value].marker.title + "' deleted.");
-                                }
-                                // remove the item from the lists
-                                markers.splice(markerIndex.value, 1);
-                                places.splice(markerIndex.value, 1);
-                                lastIndex = "";
-                                updateRegionSelector()
-                            });
-                            nameBox.addEventListener("input", function () {
-                                // show/hide the buttons based on the user text
-                                displayButtons(markerIndex.value);
-                            });
-                            radBox.addEventListener("input", function () {
-                                markers[markerIndex.value].radius.setRadius(convertRadiusToMeters(radBox.value));
-                            });
-                        });
-                        google.maps.event.addListener(infoWindow, 'closeclick', () => {
+                        addInfoListener();
+                        map.addListener('click', (evt) => {
+                            infoWindow.close(map);
+                            // first remove any unsaved markers, if any
                             deleteUnsavedMarkers();
+                            addMarker({ lat: evt.latLng.lat(), lng: evt.latLng.lng() })
+                            updateRegionSelector()
                         });
-                    };
 
-                    function convertRadiusToMeters(val) {
-                        return (${imperialUnits} ? parseInt(val*0.3048) : parseInt(val))
-                    }
+                        function addMarker(region) {
+                            newMarker = { lat: region.lat, lng: region.lng, rad: ${DEFAULT_RADIUS}, desc: '', tst: Math.trunc((new Date().getTime())/1000) };
+                            createMarker(newMarker, places.length);
+                            displayInfo(region, places.length, true);
+                            infoWindow.open(map, markers[markers.length - 1].marker);
+                        }
 
-                    function convertRadiusToFeet(val) {
-                        return (${imperialUnits} ? parseInt(val*3.28084) : parseInt(val))
-                    }
+                        function createMarker(markerElement, index) {
+                            const pin = new google.maps.marker.PinElement(
+                                {
+                                    background: "${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
+                                    borderColor: "${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
+                                }
+                            );
+                            // change the pin glyph if it is home or just a region
+                            changePinGlyph(index, pin, (markerElement.tst == homeRegion));
+                            const marker = new google.maps.marker.AdvancedMarkerElement(
+                                {
+                                    map,
+                                    position:{
+                                        lat: markerElement.lat,
+                                        lng: markerElement.lng,
+                                    },
+                                    title: markerElement.desc,
+                                    gmpDraggable: true,
+                                    content: pin.element,
+                                    zIndex: markerElement.tst
+                                }
+                            );
+                            const radius = new google.maps.Circle(
+                                {
+                                    map,
+                                    center:{
+                                        lat: markerElement.lat,
+                                        lng: markerElement.lng,
+                                    },
+                                    radius: markerElement.rad,
+                                    strokeOpacity: 0.17,
+                                    strokeWeight: 1,
+                                    fillOpacity: 0.17
+                                }
+                            );
+                            // set the color based on a new or pre-existing pin
+                            changeRadiusColor(radius, index);
 
-                    function markerDataMap(marker) {
-                        dataMap = {};
-                        dataMap["_type"] = "waypoint";
-                        dataMap["desc"] = marker.marker.title;
-                        dataMap["lat"] = marker.marker.position.lat;
-                        dataMap["lon"] = marker.marker.position.lng;
-                        dataMap["tst"] = marker.marker.zIndex;
-                        dataMap["rad"] = marker.radius.getRadius();
+                            marker.addListener('drag', function(evt) {
+                                radius.setCenter(evt.latLng);
+                            });
+                            marker.addListener("dragend", (evt) => {
+                                displayInfo({ lat: evt.latLng.lat(), lng: evt.latLng.lng() }, index, true);
+                                infoWindow.open(map, marker);
+                                updateRegionSelector()
+                            });
+                            marker.addListener("click", (evt) => {
+                                displayInfo({ lat: evt.latLng.lat(), lng: evt.latLng.lng() }, index, true);
+                                infoWindow.open(map, marker);
+                                updateRegionSelector()
+                            });
 
-                        return(dataMap)
-                    }
+                            // save the markers and radiuses
+                            markers.push({ marker, radius, pin });
+                        };
 
-                    function sendDataToHub(dataMap, action) {
-                        const postData = {};
-                        postData["action"] = action;
-                        postData["payload"] = dataMap;
-
-                        fetch("${getAttributeURL(request.headers.Host.toString(), "apidata")}", {
-                            method: "POST",
-                            body: JSON.stringify(postData),
-                            headers: {
-                                "Content-type": "application/json; charset=UTF-8"
+                        function changePinGlyph(index, pin, home) {
+                            if (home) {
+                                pin.glyphColor = "${(regionHomeGlyphColor == null ? DEFAULT_REGION_HOME_GLYPH_COLOR : regionHomeGlyphColor)	}";
+                                pin.scale = 2.0;
+                            } else {
+                                if (index == places.length) {
+                                    pin.scale = 1.5;
+                                    pin.background = "${DEFAULT_REGION_NEW_PIN_COLOR}";
+                                    pin.glyphColor = "${DEFAULT_REGION_NEW_GLYPH_COLOR}";
+                                } else {
+                                    pin.scale = 1.0;
+                                    pin.background = "${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}";
+                                    pin.glyphColor = "${(regionGlyphColor == null ? DEFAULT_REGION_GLYPH_COLOR : regionGlyphColor)}";
+                                }
                             }
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            switch (data.action) {
-                                case "geocode":
-                                    center = {};
-                                    center["lat"] = parseFloat(data.lat);
-                                    center["lng"] = parseFloat(data.lon);
-                                    map.setCenter(center);
-                                    addMarker({ lat: parseFloat(data.lat), lng: parseFloat(data.lon) });
-                                break;
-                                case "reversegeocode":
-                                    lastPosition = data.address;
-                                    infoWindow.setContent(infoContent(data.address, data.index));
-                                break;
-                                default:
-                                    // do nothing
-                                break;
+                        };
+
+                        function changeRadiusColor(radius, index) {
+                            // if this is a new (unsaved) pin, then change the color
+                            if (index != places.length) {
+                                radius.setOptions({
+                                    strokeColor: "${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
+                                    fillColor: "${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}"
+                                });
                             }
-                        })
-                        .catch(error => { console.error('Error fetching data:', error); })
-                    };
+                        };
 
-                    function infoContent(position, index) {
-                        const contentString =
-                        "<table style='width:100%;font-size:1.0em'>" +
-        	                "<tr>" +
-	        	                "<td align='left'>" +
-                                    "<style>#id-delete:hover { background-color:#b40000;color:white }</style>" +
-          		                    "<button type='submit' id='id-delete' style='display:none'>Delete</button>" +
-    	        	            "</td>" +
-            	            "</tr>" +
-            	            "<tr>" +
-        	    	            "<td><b>Name:</b></td>" +
-        		                "<td><input type='text' id='id-name'></td>" +
-        	                "</tr>" +
-        	                "<tr>" +
-            		            "<td><b>Radius (" + "${getSmallUnits()}" + "):</b></td>" +
-                                "<td><input type='number' min='" + convertRadiusToFeet(25) + "' max='" + convertRadiusToFeet(10000) + "' step='" + convertRadiusToFeet(25) + "' id='id-rad'></td>" +
-             	            "</tr>" +
-        	                "<tr>" +
-        		                "<td><b>Location:</b></td>" +
-        		                "<td>" + position + "</td>" +
-        	                "</tr>" +
-            	            "<tr>" +
-	            	            "<td align='left'>" +
-                                    "<style>#id-sethome:hover { background-color:green;color:white }</style>" +
-              		                "<button type='submit' id='id-sethome' style='display:none'>Set Home</button>" +
-          	    	                "<button type='submit' id='id-home' style='background:green;color:white;display:none'>Home</button>" +
-	        	                "</td>" +
-	        	                "<td align='right'>" +
-                                    "<style>#id-save:hover { background-color:${DEFAULT_APP_THEME_COLOR};color:white }</style>" +
-          		                    "<button type='submit' id='id-save' style='display:none'>Save</button>" +
-	        	                "</td>" +
-            	            "</tr>" +
-                        "</table>" +
-                        "<input type='hidden' id='id-index' value='" + index + "'>"
+                        function deleteUnsavedMarkers() {
+                            // we have an unsaved marker on the place, so delete it and remove it from the map of markers
+                            if (markers.length > places.length) {
+                                markers[markers.length - 1].marker.setMap(null);
+                                markers[markers.length - 1].radius.setMap(null);
+                                markers.pop();
+                            }
+                        };
 
-                        return(contentString)
+                        function updateRegionSelector() {
+                            const regionSelector = document.getElementById("id-region");
+                            // clear exisitng and then add the elements from the places list
+                            regionSelector.innerHTML = "";
+                            const option = document.createElement("option");
+                            option.text = "Select a region";
+                            regionSelector.appendChild(option);
+                            places.forEach((place) => {
+                                const option = document.createElement("option");
+                                option.text = place.desc;
+                                option.value = place.tst;
+                                regionSelector.appendChild(option);
+                            });
+                        }
+
+                        function updateAddressInput() {
+                            const address = document.getElementById("id-address");
+                            address.value = "";
+                            address.placeholder = (${isGeocodeAllowed()} ? "Search for address" : "Requires a Geocode API key for address lookup")
+                        }
+
+                        function displayInfo(event, index, addressLookup) {
+                            map.setCenter(event);
+                            infoWindow.close();
+                            infoWindow.setPosition(event);
+                            // deal with the first time the map loads and there is no position to display.  The reverseGeocode callback will update this next time.
+                            if (lastPosition == "") {
+                                lastPosition = "" + event.lat.toFixed(6) + "," + event.lng.toFixed(6) + "";
+                            }
+                            infoWindow.setContent(infoContent(lastPosition, index));
+                            if (addressLookup) {
+                                // request the address lookup and populate the window in the callback
+                                reverseGeocode(event, index);
+                            }
+                        };
+
+                        function displayButtons(index) {
+                            const nameBox = document.getElementById("id-name");
+                            const setHomeButton = document.getElementById("id-sethome");
+                            const homeButton = document.getElementById("id-home");
+                            const deleteButton = document.getElementById("id-delete");
+                            const saveButton = document.getElementById("id-save");
+
+                            if (nameBox.value.trim() == "") {
+                                setHomeButton.style.display = "none";
+                                homeButton.style.display = "none";
+                                deleteButton.style.display = "none";
+                                saveButton.style.display = "none";
+                            } else {
+                                if (markers[index].marker.zIndex == homeRegion) {
+                                    setHomeButton.style.display = "none";
+                                    homeButton.style.display = "block";
+                                } else {
+                                    if (index < places.length) {
+                                        setHomeButton.style.display = "block";
+                                    } else {
+                                        setHomeButton.style.display = "none";
+                                    }
+                                    homeButton.style.display = "none";
+                                }
+                                if (index < places.length) {
+                                    deleteButton.style.display = "block";
+                                }
+                                saveButton.style.display = "block";
+                            }
+                        };
+
+                        function addRegionListener() {
+                            const regionBox = document.getElementById("id-region");
+                            regionBox.addEventListener("change", function() {
+                                const regionTst = regionBox.options[regionBox.selectedIndex].value;
+                                for (let idx = 0; idx < markers.length; idx++) {
+                                    if (markers[idx].marker.zIndex == regionTst) {
+                                        displayInfo({ lat: markers[idx].marker.position.lat, lng: markers[idx].marker.position.lng }, idx, false);
+                                        infoWindow.open(map, markers[idx].marker);
+                                    }
+                                }
+                            });
+                        };
+
+                        function addAddressListener() {
+                            const addressBox = document.getElementById("id-address");
+                            addressBox.addEventListener("keypress", function() {
+                                if (event.key === 'Enter') {
+                                    address = addressBox.value.trim();
+                                    if (address) {
+                                        dataMap = {};
+                                        dataMap["address"] = address;
+                                        sendDataToHub(dataMap, "geocode");
+                                    }
+                                    // clear the input box
+                                    updateAddressInput();
+                                }
+                            });
+                        };
+
+                        function reverseGeocode(event, index) {
+                            const dataMap = {};
+                            dataMap["lat"] = event.lat.toFixed(6);
+                            dataMap["lon"] = event.lng.toFixed(6);
+                            dataMap["index"] = index;
+                            return(sendDataToHub(dataMap, "reversegeocode"));
+                        }
+
+                        function addInfoListener() {
+                            google.maps.event.addListener(infoWindow, "domready", function () {
+                                const saveButton = document.getElementById("id-save");
+                                const setHomeButton = document.getElementById("id-sethome");
+                                const deleteButton = document.getElementById("id-delete");
+                                const homeButton = document.getElementById("id-home");
+                                const nameBox = document.getElementById("id-name");
+                                const radBox = document.getElementById("id-rad");
+                                const markerIndex = document.getElementById("id-index");
+
+                                // check if we need to undo changes to the last marker
+                                if (lastIndex) {
+                                    if (lastIndex != markerIndex.value) {
+                                        if (lastIndex < (markers.length-1)) {
+                                            // check if we have an unsaved marker to delete, if so, don't try to revert it's information
+                                            const lastLatLng = new google.maps.LatLng(places[lastIndex].lat, places[lastIndex].lng);
+                                            markers[lastIndex].marker.position = lastLatLng;
+                                            markers[lastIndex].radius.setCenter(lastLatLng);
+                                            markers[lastIndex].radius.setRadius(places[lastIndex].rad);
+                                        }
+                                    }
+                                }
+                                lastIndex = markerIndex.value;
+
+                                if (markerIndex.value < (markers.length-1)) {
+                                    deleteUnsavedMarkers();
+                                }
+
+                                // only set the box values if they are blank.
+                                if (markerIndex.value < places.length) {
+                                    nameBox.value = places[markerIndex.value].desc;
+                                    radBox.value = convertRadiusToFeet(places[markerIndex.value].rad);
+                                } else {
+                                    nameBox.value = "";
+                                    radBox.value = convertRadiusToFeet(${DEFAULT_RADIUS});
+                                }
+                                markers[markerIndex.value].radius.setRadius(convertRadiusToMeters(radBox.value));
+
+                                // show/hide the buttons when the window opens
+                                displayButtons(markerIndex.value);
+
+                                saveButton.addEventListener("click", function () {
+                                    console.log("Saving Region: " + nameBox.value);
+                                    // add a new marker
+                                    if (markerIndex.value == places.length) {
+                                        places[markerIndex.value] = {lat:0.0,lng:0.0,rad:0,desc:"",tst:0};
+                                    }
+                                    markers[markerIndex.value].marker.title = nameBox.value;
+                                    markers[markerIndex.value].marker.rad = convertRadiusToMeters(radBox.value);
+                                    places[markerIndex.value].desc = markers[markerIndex.value].marker.title;
+                                    places[markerIndex.value].rad = markers[markerIndex.value].marker.rad;
+                                    places[markerIndex.value].lat = markers[markerIndex.value].marker.position.lat;
+                                    places[markerIndex.value].lng = markers[markerIndex.value].marker.position.lng;
+                                    places[markerIndex.value].tst = markers[markerIndex.value].marker.zIndex;
+
+                                    // set the color since the pin is saved
+                                    changeRadiusColor(markers[markerIndex.value].radius, markerIndex.value);
+                                    changePinGlyph(markerIndex.value, markers[markerIndex.value].pin, (markers[markerIndex.value].marker.zIndex == homeRegion));
+                                    displayButtons(markerIndex.value);
+                                    sendDataToHub(markerDataMap(markers[markerIndex.value]), "save");
+                                    alert("'" + markers[markerIndex.value].marker.title + "' saved.");
+                                    updateRegionSelector()
+                                });
+                                setHomeButton.addEventListener("click", function () {
+                                    console.log("Setting Home Region: " + markers[markerIndex.value].marker.title);
+                                    for (let idx = 0; idx < places.length; idx++) {
+                                        if (markers[idx].marker.zIndex == homeRegion) {
+                                            // switch the home pin
+                                            changePinGlyph(idx, markers[idx].pin, false);
+                                        }
+                                    };
+                                    homeRegion = markers[markerIndex.value].marker.zIndex;
+                                    changePinGlyph(markerIndex.value, markers[markerIndex.value].pin, true);
+                                    displayButtons(markerIndex.value);
+                                    sendDataToHub(markerDataMap(markers[markerIndex.value]), "home");
+                                });
+                                deleteButton.addEventListener("click", function () {
+                                    console.log("Deleting Region: " + markers[markerIndex.value].marker.title);
+                                    markers[markerIndex.value].marker.setMap(null);
+                                    markers[markerIndex.value].radius.setMap(null);
+                                    infoWindow.close();
+                                    sendDataToHub(markerDataMap(markers[markerIndex.value]), "delete");
+                                    if (markers[markerIndex.value].marker.zIndex == homeRegion) {
+                                        alert("'Home' region deleted.\\n\\nCreate or select a location and click 'Set Home' to assign a new 'Home' location.");
+                                    } else {
+                                        alert("'" + markers[markerIndex.value].marker.title + "' deleted.");
+                                    }
+                                    // remove the item from the lists
+                                    markers.splice(markerIndex.value, 1);
+                                    places.splice(markerIndex.value, 1);
+                                    lastIndex = "";
+                                    updateRegionSelector()
+                                });
+                                nameBox.addEventListener("input", function () {
+                                    // show/hide the buttons based on the user text
+                                    displayButtons(markerIndex.value);
+                                });
+                                radBox.addEventListener("input", function () {
+                                    markers[markerIndex.value].radius.setRadius(convertRadiusToMeters(radBox.value));
+                                });
+                            });
+                            google.maps.event.addListener(infoWindow, 'closeclick', () => {
+                                deleteUnsavedMarkers();
+                            });
+                        };
+
+                        function convertRadiusToMeters(val) {
+                            return (${imperialUnits} ? parseInt(val*0.3048) : parseInt(val))
+                        }
+
+                        function convertRadiusToFeet(val) {
+                            return (${imperialUnits} ? parseInt(val*3.28084) : parseInt(val))
+                        }
+
+                        function markerDataMap(marker) {
+                            dataMap = {};
+                            dataMap["_type"] = "waypoint";
+                            dataMap["desc"] = marker.marker.title;
+                            dataMap["lat"] = marker.marker.position.lat;
+                            dataMap["lon"] = marker.marker.position.lng;
+                            dataMap["tst"] = marker.marker.zIndex;
+                            dataMap["rad"] = marker.radius.getRadius();
+
+                            return(dataMap)
+                        }
+
+                        function sendDataToHub(dataMap, action) {
+                            const postData = {};
+                            postData["action"] = action;
+                            postData["payload"] = dataMap;
+
+                            fetch("${getAttributeURL(request.headers.Host.toString(), "apidata")}", {
+                                method: "POST",
+                                body: JSON.stringify(postData),
+                                headers: {
+                                    "Content-type": "application/json; charset=UTF-8"
+                                }
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                switch (data.action) {
+                                    case "geocode":
+                                        center = {};
+                                        center["lat"] = parseFloat(data.lat);
+                                        center["lng"] = parseFloat(data.lon);
+                                        map.setCenter(center);
+                                        addMarker({ lat: parseFloat(data.lat), lng: parseFloat(data.lon) });
+                                    break;
+                                    case "reversegeocode":
+                                        lastPosition = data.address;
+                                        infoWindow.setContent(infoContent(data.address, data.index));
+                                    break;
+                                    default:
+                                        // do nothing
+                                    break;
+                                }
+                            })
+                            .catch(error => { console.error('Error fetching data:', error); })
+                        };
+
+                        function infoContent(position, index) {
+                            const contentString =
+                            "<table style='width:100%;font-size:1.0em'>" +
+                                "<tr>" +
+                                    "<td align='left'>" +
+                                        "<style>#id-delete:hover { background-color:#b40000;color:white }</style>" +
+                                        "<button type='submit' id='id-delete' style='display:none'>Delete</button>" +
+                                    "</td>" +
+                                "</tr>" +
+                                "<tr>" +
+                                    "<td><b>Name:</b></td>" +
+                                    "<td><input type='text' id='id-name'></td>" +
+                                "</tr>" +
+                                "<tr>" +
+                                    "<td><b>Radius (" + "${getSmallUnits()}" + "):</b></td>" +
+                                    "<td><input type='number' min='" + convertRadiusToFeet(25) + "' max='" + convertRadiusToFeet(10000) + "' step='" + convertRadiusToFeet(25) + "' id='id-rad'></td>" +
+                                "</tr>" +
+                                "<tr>" +
+                                    "<td><b>Location:</b></td>" +
+                                    "<td>" + position + "</td>" +
+                                "</tr>" +
+                                "<tr>" +
+                                    "<td align='left'>" +
+                                        "<style>#id-sethome:hover { background-color:green;color:white }</style>" +
+                                        "<button type='submit' id='id-sethome' style='display:none'>Set Home</button>" +
+                                        "<button type='submit' id='id-home' style='background:green;color:white;display:none'>Home</button>" +
+                                    "</td>" +
+                                    "<td align='right'>" +
+                                        "<style>#id-save:hover { background-color:${DEFAULT_APP_THEME_COLOR};color:white }</style>" +
+                                        "<button type='submit' id='id-save' style='display:none'>Save</button>" +
+                                    "</td>" +
+                                "</tr>" +
+                            "</table>" +
+                            "<input type='hidden' id='id-index' value='" + index + "'>"
+
+                            return(contentString)
+                        };
                     };
-                };
-            </script>
-            <script src="https://maps.googleapis.com/maps/api/js?key=${APIKey}&loading=async&libraries=marker,maps&callback=initMap"></script>
-        </div>"""
+                </script>
+                <script src="https://maps.googleapis.com/maps/api/js?key=${APIKey}&loading=async&libraries=marker,maps&callback=initMap"></script>
+            </div>
+		</body>
+		</html>
+		"""
     }
 
     return render(contentType: "text/html", data: (insertOwnTracksFavicon() + htmlData))
@@ -4117,1054 +4123,1057 @@ def generateGoogleFriendsMap() {
     APIKey = getGoogleMapsAPIKey()
     if (APIKey && isMapAllowed(true) && isCloudLinkEnabled(request.HOST)) {
         htmlData = """
-        <div style="width:100%;height:100%;margin:5px;overflow:hidden">
-            <div id="map" style="width:100%;height:100%"></div>
-    		<div id="footer" style="position:relative;width:100%;text-align:center">
-        		<div id="id-drawer" style="position:absolute;bottom:0px;width:100%;cursor:ns-resize;transition:height 0.5s ease-in-out;height:45px;font-size:0.8em;color:white;font-family:arial">
-	        		<div id="id-up_down" style="background:#555555">&#128316</div>
-	        		<div id="id-lastTime" style="background:#555555;height:35px"></div>
-					<div id="id-members" style="display:inline-block;background:#FFFFFF;width:100%;max-width:500px"></div>
-					<canvas id="circleCanvas" width="40" height="40" style="display:none"></canvas>
-		        </div>
-		    </div>
-            <script>
-				// get the params if they were passed
-                const urlParams = new URLSearchParams(window.location.search);
-                paramMember = urlParams.get("member");
-				if ((paramMember == null) || (paramMember == undefined)) {
-					paramMember = "null"
-				}
-                const webAppVersion = "${appVersion()}";
-                console.log("Google Friends Map version " + webAppVersion)
-
-                markers = [];
-                locations = [];
-                regions = [];
-                currentMember = "null";
-                historyMember = "null";
-                lastUpdate = "Unknown";
-				registerDrawerListener = true;
-
-                function isMobile() {
-                    return /android|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(navigator.userAgent);
-                }
-
-                function isPortrait() {
-                    return (window.matchMedia("(orientation: portrait)").matches)
-                }
-
-                function adjustZoom() {
-                    if (isMobile() && isPortrait()) {
-                        document.body.style.zoom = 100 * ${(mobileBrowserScale == null ? DEFAULT_mobileBrowserScale : mobileBrowserScale)} + "%";
-                    } else {
-                        document.body.style.zoom = "100%";
+		<html>
+		<head>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+		</head>
+		<body>
+            <div style="width:100%;height:100%;margin:5px;overflow:hidden">
+                <div id="map" style="width:100%;height:100%"></div>
+                <div id="footer" style="position:relative;width:100%;text-align:center">
+                    <div id="id-drawer" style="position:absolute;bottom:0px;width:100%;cursor:ns-resize;transition:height 0.5s ease-in-out;height:45px;font-size:0.8em;color:white;font-family:arial">
+                        <div id="id-up_down" style="background:#555555">&#128316</div>
+                        <div id="id-lastTime" style="background:#555555;height:35px"></div>
+                        <div id="id-members" style="display:inline-block;background:#FFFFFF;width:100%;max-width:500px"></div>
+                        <canvas id="circleCanvas" width="40" height="40" style="display:none"></canvas>
+                    </div>
+                </div>
+                <script>
+                    // get the params if they were passed
+                    const urlParams = new URLSearchParams(window.location.search);
+                    paramMember = urlParams.get("member");
+                    if ((paramMember == null) || (paramMember == undefined)) {
+                        paramMember = "null"
                     }
-                }
-                adjustZoom();
-                window.addEventListener('resize', adjustZoom);
+                    const webAppVersion = "${appVersion()}";
+                    console.log("Google Friends Map version " + webAppVersion)
 
-                function initMap() {
-                    const infoWindow = new google.maps.InfoWindow();
-                    const maxGradient = 0.9;
-                    const minBearingGradient = 0.1;
-                    const minRadiusGradient = 0.1;
-                    const minEndpointStrokeGradient = 0.4;
-                    const maxZIndex = google.maps.Marker.MAX_ZINDEX - 1000;
-                    // -2=close, -1=marker open, 0+=history sample open
-                    infoWindowVisible = -2;
-                    inhibitAutoZoom = false;
-                    tripNumber = 0;
-                    tripMember = "null";
-                    const drawerMinHeight = 45;
-                    const drawerMaxHeight = window.innerHeight - drawerMinHeight;
-                    drawerExpanded = false;
+                    markers = [];
+                    locations = [];
+                    regions = [];
+                    currentMember = "null";
+                    historyMember = "null";
+                    lastUpdate = "Unknown";
+                    registerDrawerListener = true;
 
-					addDrawerListener();
-                    // get the member data with thumbnail images
-                    retrieveMemberLocations("img");
-                    // restore the previous zoom level on the init
-                    currentZoom = ${retrieveGoogleFriendsMapZoom()};
-                    if (!currentZoom) {
-                        currentZoom = 2;
+                    function isMobile() {
+                        return /android|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(navigator.userAgent);
                     }
 
-                    homePosition = new google.maps.LatLng(${getHomeRegion()?.lat}, ${getHomeRegion()?.lon});
-                    const places = ["""
-                        getNonFollowRegions(COLLECT_PLACES["desc"]).each { region->
-                            place = state.places.find {it.desc==region}
-                            htmlData += """{lat:${place.lat},lng:${place.lon},rad:${place.rad},desc:"${place.desc}",tst:${place.tst}},"""
-                        }
-                        htmlData += """
-                    ];
+                    function isPortrait() {
+                        return (window.matchMedia("(orientation: portrait)").matches)
+                    }
 
-                    const map = new google.maps.Map(
-                        document.getElementById("map"), {
-                            zoom: currentZoom,
-                            center: {
-                                lat: 0, lng: 0
-                            },
-                            mapId:"owntracks",
-                            gestureHandling: "auto",
-                        }
-                    );
-
-                    map.addListener("click", () => {
-                        mapRegionClick();
-                    });
-                    map.addListener("zoom_changed", () => {
-                        // when the user clicks the +/- zoom buttons or we modify zoom by clicking on the marker
-                        currentZoom = map.getZoom();
-                        updateHistoryZoom(currentZoom);
-                        postData = {};
-                        postData["zoom"] = currentZoom;
-                        sendDataToHub(postData);
-                        showHideRegions();
-                    });
-                    map.addListener("dragstart", () => {
-                        // user starting panning the map
-                        inhibitAutoZoom = true;
-                        updateBottomBanner();
-                    });
-                    map.addListener("dragend", () => {
-                        // user stopped panning the map
-                        inhibitAutoZoom = true;
-                        updateBottomBanner();
-                    });
-                    map.addListener("dblclick", () => {
-                        // user double clicked the map
-                        inhibitAutoZoom = true;
-                        updateBottomBanner();
-                    });
-                    google.maps.event.addListener(infoWindow, "closeclick", () => {
+                    function initMap() {
+                        const infoWindow = new google.maps.InfoWindow();
+                        const maxGradient = 0.9;
+                        const minBearingGradient = 0.1;
+                        const minRadiusGradient = 0.1;
+                        const minEndpointStrokeGradient = 0.4;
+                        const maxZIndex = google.maps.Marker.MAX_ZINDEX - 1000;
+                        // -2=close, -1=marker open, 0+=history sample open
                         infoWindowVisible = -2;
-                        tripNumber = 0;
-                        historyMember = "null";
                         inhibitAutoZoom = false;
-                        updateBottomBanner();
-                    });
+                        tripNumber = 0;
+                        tripMember = "null";
+                        const drawerMinHeight = 45;
+                        const drawerMaxHeight = window.innerHeight - drawerMinHeight;
+                        drawerExpanded = false;
+                        const maxZoomLevel = 21;
+                        const minZoomLevel = 17;
 
-                    // place the region pins
-                    places.forEach(position => {
-                        const i=new google.maps.marker.PinElement(
-                            {
-                                scale:0.5,
-                                background:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
-                                borderColor:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
-                                glyphColor:"${(regionGlyphColor == null ? DEFAULT_REGION_GLYPH_COLOR : regionGlyphColor)}"
+                        addDrawerListener();
+                        // get the member data with thumbnail images
+                        retrieveMemberLocations("img");
+                        // restore the previous zoom level on the init
+                        currentZoom = ${retrieveGoogleFriendsMapZoom()};
+                        if (!currentZoom) {
+                            currentZoom = 2;
+                        }
+
+                        homePosition = new google.maps.LatLng(${getHomeRegion()?.lat}, ${getHomeRegion()?.lon});
+                        const places = ["""
+                            getNonFollowRegions(COLLECT_PLACES["desc"]).each { region->
+                                place = state.places.find {it.desc==region}
+                                htmlData += """{lat:${place.lat},lng:${place.lon},rad:${place.rad},desc:"${place.desc}",tst:${place.tst}},"""
+                            }
+                            htmlData += """
+                        ];
+
+                        const map = new google.maps.Map(
+                            document.getElementById("map"), {
+                                zoom: currentZoom,
+                                center: {
+                                    lat: 0, lng: 0
+                                },
+                                mapId:"owntracks",
+                                gestureHandling: "auto",
                             }
                         );
-                        pin = new google.maps.marker.AdvancedMarkerElement(
-                            {
-                                map,
-                                position:{
-                                    lat:position.lat,
-                                    lng:position.lng,
-                                },
-                                title:position.desc,
-                                content:i.element
-                            }
-                        )
-                        // place the region radius'
-                        const radius = new google.maps.Circle(
-                            {
-                                map,
-                                center:{
-                                    lat:position.lat,
-                                    lng:position.lng,
-                                },
-                                radius:position.rad,
-                                strokeColor:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
-                                strokeOpacity:0.17,
-                                strokeWeight:1,
-                                fillColor:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
-                                fillOpacity:0.17,
-                                visible:true,
-                            }
-                        )
-                        radius.addListener("click", () => {
+
+                        map.addListener("click", () => {
                             mapRegionClick();
                         });
-                        // change the home pin glyph
-                        if (position.tst == "${getHomeRegion()?.tst}") {
-                            i.glyphColor = "${(regionHomeGlyphColor == null ? DEFAULT_REGION_HOME_GLYPH_COLOR : regionHomeGlyphColor)}"
-                            i.scale = 1.3;
-                        }
-                        regions.push(radius);
-                    });
-
-                    function mapRegionClick() {
-                        infoWindow.close();
-                        // if there is a selected trip, first click unhides the rest of history
-                        if (tripNumber > 0) {
+                        map.addListener("zoom_changed", () => {
+                            // when the user clicks the +/- zoom buttons or we modify zoom by clicking on the marker
+                            currentZoom = map.getZoom();
+                            updateHistoryZoom(currentZoom);
+                            postData = {};
+                            postData["zoom"] = currentZoom;
+                            sendDataToHub(postData);
+                            showHideRegions();
+                        });
+                        map.addListener("dragstart", () => {
+                            // user starting panning the map
+                            inhibitAutoZoom = true;
+                            updateBottomBanner();
+                        });
+                        map.addListener("dragend", () => {
+                            // user stopped panning the map
+                            inhibitAutoZoom = true;
+                            updateBottomBanner();
+                        });
+                        map.addListener("dblclick", () => {
+                            // user double clicked the map
+                            inhibitAutoZoom = true;
+                            updateBottomBanner();
+                        });
+                        google.maps.event.addListener(infoWindow, "closeclick", () => {
+                            infoWindowVisible = -2;
                             tripNumber = 0;
-                        } else {
-                            // otherwise release the map and allow for full history if a trip had been previously selected
-                            if (inhibitAutoZoom) {
-                                inhibitAutoZoom = false;
+                            historyMember = "null";
+                            inhibitAutoZoom = false;
+                            updateBottomBanner();
+                        });
+
+                        // place the region pins
+                        places.forEach(position => {
+                            const i=new google.maps.marker.PinElement(
+                                {
+                                    scale:0.5,
+                                    background:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
+                                    borderColor:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
+                                    glyphColor:"${(regionGlyphColor == null ? DEFAULT_REGION_GLYPH_COLOR : regionGlyphColor)}"
+                                }
+                            );
+                            pin = new google.maps.marker.AdvancedMarkerElement(
+                                {
+                                    map,
+                                    position:{
+                                        lat:position.lat,
+                                        lng:position.lng,
+                                    },
+                                    title:position.desc,
+                                    content:i.element
+                                }
+                            )
+                            // place the region radius'
+                            const radius = new google.maps.Circle(
+                                {
+                                    map,
+                                    center:{
+                                        lat:position.lat,
+                                        lng:position.lng,
+                                    },
+                                    radius:position.rad,
+                                    strokeColor:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
+                                    strokeOpacity:0.17,
+                                    strokeWeight:1,
+                                    fillColor:"${(regionPinColor == null ? DEFAULT_REGION_PIN_COLOR : regionPinColor)}",
+                                    fillOpacity:0.17,
+                                    visible:true,
+                                }
+                            )
+                            radius.addListener("click", () => {
+                                mapRegionClick();
+                            });
+                            // change the home pin glyph
+                            if (position.tst == "${getHomeRegion()?.tst}") {
+                                i.glyphColor = "${(regionHomeGlyphColor == null ? DEFAULT_REGION_HOME_GLYPH_COLOR : regionHomeGlyphColor)}"
+                                i.scale = 1.3;
+                            }
+                            regions.push(radius);
+                        });
+
+                        function mapRegionClick() {
+                            infoWindow.close();
+                            // if there is a selected trip, first click unhides the rest of history
+                            if (tripNumber > 0) {
+                                tripNumber = 0;
                             } else {
-                                // then release the member
-                                currentMember = "null";
-                                historyMember = "null";
-                                postData = {};
-                                postData["member"] = currentMember;
-                                sendDataToHub(postData);
-                                infoWindowVisible = -2;
-                                changeHistoryFocus(currentMember);
+                                // otherwise release the map and allow for full history if a trip had been previously selected
+                                if (inhibitAutoZoom) {
+                                    inhibitAutoZoom = false;
+                                } else {
+                                    // then release the member
+                                    currentMember = "null";
+                                    historyMember = "null";
+                                    postData = {};
+                                    postData["member"] = currentMember;
+                                    sendDataToHub(postData);
+                                    infoWindowVisible = -2;
+                                    changeHistoryFocus(currentMember);
+                                }
+                                // adjust zoom as necessary
+                                fitMapBounds();
+                                tripMember = "null";
                             }
-                            // adjust zoom as necessary
+                            showHideHistory();
+                            updateBottomBanner();
+                        };
+
+                        function getMember(memberName) {
+                            // returns the member map based on a name match
+                            for (let loc=0; loc<locations.length; loc++) {
+                                if (locations[loc].name == memberName) {
+                                    return(locations[loc]);
+                                }
+                            }
+                            return("null");
+                        }
+
+                        function followMemberMarker(marker) {
+                            // assign the new current member so that the history can update
+                            currentMember = getMember(marker.title);
+
+                            // restores the marker index of the previous marker
+                            restoreMarkerIndex();
+                            // if a marker is clicked, then assign it a higher index so it comes out in front
+                            marker.zIndex = maxZIndex;
+                            infoWindowVisible = -1;
+                            postData = {};
+                            postData["zoom"] = currentZoom;
+                            postData["member"] = currentMember.name;
+                            sendDataToHub(postData);
+                            changeHistoryFocus(currentMember);
+                            updateBottomBanner();
+                            showHideHistory();
+                        };
+
+                        function addMemberMarkers() {
+                            if (${useLastGoogleFriendsMapMember}) {
+                                currentMember = getMember("${retrieveGoogleFriendsMapMember()}");
+                            } else {
+                                currentMember = getMember("${DEFAULT_googleMapsMember}");
+                            }
+                            // place the members on the map
+                            for (let member=0; member<locations.length; member++) {
+                                const namePin = document.createElement("div");
+                                namePin.textContent = locations[member].name;
+
+                                const imagePin = document.createElement("object");
+                                imagePin.data = locations[member].img;
+                                imagePin.type = "image/jpeg";
+                                imagePin.width = "40";
+                                imagePin.height = "40";
+                                imagePin.appendChild(namePin);
+
+                                const pin = new google.maps.marker.PinElement({
+                                    scale: 2.5,
+                                    background: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
+                                    borderColor: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
+                                    glyphColor: locations[member].color
+                                });
+                                if (locations[member].img) {
+                                    pin.glyph = imagePin;
+                                }
+
+                                const marker = new google.maps.marker.AdvancedMarkerElement({
+                                    map,
+                                    position: {
+                                        lat: locations[member].lat,
+                                        lng: locations[member].lng
+                                    },
+                                    title: locations[member].name,
+                                    zIndex: (currentMember.name == locations[member].name ? maxZIndex : locations[member].zIndex),
+                                    content: pin.element
+                                });
+
+                                // place the member's accuracy radius
+                                const markerRadius = new google.maps.Circle({
+                                    map,
+                                    center:{
+                                        lat: locations[member].lat,
+                                        lng: locations[member].lng
+                                    },
+                                    radius: locations[member].acc,
+                                    strokeColor: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
+                                    strokeOpacity: "${(memberAccuracyRadiusOpacity != 0 ? 0.17 : 0)}",
+                                    strokeWeight: 1,
+                                    fillColor: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
+                                    fillOpacity: 0.05 * "${(memberAccuracyRadiusOpacity == null ? DEFAULT_memberAccuracyRadiusOpacity : memberAccuracyRadiusOpacity)}",
+                                    visible: true,
+                                });
+
+                                // Add a click listener for each marker, and set up the info window
+                                marker.addListener("click", () => {
+                                    infoWindow.close();
+                                    infoWindow.setContent(infoContent(locations[member]));
+                                    infoWindow.open(marker.map, marker);
+                                    map.setCenter(marker.position);
+                                    // on the first click, just display the info box
+                                    if ((currentMember.name == marker.title) && (infoWindowVisible == -1)) {
+                                        // on second click, zoom to minZoomLevel, and then keep zooming in by 3 on each future click
+                                        currentZoom = map.getZoom()
+                                        if (currentZoom < minZoomLevel) {
+                                            currentZoom = minZoomLevel;
+                                        } else {
+                                            currentZoom += 3;
+                                            if (currentZoom > maxZoomLevel) {
+                                                currentZoom = maxZoomLevel;
+                                            }
+                                        }
+                                        map.setZoom(currentZoom);
+                                    }
+
+                                    // assign the new current member so that the history can update
+                                    followMemberMarker(marker);
+                                });
+
+                                // create history circles for the past locations
+                                var history = [];
+                                for (let past=0; past<${memberHistoryLength}; past++) {
+                                    // place the past locations
+                                    const radius = new google.maps.Circle(
+                                        {
+                                            map,
+                                            center:{
+                                                lat: locations[member].lat,
+                                                lng: locations[member].lng
+                                            },
+                                            radius:1 + ((Math.pow(2, (22 - currentZoom))*${memberHistoryScale})/10),
+                                            strokeColor:locations[member].color,
+                                            strokeOpacity:historyGradient(${memberHistoryLength},past,minRadiusGradient),
+                                            strokeWeight:2,
+                                            fillColor:locations[member].color,
+                                            fillOpacity:historyGradient(${memberHistoryLength},past,minRadiusGradient),
+                                            visible:false,
+                                            zIndex:past
+                                        }
+                                    )
+                                    // Add a click listener for each radius, and set up the info window
+                                    radius.addListener("click", () => {
+                                        // user selected a history point
+                                        infoWindow.close();
+                                        infoWindow.setPosition(radius.getCenter());
+                                        infoWindowVisible = radius.zIndex;
+                                        infoWindow.setContent(historyContent(locations[member].name, locations[member].history, past, false));
+                                        infoWindow.open(radius.map, radius);
+                                        historyMember = locations[member].name;
+                                        inhibitAutoZoom = true;
+                                        updateBottomBanner();
+                                        showHideHistory();
+                                    });
+                                    const lineSymbol = {
+                                        path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                                    };
+                                    const bearingLine = new google.maps.Polyline(
+                                        {
+                                            path:[
+                                                { lat: locations[member].lat, lng: locations[member].lng },
+                                                { lat: locations[member].lat, lng: locations[member].lng },
+                                            ],
+                                            map,
+                                            strokeColor:locations[member].color,
+                                            strokeOpacity:historyGradient(${memberHistoryLength},past,minBearingGradient),
+                                            strokeWeight:2.5*${memberHistoryStroke},
+                                            fillColor:locations[member].color,
+                                            fillOpacity:historyGradient(${memberHistoryLength},past,minBearingGradient),
+                                            zIndex:past,
+                                            visible:false,
+                                            clickable:true,
+                                            icons: [{
+                                                icon: lineSymbol,
+                                                offset: '50%',
+                                                repeat: '${memberHistoryRepeat}px',
+                                            }]
+                                        }
+                                    );
+                                    bearingLine.addListener("click", function(event) {
+                                        // user selected a history point
+                                        infoWindow.close();
+                                        infoWindow.setPosition(event.latLng);
+                                        infoWindowVisible = bearingLine.zIndex;
+                                        infoWindow.setContent(historyContent(locations[member].name, locations[member].history, past, true));
+                                        infoWindow.open(bearingLine.map, bearingLine);
+                                        historyMember = locations[member].name;
+                                        inhibitAutoZoom = true;
+                                        updateBottomBanner();
+                                        showHideHistory();
+                                    });
+                                    history.push({radius,bearingLine});
+                                };
+                                // save the marker and history
+                                markers.push({marker, history, markerRadius});
+                            };
                             fitMapBounds();
-                            tripMember = "null";
-                        }
-                        showHideHistory();
-                        updateBottomBanner();
-                    };
+                            showHideHistory();
+                        };
 
-                    function getMember(memberName) {
-                        // returns the member map based on a name match
-                        for (let loc=0; loc<locations.length; loc++) {
-                            if (locations[loc].name == memberName) {
-                                return(locations[loc]);
+                        function fitMapBounds() {
+                            // if a member isn't selected, fit all members
+                            if (currentMember == "null") {
+                                fitBoundsToMembers();
+                            } else {
+                                // if a member is selected, and the info window is displaying history
+                                if (infoWindowVisible >= 0) {
+                                    fitBoundsToHistory();
+                                } else {
+                                    // otherwise follow the selected member
+                                    followLocation();
+                                }
                             }
-                        }
-                        return("null");
-                    }
+                        };
 
-					function followMemberMarker(marker) {
-                        // assign the new current member so that the history can update
-                        currentMember = getMember(marker.title);
-
-                        // restores the marker index of the previous marker
-                        restoreMarkerIndex();
-                        // if a marker is clicked, then assign it a higher index so it comes out in front
-                        marker.zIndex = maxZIndex;
-                        infoWindowVisible = -1;
-                        postData = {};
-                        postData["zoom"] = currentZoom;
-                        postData["member"] = currentMember.name;
-                        sendDataToHub(postData);
-                        changeHistoryFocus(currentMember);
-                        updateBottomBanner();
-                        showHideHistory();
-					};
-
-                    function addMemberMarkers() {
-						if (${useLastGoogleFriendsMapMember}) {
-                        	currentMember = getMember("${retrieveGoogleFriendsMapMember()}");
-						} else {
-							currentMember = getMember("${DEFAULT_googleMapsMember}");
-						}
-                        // place the members on the map
-                        for (let member=0; member<locations.length; member++) {
-                            const namePin = document.createElement("div");
-                            namePin.textContent = locations[member].name;
-
-                            const imagePin = document.createElement("object");
-                            imagePin.data = locations[member].img;
-                            imagePin.type = "image/jpeg";
-                            imagePin.width = "40";
-                            imagePin.height = "40";
-                            imagePin.appendChild(namePin);
-
-                            const pin = new google.maps.marker.PinElement({
-                                scale: 2.5,
-                                background: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
-                                borderColor: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
-                                glyphColor: locations[member].color
-                            });
-                            if (locations[member].img) {
-                                pin.glyph = imagePin;
+                        function followLocation() {
+                            // refresh the member data
+                            currentMember = getMember(currentMember.name);
+                            // center the map on the member
+                            center = {};
+                            center["lat"] = currentMember.lat;
+                            center["lng"] = currentMember.lng;
+                            map.setZoom(currentZoom);
+                            // member is selected, and the window is open
+                            if (infoWindowVisible == -1) {
+                                infoWindow.setContent(infoContent(currentMember));
                             }
+                            // member is selected, and the window is closed
+                            if ((infoWindowVisible < 0) && !inhibitAutoZoom) {
+                                // recenter the map if the marker is out of bounds, and the history window is closed
+                                const mapBounds = map.getBounds();
+                                if (!mapBounds.contains(center)) {
+                                    map.setCenter(center);
+                                }
+                            }
+                        };
 
-                            const marker = new google.maps.marker.AdvancedMarkerElement({
-                                map,
-                                position: {
-                                    lat: locations[member].lat,
-                                    lng: locations[member].lng
-                                },
-                                title: locations[member].name,
-                                zIndex: (currentMember.name == locations[member].name ? maxZIndex : locations[member].zIndex),
-                                content: pin.element
-                            });
+                        function fitBoundsToMembers() {
+                            // only fit members if zoom is allowed
+                            if (!inhibitAutoZoom) {
+                                // check if there are members outside the current view.  This will allow manual zooming
+                                const mapBounds = map.getBounds();
+                                outsideMapBounds = false;
+                                // members that are in range of the search point
+                                const distanceBounds = new google.maps.LatLngBounds();
+                                withinDistanceBounds = false;
+                                // in case no member is in range, center on all
+                                const allBounds = new google.maps.LatLngBounds();
+                                // default to home
+                                distancePosition = homePosition;
+                                // check if we passed in a member that we would like bounds around
+                                for (let loc=0; loc<markers.length; loc++) {
+                                    if (paramMember.toLowerCase() == markers[loc].marker.title.toLowerCase()) {
+                                        distancePosition = markers[loc].marker.position;
+                                        break;
+                                    }
+                                }
 
-                            // place the member's accuracy radius
-                            const markerRadius = new google.maps.Circle({
-                                map,
-                                center:{
-                                    lat: locations[member].lat,
-                                    lng: locations[member].lng
-                                },
-                                radius: locations[member].acc,
-                                strokeColor: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
-                                strokeOpacity: "${(memberAccuracyRadiusOpacity != 0 ? 0.17 : 0)}",
-                                strokeWeight: 1,
-                                fillColor: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
-                                fillOpacity: 0.05 * "${(memberAccuracyRadiusOpacity == null ? DEFAULT_memberAccuracyRadiusOpacity : memberAccuracyRadiusOpacity)}",
-                                visible: true,
-                            });
-
-                            // Add a click listener for each marker, and set up the info window
-                            marker.addListener("click", () => {
-                                infoWindow.close();
-                                infoWindow.setContent(infoContent(locations[member]));
-                                infoWindow.open(marker.map, marker);
-                                map.setCenter(marker.position);
-                                // on the first click, just display the info box
-                                if ((currentMember.name == marker.title) && (infoWindowVisible == -1)) {
-                                    // on second click, zoom to 14, and then keep zooming in by 3 on each future click
-                                    currentZoom = map.getZoom()
-                                    if (currentZoom < 14) {
-                                        currentZoom = 14;
-                                    } else {
-                                        currentZoom += 3;
-                                        if (currentZoom > 21) {
-                                            currentZoom = 21;
+                                // adjust the map bounds to display members
+                                for (let loc=0; loc<markers.length; loc++) {
+                                    allBounds.extend(markers[loc].marker.position);
+                                    // only apply bounds to members within a geographic radius, or if the check is disabled
+                                    if (google.maps.geometry.spherical.computeDistanceBetween(distancePosition, markers[loc].marker.position) < ${state?.memberBoundsRadius}*1000) {
+                                        withinDistanceBounds = true;
+                                        distanceBounds.extend(markers[loc].marker.position);
+                                        // check if there is a member off the map
+                                        if (!mapBounds.contains(markers[loc].marker.position)) {
+                                            outsideMapBounds = true;
                                         }
                                     }
-                                    map.setZoom(currentZoom);
                                 }
 
-                                // assign the new current member so that the history can update
-								followMemberMarker(marker);
-                            });
-
-                            // create history circles for the past locations
-                            var history = [];
-    						for (let past=0; past<${memberHistoryLength}; past++) {
-	    						// place the past locations
-		    					const radius = new google.maps.Circle(
-			    					{
-				    					map,
-					    				center:{
-                                            lat: locations[member].lat,
-                                            lng: locations[member].lng
-								    	},
-									    radius:1 + ((Math.pow(2, (22 - currentZoom))*${memberHistoryScale})/10),
-    									strokeColor:locations[member].color,
-                                        strokeOpacity:historyGradient(${memberHistoryLength},past,minRadiusGradient),
-		    							strokeWeight:2,
-			    						fillColor:locations[member].color,
-				    					fillOpacity:historyGradient(${memberHistoryLength},past,minRadiusGradient),
-                                        visible:false,
-                                        zIndex:past
-					    			}
-						    	)
-                                // Add a click listener for each radius, and set up the info window
-                                radius.addListener("click", () => {
-                                    // user selected a history point
-                                    infoWindow.close();
-                                    infoWindow.setPosition(radius.getCenter());
-                                    infoWindowVisible = radius.zIndex;
-                                    infoWindow.setContent(historyContent(locations[member].name, locations[member].history, past, false));
-                                    infoWindow.open(radius.map, radius);
-                                    historyMember = locations[member].name;
-                                    inhibitAutoZoom = true;
-                                    updateBottomBanner();
-                                    showHideHistory();
-                                });
-                                const lineSymbol = {
-                                    path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-                                };
-                                const bearingLine = new google.maps.Polyline(
-                                    {
-                                        path:[
-                                            { lat: locations[member].lat, lng: locations[member].lng },
-                                            { lat: locations[member].lat, lng: locations[member].lng },
-                                        ],
-                                        map,
-    									strokeColor:locations[member].color,
-                                        strokeOpacity:historyGradient(${memberHistoryLength},past,minBearingGradient),
-                                        strokeWeight:2.5*${memberHistoryStroke},
-			    						fillColor:locations[member].color,
-				    					fillOpacity:historyGradient(${memberHistoryLength},past,minBearingGradient),
-                                        zIndex:past,
-                                        visible:false,
-                                        clickable:true,
-                                        icons: [{
-                                            icon: lineSymbol,
-                                            offset: '50%',
-                                            repeat: '${memberHistoryRepeat}px',
-                                        }]
-                                    }
-                                );
-                                bearingLine.addListener("click", function(event) {
-                                    // user selected a history point
-                                    infoWindow.close();
-                                    infoWindow.setPosition(event.latLng);
-                                    infoWindowVisible = bearingLine.zIndex;
-                                    infoWindow.setContent(historyContent(locations[member].name, locations[member].history, past, true));
-                                    infoWindow.open(bearingLine.map, bearingLine);
-                                    historyMember = locations[member].name;
-                                    inhibitAutoZoom = true;
-                                    updateBottomBanner();
-                                    showHideHistory();
-                                });
-                                history.push({radius,bearingLine});
-    						};
-                            // save the marker and history
-                            markers.push({marker, history, markerRadius});
-                        };
-                        fitMapBounds();
-                        showHideHistory();
-                    };
-
-                    function fitMapBounds() {
-                        // if a member isn't selected, fit all members
-                        if (currentMember == "null") {
-                            fitBoundsToMembers();
-                        } else {
-                            // if a member is selected, and the info window is displaying history
-                            if (infoWindowVisible >= 0) {
-                                fitBoundsToHistory();
-                            } else {
-                                // otherwise follow the selected member
-                                followLocation();
-                            }
-                        }
-                    };
-
-                    function followLocation() {
-                        // refresh the member data
-                        currentMember = getMember(currentMember.name);
-						// center the map on the member
-						center = {};
-						center["lat"] = currentMember.lat;
-						center["lng"] = currentMember.lng;
-						map.setZoom(currentZoom);
-						// member is selected, and the window is open
-						if (infoWindowVisible == -1) {
-							infoWindow.setContent(infoContent(currentMember));
-						}
-						// member is selected, and the window is closed
-						if ((infoWindowVisible < 0) && !inhibitAutoZoom) {
-							// recenter the map if the marker is out of bounds, and the history window is closed
-							const mapBounds = map.getBounds();
-							if (!mapBounds.contains(center)) {
-								map.setCenter(center);
-							}
-						}
-                    };
-
-                    function fitBoundsToMembers() {
-                        // only fit members if zoom is allowed
-                        if (!inhibitAutoZoom) {
-                            // check if there are members outside the current view.  This will allow manual zooming
-                            const mapBounds = map.getBounds();
-                            outsideMapBounds = false;
-                            // members that are in range of the search point
-                            const distanceBounds = new google.maps.LatLngBounds();
-                            withinDistanceBounds = false;
-                            // in case no member is in range, center on all
-                            const allBounds = new google.maps.LatLngBounds();
-                            // default to home
-                            distancePosition = homePosition;
-                            // check if we passed in a member that we would like bounds around
-                            for (let loc=0; loc<markers.length; loc++) {
-                                if (paramMember.toLowerCase() == markers[loc].marker.title.toLowerCase()) {
-                                    distancePosition = markers[loc].marker.position;
-                                    break;
-                                }
-                            }
-
-                            // adjust the map bounds to display members
-                            for (let loc=0; loc<markers.length; loc++) {
-                                allBounds.extend(markers[loc].marker.position);
-                                // only apply bounds to members within a geographic radius, or if the check is disabled
-                                if (google.maps.geometry.spherical.computeDistanceBetween(distancePosition, markers[loc].marker.position) < ${state?.memberBoundsRadius}*1000) {
-                                    withinDistanceBounds = true;
-                                    distanceBounds.extend(markers[loc].marker.position);
-                                    // check if there is a member off the map
-                                    if (!mapBounds.contains(markers[loc].marker.position)) {
-                                        outsideMapBounds = true;
-                                    }
-                                }
-                            }
-
-                            if (withinDistanceBounds) {
-                                // only fit if a member is off the map but within range
-                                if (outsideMapBounds) {
-                                    setMapBounds(distanceBounds);
-                                }
-                            } else {
-                                setMapBounds(allBounds);
-                            }
-                        }
-                    };
-
-                    function fitBoundsToHistory() {
-						for (let loc=0; loc<markers.length; loc++) {
-							if (markers[loc].marker.title == currentMember.name) {
-								const bounds = new google.maps.LatLngBounds();
-								// adjust the map bounds to display member's history
-								for (let past=0; past<markers[loc].history.length; past++) {
-									bounds.extend(markers[loc].history[past].radius.center);
-								}
-								map.fitBounds(bounds);
-							}
-						}
-                    };
-
-                    function setMapBounds(mapBounds) {
-                        // set the map bounds, and restrict to a minimum zoom level
-                        map.fitBounds(mapBounds);
-                        currentZoom = map.getZoom()
-                        if (currentZoom > 14) {
-                            map.setZoom(14);
-                       }
-                    };
-
-                    function showHideRegions() {
-                        const bounds = map.getBounds();
-                        // reduce the region circles opacity if they exceed the viewing window
-                        for (let loc=0; loc<regions.length; loc++) {
-                            const circleBounds = regions[loc].getBounds();
-                            if (bounds.contains(circleBounds.getNorthEast()) && bounds.contains(circleBounds.getSouthWest())) {
-                                regions[loc].setOptions({ fillOpacity: 0.17 });
-                            } else {
-                                regions[loc].setOptions({ fillOpacity: 0.02 });
-                            }
-                        }
-                    };
-
-                    function restoreMarkerIndex() {
-                        // assigns an index to a matching member
-                        for (let loc=0; loc<locations.length; loc++) {
-                            markers[loc].marker.zIndex = locations[loc].zIndex;
-                        }
-                    };
-
-                    function changeHistoryFocus(member) {
-                        // assigns an index to a matching member
-                        for (let loc=0; loc<locations.length; loc++) {
-                            for (let past=0; past< markers[loc].history.length; past++) {
-                                currentIndex = markers[loc].history[past].radius.zIndex;
-                                if (markers[loc].marker.title == member.name) {
-                                    // select the history
-                                    if (currentIndex < maxZIndex) {
-                                        markers[loc].history[past].radius.zIndex += maxZIndex;
-                                        markers[loc].history[past].bearingLine.zIndex += maxZIndex;
+                                if (withinDistanceBounds) {
+                                    // only fit if a member is off the map but within range
+                                    if (outsideMapBounds) {
+                                        setMapBounds(distanceBounds);
                                     }
                                 } else {
-                                    // deselect the history
-                                    if (currentIndex >= maxZIndex) {
-                                        markers[loc].history[past].radius.zIndex -= maxZIndex;
-                                        markers[loc].history[past].bearingLine.zIndex -= maxZIndex;
+                                    setMapBounds(allBounds);
+                                }
+                            }
+                        };
+
+                        function fitBoundsToHistory() {
+                            for (let loc=0; loc<markers.length; loc++) {
+                                if (markers[loc].marker.title == currentMember.name) {
+                                    const bounds = new google.maps.LatLngBounds();
+                                    // adjust the map bounds to display member's history
+                                    for (let past=0; past<markers[loc].history.length; past++) {
+                                        bounds.extend(markers[loc].history[past].radius.center);
+                                    }
+                                    map.fitBounds(bounds);
+                                }
+                            }
+                        };
+
+                        function setMapBounds(mapBounds) {
+                            // set the map bounds, and restrict to a minimum zoom level
+                            map.fitBounds(mapBounds);
+                            currentZoom = map.getZoom()
+                            if (currentZoom > minZoomLevel) {
+                                map.setZoom(minZoomLevel);
+                           }
+                        };
+
+                        function showHideRegions() {
+                            const bounds = map.getBounds();
+                            // reduce the region circles opacity if they exceed the viewing window
+                            for (let loc=0; loc<regions.length; loc++) {
+                                const circleBounds = regions[loc].getBounds();
+                                if (bounds.contains(circleBounds.getNorthEast()) && bounds.contains(circleBounds.getSouthWest())) {
+                                    regions[loc].setOptions({ fillOpacity: 0.17 });
+                                } else {
+                                    regions[loc].setOptions({ fillOpacity: 0.02 });
+                                }
+                            }
+                        };
+
+                        function restoreMarkerIndex() {
+                            // assigns an index to a matching member
+                            for (let loc=0; loc<locations.length; loc++) {
+                                markers[loc].marker.zIndex = locations[loc].zIndex;
+                            }
+                        };
+
+                        function changeHistoryFocus(member) {
+                            // assigns an index to a matching member
+                            for (let loc=0; loc<locations.length; loc++) {
+                                for (let past=0; past< markers[loc].history.length; past++) {
+                                    currentIndex = markers[loc].history[past].radius.zIndex;
+                                    if (markers[loc].marker.title == member.name) {
+                                        // select the history
+                                        if (currentIndex < maxZIndex) {
+                                            markers[loc].history[past].radius.zIndex += maxZIndex;
+                                            markers[loc].history[past].bearingLine.zIndex += maxZIndex;
+                                        }
+                                    } else {
+                                        // deselect the history
+                                        if (currentIndex >= maxZIndex) {
+                                            markers[loc].history[past].radius.zIndex -= maxZIndex;
+                                            markers[loc].history[past].bearingLine.zIndex -= maxZIndex;
+                                        }
                                     }
                                 }
                             }
-                        }
-                    };
+                        };
 
-                    function historyGradient(historyLength, historySample, minimumGradient) {
-                        var gradient = minimumGradient+((maxGradient-minimumGradient)*(historySample/(historyLength-1)));
-                        if (gradient > maxGradient) gradient = maxGradient;
-                        return(gradient);
-                    };
+                        function historyGradient(historyLength, historySample, minimumGradient) {
+                            var gradient = minimumGradient+((maxGradient-minimumGradient)*(historySample/(historyLength-1)));
+                            if (gradient > maxGradient) gradient = maxGradient;
+                            return(gradient);
+                        };
 
-                    function showHideHistory() {
-                        for (let loc=0; loc<markers.length; loc++) {
-                            for (let past=0; past<markers[loc].history.length; past++) {
-                                if (locations[loc].history[past]?.tst != null) {
-                                    tripFocus = false;
-                                    // if the member is selected, show all trips if no trip is select, otherwise only show the selected trip
-                                    if (tripNumber == locations[loc].history[past].tp) {
-                                        tripFocus = true;
-                                    }
-                                    if (${displayAllMembersHistory}) {
-                                        // if no member or trip is selected, display all member history
-                                        // if a member and a trip is selected, just display that members trip
-                                        // else display all trips for that member
-                                        if (((tripMember == "null") && (tripNumber == 0)) || ((markers[loc].marker.title == tripMember) && ((tripNumber == 0) || tripFocus))) {
-                                            markers[loc].history[past].radius.setVisible(true);
-                                            markers[loc].history[past].bearingLine.setVisible(true);
-                                        } else {
-                                            markers[loc].history[past].radius.setVisible(false);
-                                            markers[loc].history[past].bearingLine.setVisible(false);
+                        function showHideHistory() {
+                            for (let loc=0; loc<markers.length; loc++) {
+                                for (let past=0; past<markers[loc].history.length; past++) {
+                                    if (locations[loc].history[past]?.tst != null) {
+                                        tripFocus = false;
+                                        // if the member is selected, show all trips if no trip is select, otherwise only show the selected trip
+                                        if (tripNumber == locations[loc].history[past].tp) {
+                                            tripFocus = true;
                                         }
-                                    } else {
-                                        if ((markers[loc].marker.title == currentMember.name) && ((tripNumber == 0) || tripFocus)) {
-                                            markers[loc].history[past].radius.setVisible(true);
-                                            // if the last two markers were the end marker, or the next a beginning, hide the bearing line to the next begin marker
-                                            if ((locations[loc].history[past]?.mkr == "${memberBeginMarker}") || ((locations[loc].history[past]?.mkr == "${memberEndMarker}") && (locations[loc].history[past-1]?.mkr == "${memberEndMarker}"))) {
-                                                markers[loc].history[past].bearingLine.setVisible(false);
-                                            } else {
+                                        if (${displayAllMembersHistory}) {
+                                            // if no member or trip is selected, display all member history
+                                            // if a member and a trip is selected, just display that members trip
+                                            // else display all trips for that member
+                                            if (((tripMember == "null") && (tripNumber == 0)) || ((markers[loc].marker.title == tripMember) && ((tripNumber == 0) || tripFocus))) {
+                                                markers[loc].history[past].radius.setVisible(true);
                                                 markers[loc].history[past].bearingLine.setVisible(true);
+                                            } else {
+                                                markers[loc].history[past].radius.setVisible(false);
+                                                markers[loc].history[past].bearingLine.setVisible(false);
                                             }
                                         } else {
-                                            markers[loc].history[past].radius.setVisible(false);
-                                            markers[loc].history[past].bearingLine.setVisible(false);
+                                            if ((markers[loc].marker.title == currentMember.name) && ((tripNumber == 0) || tripFocus)) {
+                                                markers[loc].history[past].radius.setVisible(true);
+                                                // if the last two markers were the end marker, or the next a beginning, hide the bearing line to the next begin marker
+                                                if ((locations[loc].history[past]?.mkr == "${memberBeginMarker}") || ((locations[loc].history[past]?.mkr == "${memberEndMarker}") && (locations[loc].history[past-1]?.mkr == "${memberEndMarker}"))) {
+                                                    markers[loc].history[past].bearingLine.setVisible(false);
+                                                } else {
+                                                    markers[loc].history[past].bearingLine.setVisible(true);
+                                                }
+                                            } else {
+                                                markers[loc].history[past].radius.setVisible(false);
+                                                markers[loc].history[past].bearingLine.setVisible(false);
+                                            }
                                         }
-                                    }
-                                    // change the radius stroke based on the trip markers
-                                    // middle markers and the current begin marker use the default colors
-                                    if ((locations[loc].history[past]?.mkr == "${memberMiddleMarker}") || (locations[loc].history[past+1]?.tst == null)) {
-                                        markers[loc].history[past].radius.setOptions({
-                                            strokeColor:locations[loc].color,
-                                            strokeOpacity:historyGradient(${memberHistoryLength},past,(tripFocus ? maxGradient : minRadiusGradient)),
-                                            strokeWeight:2,
-                                            fillColor:locations[loc].color,
-                                            fillOpacity:historyGradient(${memberHistoryLength},past,(tripFocus ? maxGradient : minRadiusGradient)),
+                                        // change the radius stroke based on the trip markers
+                                        // middle markers and the current begin marker use the default colors
+                                        if ((locations[loc].history[past]?.mkr == "${memberMiddleMarker}") || (locations[loc].history[past+1]?.tst == null)) {
+                                            markers[loc].history[past].radius.setOptions({
+                                                strokeColor:locations[loc].color,
+                                                strokeOpacity:historyGradient(${memberHistoryLength},past,(tripFocus ? maxGradient : minRadiusGradient)),
+                                                strokeWeight:2,
+                                                fillColor:locations[loc].color,
+                                                fillOpacity:historyGradient(${memberHistoryLength},past,(tripFocus ? maxGradient : minRadiusGradient)),
+                                            });
+                                        } else {
+                                            if (locations[loc].history[past]?.mkr == "${memberBeginMarker}") {
+                                                markers[loc].history[past].radius.setOptions({
+                                                    strokeOpacity:historyGradient(${memberHistoryLength},past,(tripFocus ? maxGradient : minEndpointStrokeGradient)),
+                                                    strokeWeight:5,
+                                                    fillColor:"white",
+                                                    fillOpacity:1.0,
+                                                });
+                                            }
+                                            if (locations[loc].history[past]?.mkr == "${memberEndMarker}") {
+                                                markers[loc].history[past].radius.setOptions({
+                                                    strokeOpacity:historyGradient(${memberHistoryLength},past,(tripFocus ? maxGradient : minEndpointStrokeGradient)),
+                                                    strokeWeight:3,
+                                                    fillColor:"white",
+                                                    fillOpacity:1.0,
+                                                });
+                                            }
+                                        }
+                                        markers[loc].history[past].bearingLine.setOptions({
+                                            strokeOpacity:historyGradient(${memberHistoryLength},past,(tripFocus ? maxGradient : minBearingGradient)),
+                                            fillOpacity:historyGradient(${memberHistoryLength},past,(tripFocus ? maxGradient : minBearingGradient)),
                                         });
                                     } else {
-                                        if (locations[loc].history[past]?.mkr == "${memberBeginMarker}") {
-                                            markers[loc].history[past].radius.setOptions({
-                                                strokeOpacity:historyGradient(${memberHistoryLength},past,(tripFocus ? maxGradient : minEndpointStrokeGradient)),
-                                                strokeWeight:5,
-                                                fillColor:"white",
-                                                fillOpacity:1.0,
-                                            });
-                                        }
-                                        if (locations[loc].history[past]?.mkr == "${memberEndMarker}") {
-                                            markers[loc].history[past].radius.setOptions({
-                                                strokeOpacity:historyGradient(${memberHistoryLength},past,(tripFocus ? maxGradient : minEndpointStrokeGradient)),
-                                                strokeWeight:3,
-                                                fillColor:"white",
-                                                fillOpacity:1.0,
-                                            });
-                                        }
+                                        markers[loc].history[past].radius.setVisible(false);
+                                        markers[loc].history[past].bearingLine.setVisible(false);
                                     }
-                                    markers[loc].history[past].bearingLine.setOptions({
-                                        strokeOpacity:historyGradient(${memberHistoryLength},past,(tripFocus ? maxGradient : minBearingGradient)),
-                                        fillOpacity:historyGradient(${memberHistoryLength},past,(tripFocus ? maxGradient : minBearingGradient)),
-                                    });
+                                }
+                            }
+                        };
+
+                        function updateHistoryZoom(zoomLevel) {
+                            for (let loc=0; loc<markers.length; loc++) {
+                                for (let past=0; past<markers[loc].history.length; past++) {
+                                    markers[loc].history[past].radius.setRadius(1 + ((Math.pow(2, (22 - zoomLevel))*${memberHistoryScale})/10));
+                                }
+                            }
+                        };
+
+                        function updateLocations(data) {
+                            // check if it is a member update response
+                            if (data?.members?.length) {
+                                if (locations.length) {
+                                    // Incoming order may be different due to zIndex changes, so we need to search for matches
+                                    // first reset so that we can apply the updated zIndex from the incoming data
+                                    for (let loc=0; loc<locations.length; loc++) {
+                                        markers[loc].marker.zIndex = 1
+                                    }
+                                    for (let mem=0; mem<data.members.length; mem++) {
+                                        for (let loc=0; loc<locations.length; loc++) {
+                                            if (locations[loc].id == data.members[mem].id) {
+                                                // save a previous image to prevent the copy from deleting it
+                                                if ("img" in locations[loc]) {
+                                                    img = locations[loc].img
+                                                } else {
+                                                    img = ""
+                                                }
+                                                // update the location data
+                                                locations[loc] = data.members[mem];
+                                                locations[loc].img = img;
+                                                // update the marker data
+                                                center = {};
+                                                center["lat"] = data.members[mem].lat;
+                                                center["lng"] = data.members[mem].lng;
+                                                markers[loc].marker.position = center;
+                                                markers[loc].markerRadius.setCenter(center);
+                                                markers[loc].markerRadius.setRadius(data.members[mem].acc);
+                                                // update the past history markers
+                                                for (let past=0; past<data.members[mem].history.length; past++) {
+                                                    markers[loc].history[past].radius.setOptions({ center: { lat: data.members[mem].history[past].lat, lng: data.members[mem].history[past].lng }});
+                                                    if (past>0) {
+                                                        markers[loc].history[past].bearingLine.setPath([ { lat: data.members[mem].history[past-1].lat, lng: data.members[mem].history[past-1].lng }, { lat: data.members[mem].history[past].lat, lng: data.members[mem].history[past].lng } ]);
+                                                    }
+                                                }
+                                                // keep the selected member in focus
+                                                if ((markers[loc].marker.title == currentMember.name) || (markers[loc].marker.title == historyMember)) {
+                                                    markers[loc].marker.zIndex = maxZIndex;
+                                                    // if a history info box is open
+                                                    if (infoWindowVisible >= 0) {
+                                                        infoWindow.setPosition(markers[loc].history[infoWindowVisible].radius.getCenter());
+                                                        infoWindow.setContent(historyContent(markers[loc].marker.title, locations[loc].history, infoWindowVisible, false));
+                                                    }
+                                                } else {
+                                                    markers[loc].marker.zIndex = data.members[mem].zIndex;
+                                                }
+                                            }
+                                        }
+                                        // last person in the list is the one reported the latest location
+                                        lastUpdate = data.members[mem].last;
+                                    }
+                                    showHideHistory();
                                 } else {
-                                    markers[loc].history[past].radius.setVisible(false);
-                                    markers[loc].history[past].bearingLine.setVisible(false);
+                                    // if there are no locations, copy the first instance and add the markers
+                                    locations = data.members;
+                                    addMemberMarkers();
+                                    // last person in the list is the one reported the latest location
+                                    lastUpdate = locations[locations.length - 1].last;
                                 }
+                                updateBottomBanner();
+                                // recenter the map if necessary
+                                fitMapBounds();
                             }
-                        }
-                    };
+                        };
 
-                    function updateHistoryZoom(zoomLevel) {
-                        for (let loc=0; loc<markers.length; loc++) {
-                            for (let past=0; past<markers[loc].history.length; past++) {
-                                markers[loc].history[past].radius.setRadius(1 + ((Math.pow(2, (22 - zoomLevel))*${memberHistoryScale})/10));
-                            }
-	                    }
-                    };
+                        function updateBottomBanner() {
+                            document.getElementById("id-lastTime").textContent = "Last Update: " + lastUpdate + (currentMember != "null" ? (" | Following: " + currentMember.name) : "") + (inhibitAutoZoom ? " | Auto-Centering Paused" : "");
 
-                    function updateLocations(data) {
-                        // check if it is a member update response
-						if (data?.members?.length) {
-							if (locations.length) {
-								// Incoming order may be different due to zIndex changes, so we need to search for matches
-                                // first reset so that we can apply the updated zIndex from the incoming data
-                                for (let loc=0; loc<locations.length; loc++) {
-                                    markers[loc].marker.zIndex = 1
+                            let membersContent = "";
+                            for (let member = 0; member < locations.length; member++) {
+                                if (member > 0) {
+                                    membersContent += "<hr>"
                                 }
-								for (let mem=0; mem<data.members.length; mem++) {
-									for (let loc=0; loc<locations.length; loc++) {
-										if (locations[loc].id == data.members[mem].id) {
-											// save a previous image to prevent the copy from deleting it
-											if ("img" in locations[loc]) {
-												img = locations[loc].img
-											} else {
-												img = ""
-											}
-											// update the location data
-											locations[loc] = data.members[mem];
-											locations[loc].img = img;
-											// update the marker data
-											center = {};
-											center["lat"] = data.members[mem].lat;
-											center["lng"] = data.members[mem].lng;
-											markers[loc].marker.position = center;
-											markers[loc].markerRadius.setCenter(center);
-											markers[loc].markerRadius.setRadius(data.members[mem].acc);
-											// update the past history markers
-											for (let past=0; past<data.members[mem].history.length; past++) {
-												markers[loc].history[past].radius.setOptions({ center: { lat: data.members[mem].history[past].lat, lng: data.members[mem].history[past].lng }});
-												if (past>0) {
-													markers[loc].history[past].bearingLine.setPath([ { lat: data.members[mem].history[past-1].lat, lng: data.members[mem].history[past-1].lng }, { lat: data.members[mem].history[past].lat, lng: data.members[mem].history[past].lng } ]);
-												}
-											}
-											// keep the selected member in focus
-											if ((markers[loc].marker.title == currentMember.name) || (markers[loc].marker.title == historyMember)) {
-												markers[loc].marker.zIndex = maxZIndex;
-												// if a history info box is open
-												if (infoWindowVisible >= 0) {
-													infoWindow.setPosition(markers[loc].history[infoWindowVisible].radius.getCenter());
-													infoWindow.setContent(historyContent(markers[loc].marker.title, locations[loc].history, infoWindowVisible, false));
-												}
-											} else {
-    										    markers[loc].marker.zIndex = data.members[mem].zIndex;
-											}
-										}
-									}
-									// last person in the list is the one reported the latest location
-									lastUpdate = data.members[mem].last;
-								}
-								showHideHistory();
-							} else {
-								// if there are no locations, copy the first instance and add the markers
-								locations = data.members;
-								addMemberMarkers();
-								// last person in the list is the one reported the latest location
-								lastUpdate = locations[locations.length - 1].last;
-							}
-    						updateBottomBanner();
-                            // recenter the map if necessary
-                            fitMapBounds();
-						}
-                    };
+                                if (locations[member].img) {
+                                    src = locations[member].img
+                                } else {
+                                    let canvas = document.getElementById("circleCanvas");
+                                    let ctx = canvas.getContext("2d");
 
-					function updateBottomBanner() {
-                        document.getElementById("id-lastTime").textContent = "Last Update: " + lastUpdate + (currentMember != "null" ? (" | Following: " + currentMember.name) : "") + (inhibitAutoZoom ? " | Auto-Centering Paused" : "");
+                                    // Draw blue outer circle
+                                    ctx.beginPath();
+                                    ctx.arc(20, 20, 20, 0, Math.PI * 2);
+                                    ctx.fillStyle = "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}";
+                                    ctx.fill();
 
-						let membersContent = "";
-                        for (let member = 0; member < locations.length; member++) {
-							if (member > 0) {
-								membersContent += "<hr>"
-							}
-							if (locations[member].img) {
-								src = locations[member].img
-							} else {
-                                let canvas = document.getElementById("circleCanvas");
-                                let ctx = canvas.getContext("2d");
+                                    // Draw red inner circle
+                                    ctx.beginPath();
+                                    ctx.arc(20, 20, 10, 0, Math.PI * 2);
+                                    ctx.fillStyle = locations[member].color;
+                                    ctx.fill();
 
-                                // Draw blue outer circle
-                                ctx.beginPath();
-                                ctx.arc(20, 20, 20, 0, Math.PI * 2);
-                                ctx.fillStyle = "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}";
-                                ctx.fill();
-
-                                // Draw red inner circle
-                                ctx.beginPath();
-                                ctx.arc(20, 20, 10, 0, Math.PI * 2);
-                                ctx.fillStyle = locations[member].color;
-                                ctx.fill();
-
-                                // Convert canvas to data URL
-                                src = canvas.toDataURL();
-							}
-
-							thumbnailSize = 50 * ${(memberThumbnailScale == null ? DEFAULT_memberThumbnailScale : memberThumbnailScale)};
-							membersContent +=
-									"<table style='width:100%;font-size:${(memberDrawerScale == null ? DEFAULT_memberDrawerScale : memberDrawerScale)}em'>" +
-                                    "<tr>" +
-										"<td align='center' rowspan='5'><img src='" + src + "' width='" + thumbnailSize + "' height='" + thumbnailSize + "' data-member='" + member + "'></td>" +
-                                        "<td align='left'" + (((locations[member].wifi == "0") || (locations[member].hib != "0") || (locations[member].bo != "0") || (locations[member].per != "0")) ? " style='color:red'>" : ">") + ((locations[member].data == "m") ? "&#128246;" + (locations[member].wifi != "null" ? (locations[member].wifi == "0" ? "<s>&#128732;</s>" : "") : "") : (locations[member].data == "w" ? "&#128732;" : "")) + "</td>" +
-                                        "<td align='right'" + (locations[member].ps ? " style='color:red'>" : ">") + (locations[member].bs == "2" ? "&#9889;" : "&#128267;") + (locations[member].bat != "null" ? locations[member].bat + "%" : "") + "</td>" +
-                                    "</tr>" +
-                                    "<tr>" +
-            			                "<td align='left'" + (((locations[member].wifi == "0") || (locations[member].hib != "0") || (locations[member].bo != "0") || (locations[member].per != "0")) ? " style='color:red'>" : ">") + "<b>" + locations[member].name + "</b></td>" +
-			                            "<td align='right'>" + getBearingIcon(locations[member].cog) + "</td>" +
-                                    "</tr>" +
-                                    "<tr>" +
-                                        "<td align='left'>" + locations[member].loc + "</td>" +
-										"<td align='right'>" + (locations[member].dfh != 'null' ? locations[member].dfh + " ${getLargeUnits()}" : "&nbsp;") + "</td>" +
-                                    "</tr>" +
-                                    "<tr>" +
-                                        "<td align='left'>" + "Since: " + locations[member].since + "</td>" +
-			                            "<td align='right'>" + locations[member].spd + " ${getVelocityUnits()} </td>" +
-                                    "</tr>" +
-                                    "<tr>" +
-										"<td align='left' " + (locations[member].stale ? "style='color:red'>" : "style='color:gray'>") + "Last: " + locations[member].last + "</td>" +
-                                    "</tr>" +
-                                "</table>"
-                        }
-						document.getElementById("id-members").innerHTML = membersContent;
-						if (registerDrawerListener) {
-							registerDrawerListener = false;
-                            document.getElementById("id-members").addEventListener("click", function (event) {
-                                if (event.target.tagName === "IMG") {
-                                    handleDrawerImageClick(event.target.getAttribute("data-member"));
+                                    // Convert canvas to data URL
+                                    src = canvas.toDataURL();
                                 }
-                            });
-						}
-                 	};
 
-                    function retrieveMemberLocations(request) {
-                        const dataMap = {};
-                        dataMap["request"] = request;
-                        dataMap["member"] = paramMember;
-
-                        const postData = {};
-                        postData["action"] = "members";
-                        postData["payload"] = dataMap;
-                        sendDataToHub(postData)
-                    };
-
-                    function sendDataToHub(postData) {
-                        fetch("${getAttributeURL(request.headers.Host.toString(), "apidata")}", {
-                            method: "POST",
-                            body: JSON.stringify(postData),
-                            headers: {
-                                "Content-type": "application/json; charset=UTF-8"
+                                thumbnailSize = 50 * ${(memberThumbnailScale == null ? DEFAULT_memberThumbnailScale : memberThumbnailScale)};
+                                membersContent +=
+                                        "<table style='width:100%;font-size:${(memberDrawerScale == null ? DEFAULT_memberDrawerScale : memberDrawerScale)}em'>" +
+                                        "<tr>" +
+                                            "<td align='center' rowspan='5'><img src='" + src + "' width='" + thumbnailSize + "' height='" + thumbnailSize + "' data-member='" + member + "'></td>" +
+                                            "<td align='left'" + (((locations[member].wifi == "0") || (locations[member].hib != "0") || (locations[member].bo != "0") || (locations[member].per != "0")) ? " style='color:red'>" : ">") + ((locations[member].data == "m") ? "&#128246;" + (locations[member].wifi != "null" ? (locations[member].wifi == "0" ? "<s>&#128732;</s>" : "") : "") : (locations[member].data == "w" ? "&#128732;" : "")) + "</td>" +
+                                            "<td align='right'" + (locations[member].ps ? " style='color:red'>" : ">") + (locations[member].bs == "2" ? "&#9889;" : "&#128267;") + (locations[member].bat != "null" ? locations[member].bat + "%" : "") + "</td>" +
+                                        "</tr>" +
+                                        "<tr>" +
+                                            "<td align='left'" + (((locations[member].wifi == "0") || (locations[member].hib != "0") || (locations[member].bo != "0") || (locations[member].per != "0")) ? " style='color:red'>" : ">") + "<b>" + locations[member].name + "</b></td>" +
+                                            "<td align='right'>" + getBearingIcon(locations[member].cog) + "</td>" +
+                                        "</tr>" +
+                                        "<tr>" +
+                                            "<td align='left'>" + locations[member].loc + "</td>" +
+                                            "<td align='right'>" + (locations[member].dfh != 'null' ? locations[member].dfh + " ${getLargeUnits()}" : "&nbsp;") + "</td>" +
+                                        "</tr>" +
+                                        "<tr>" +
+                                            "<td align='left'>" + "Since: " + locations[member].since + "</td>" +
+                                            "<td align='right'>" + locations[member].spd + " ${getVelocityUnits()} </td>" +
+                                        "</tr>" +
+                                        "<tr>" +
+                                            "<td align='left' " + (locations[member].stale ? "style='color:red'>" : "style='color:gray'>") + "Last: " + locations[member].last + "</td>" +
+                                        "</tr>" +
+                                    "</table>"
                             }
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            // check if the web app needs to reload so that it can update
-                            if (data.appVersion) {
-                                if (data.appVersion != webAppVersion) {
+                            document.getElementById("id-members").innerHTML = membersContent;
+                            if (registerDrawerListener) {
+                                registerDrawerListener = false;
+                                document.getElementById("id-members").addEventListener("click", function (event) {
+                                    if (event.target.tagName === "IMG") {
+                                        handleDrawerImageClick(event.target.getAttribute("data-member"));
+                                    }
+                                });
+                            }
+                        };
+
+                        function retrieveMemberLocations(request) {
+                            const dataMap = {};
+                            dataMap["request"] = request;
+                            dataMap["member"] = paramMember;
+
+                            const postData = {};
+                            postData["action"] = "members";
+                            postData["payload"] = dataMap;
+                            sendDataToHub(postData)
+                        };
+
+                        async function sendDataToHub(postData) {
+                            try {
+                                const response = await fetch(`${getAttributeURL(request.headers.Host.toString(), "apidata")}`, {
+                                    method: "POST",
+                                    body: JSON.stringify(postData),
+                                    headers: {
+                                        "Content-type": "application/json; charset=UTF-8"
+                                    }
+                                });
+
+                                const data = await response.json();
+
+                                // Check if the web app needs to reload
+                                if (data.appVersion && data.appVersion !== webAppVersion) {
                                     console.log("Reloading Web App");
                                     location.reload();
                                 }
+
+                                // Process returned data
+                                updateLocations(data);
+                            } catch (error) {
+                                console.error('Error fetching data:', error);
+                                throw error;
                             }
-                            // process return data
-                            updateLocations(data);
-                        })
-                        .catch(error => { console.error('Error fetching data:', error); })
-                    };
+                        };
 
-                    function toggleDrawer() {
-                        let drawer = document.getElementById("id-drawer");
-                        let members = document.getElementById("id-members");
-						let upDown = document.getElementById("id-up_down")
+                        function toggleDrawer() {
+                            let drawer = document.getElementById("id-drawer");
+                            let members = document.getElementById("id-members");
+                            let upDown = document.getElementById("id-up_down")
 
-                        let fullContentHeight = members.offsetTop + members.offsetHeight;
+                            let fullContentHeight = members.offsetTop + members.offsetHeight;
 
-                        if (drawerExpanded) {
-                            // Close the drawer
-                            drawer.style.transition = "height 0.3s ease-in-out";
-                            drawer.style.height = drawerMinHeight + "px";
-                            document.body.style.overflow = "hidden";
-							upDown.innerHTML = "&#128316";
-                        } else {
-                            // Open the drawer fully
-                            drawer.style.transition = "height 0.3s ease-in-out";
-                            drawer.style.height = Math.min(drawerMaxHeight, fullContentHeight) + "px";
-                            document.body.style.overflow = "auto";
-							upDown.innerHTML = "&#128317";
-                        }
-
-                        // Toggle the state
-                        drawerExpanded = !drawerExpanded;
-                    }
-
-                    function addDrawerListener() {
-                        drawer = document.getElementById("id-drawer");
-    					drawer.addEventListener("click", toggleDrawer);
-                    };
-
-                    function handleDrawerImageClick(member) {
-						// assign the new current member so that the history can update
-                        for (let loc=0; loc<locations.length; loc++) {
-                            if (markers[loc].marker.title == locations[member].name) {
-                                // Close the drawer completely
-                                let drawer = document.getElementById("id-drawer");
+                            if (drawerExpanded) {
+                                // Close the drawer
+                                drawer.style.transition = "height 0.3s ease-in-out";
                                 drawer.style.height = drawerMinHeight + "px";
                                 document.body.style.overflow = "hidden";
-
-                                followMemberMarker(markers[loc].marker);
-								map.setCenter(markers[loc].marker.position);
-                                return;
+                                upDown.innerHTML = "&#128316";
+                            } else {
+                                // Open the drawer fully
+                                drawer.style.transition = "height 0.3s ease-in-out";
+                                drawer.style.height = Math.min(drawerMaxHeight, fullContentHeight) + "px";
+                                document.body.style.overflow = "auto";
+                                upDown.innerHTML = "&#128317";
                             }
+
+                            // Toggle the state
+                            drawerExpanded = !drawerExpanded;
+                        }
+
+                        function addDrawerListener() {
+                            drawer = document.getElementById("id-drawer");
+                            drawer.addEventListener("click", toggleDrawer);
+                        };
+
+                        function handleDrawerImageClick(member) {
+                            // assign the new current member so that the history can update
+                            for (let loc=0; loc<locations.length; loc++) {
+                                if (markers[loc].marker.title == locations[member].name) {
+                                    // Close the drawer completely
+                                    let drawer = document.getElementById("id-drawer");
+                                    drawer.style.height = drawerMinHeight + "px";
+                                    document.body.style.overflow = "hidden";
+
+                                    followMemberMarker(markers[loc].marker);
+                                    map.setCenter(markers[loc].marker.position);
+                                    return;
+                                }
+                            }
+                        };
+
+                        // Poll for member data every 5000ms
+                        setInterval(() => {
+                            retrieveMemberLocations("");
+                        }, 5000);
+                        // Sync history data in 100ms (one time)
+                        setTimeout(() => {
+                            retrieveMemberLocations("sync");
+                        }, 100);
+                    };
+
+                    function convertMetersToFeet(val) {
+                        return (${imperialUnits} ? parseInt(val*3.28084) : parseInt(val))
+                    }
+
+                    function convertKMToMiles(val) {
+                        return (${imperialUnits} ? parseInt(val*0.621371) : parseInt(val))
+                    }
+
+                    function getSpeedIcon(val) {
+                        if (val == 0)   return("&#129485;")    // standing
+                        if (val < 10)   return("&#128694;")    // walking
+                        if (val < 30)   return("&#128692;")    // cycling
+                        if (val < 200)  return("&#128663;")    // auto
+                        return("&#128747;")                    // plane
+                    }
+
+                    function getBearingIcon(val) {
+                        if ((val > 22.5)  && (val <= 67.5))  return("&#8599;NE")    // NE
+                        if ((val > 67.5)  && (val <= 112.5)) return("&#8594;E")     // E
+                        if ((val > 112.5) && (val <= 157.5)) return("&#8600;SE")    // SE
+                        if ((val > 157.5) && (val <= 202.5)) return("&#8595;S")     // S
+                        if ((val > 202.5) && (val <= 247.5)) return("&#8601;SW")    // SW
+                        if ((val > 247.5) && (val <= 292.5)) return("&#8592;W")     // W
+                        if ((val > 292.5) && (val <= 337.5)) return("&#8598;NW")    // NW
+                        return("&#8593;N")                                          // N
+                    }
+
+                    function infoContent(position) {
+                        tripNumber = 0;
+                        tripMember = position.name;
+                        const contentString =
+                        "<table style='width:100%;font-size:1.0em'>" +
+                            "<tr>" +
+                                "<td align='left'" + (((position.wifi == "0") || (position.hib != "0") || (position.bo != "0") || (position.per != "0")) ? " style='color:red'>" : ">") + ((position.data == "m") ? "&#128246;" + (position.wifi != "null" ? (position.wifi == "0" ? "<s>&#128732;</s>" : "") : "") : (position.data == "w" ? "&#128732;" : "")) + "</td>" +
+                                "<td align='right'" + (position.ps ? " style='color:red'>" : ">") + (position.bs == "2" ? "&#9889;" : "&#128267;") + (position.bat != "null" ? position.bat + "%" : "") + "</td>" +
+                            "</tr>" +
+                        "</table>" +
+                        "<table style='width:100%;font-size:1.0em'>" +
+                            "<tr>" +
+                                "<td align='left'" + (((position.wifi == "0") || (position.hib != "0") || (position.bo != "0") || (position.per != "0")) ? " style='color:red'>" : ">") + "<b>" + position.name + "</b></td>" +
+                                "<td align='right'>" + getBearingIcon(position.cog) + "</td>" +
+                            "</tr>" +
+                            "<tr>" +
+                                "<td align='left'>" + position.loc + "</td>" +
+                            "</tr>" +
+                            "<tr>" +
+                                "<td align='left'>" + "Since: " + position.since + "</td>" +
+                            "</tr>" +
+                        "</table>" +
+                        "<hr>" +
+                        "<table style='width:100%;font-size:1.0em'>" +
+                            "<tr align='center'>" +
+                                (position.dfh != "null" ? "<th width=33%>&#127968;</th>" : "") +
+                                "<th width=33%>&#128270;</th>" +
+                                "<th width=33%>" + getSpeedIcon(position.spd) + "</th>" +
+                            "</tr>" +
+                            "<tr align='center'>" +
+                                (position.dfh != "null" ? "<td width=33%>" + position.dfh + " ${getLargeUnits()}</td>" : "") +
+                                "<td width=33%>" + position.acc + " ${getSmallUnits()}</td>" +
+                                "<td width=33%>" + position.spd + " ${getVelocityUnits()}</td>" +
+                            "</tr>" +
+                        "</table>" +
+                        "<hr>" +
+                        (position.stale ? "<div style='color:red'>" : "<div style='color:black'>") + "Last: " + position.last + "</div>" +
+                        ((position.bo != "0") ? "<div style='color:red'>&#9940;App battery usage: Optimized/Restricted</div>" : "") +
+                        ((position.hib != "0") ? "<div style='color:red'>&#9940;Permissions: App can pause</div>" : "") +
+                        ((position.per != "0") ? "<div style='color:red'>&#9940;Location permission: Not allowed all the time</div>" : "") +
+                        ((position.cmd == 0) ? "<div style='color:red'>&#9940;OwnTracks app setting 'Remote Configuration' is not enabled</div>" : "")
+
+                        return(contentString);
+                    };
+
+                    function formatDateToCustomPattern(date, timeOnly) {
+                        const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+                        const dayOfWeek = daysOfWeek[date.getDay()];
+                        const hour = date.getHours();
+                        const minute = date.getMinutes();
+                        const amPm = hour >= 12 ? "PM" : "AM";
+                        const amPmHour = (hour % 12) == 0 ? 12 : (hour % 12)
+
+                        if (timeOnly) {
+                            return (amPmHour + ":" + minute.toString().padStart(2, "0") + " " + amPm);
+                        } else {
+                            return(dayOfWeek + " " + amPmHour + ":" + minute.toString().padStart(2, "0") + " " + amPm + " " + date.getFullYear() + "-" + (date.getMonth() + 1).toString().padStart(2, "0") + "-" + date.getDate().toString().padStart(2, "0"));
                         }
                     };
 
-                    // Poll for member data every 5000ms
-                    setInterval(() => {
-                        retrieveMemberLocations("");
-                    }, 5000);
-                    // Sync history data in 100ms (one time)
-                    setTimeout(() => {
-                        retrieveMemberLocations("sync");
-                    }, 100);
-                };
-
-                function convertMetersToFeet(val) {
-                    return (${imperialUnits} ? parseInt(val*3.28084) : parseInt(val))
-                }
-
-                function convertKMToMiles(val) {
-                    return (${imperialUnits} ? parseInt(val*0.621371) : parseInt(val))
-                }
-
-                function getSpeedIcon(val) {
-                    if (val == 0)   return("&#129485;")    // standing
-                    if (val < 10)   return("&#128694;")    // walking
-                    if (val < 30)   return("&#128692;")    // cycling
-                    if (val < 200)  return("&#128663;")    // auto
-                    return("&#128747;")                    // plane
-                }
-
-                function getBearingIcon(val) {
-                    if ((val > 22.5)  && (val <= 67.5))  return("&#8599;NE")    // NE
-                    if ((val > 67.5)  && (val <= 112.5)) return("&#8594;E")     // E
-                    if ((val > 112.5) && (val <= 157.5)) return("&#8600;SE")    // SE
-                    if ((val > 157.5) && (val <= 202.5)) return("&#8595;S")     // S
-                    if ((val > 202.5) && (val <= 247.5)) return("&#8601;SW")    // SW
-                    if ((val > 247.5) && (val <= 292.5)) return("&#8592;W")     // W
-                    if ((val > 292.5) && (val <= 337.5)) return("&#8598;NW")    // NW
-                    return("&#8593;N")                                          // N
-                }
-
-                function infoContent(position) {
-                    tripNumber = 0;
-                    tripMember = position.name;
-                    const contentString =
-                    "<table style='width:100%;font-size:1.0em'>" +
-                        "<tr>" +
-                            "<td align='left'" + (((position.wifi == "0") || (position.hib != "0") || (position.bo != "0") || (position.per != "0")) ? " style='color:red'>" : ">") + ((position.data == "m") ? "&#128246;" + (position.wifi != "null" ? (position.wifi == "0" ? "<s>&#128732;</s>" : "") : "") : (position.data == "w" ? "&#128732;" : "")) + "</td>" +
-                            "<td align='right'" + (position.ps ? " style='color:red'>" : ">") + (position.bs == "2" ? "&#9889;" : "&#128267;") + (position.bat != "null" ? position.bat + "%" : "") + "</td>" +
-                        "</tr>" +
-                    "</table>" +
-                    "<table style='width:100%;font-size:1.0em'>" +
-                        "<tr>" +
-                            "<td align='left'" + (((position.wifi == "0") || (position.hib != "0") || (position.bo != "0") || (position.per != "0")) ? " style='color:red'>" : ">") + "<b>" + position.name + "</b></td>" +
-                            "<td align='right'>" + getBearingIcon(position.cog) + "</td>" +
-                        "</tr>" +
-                        "<tr>" +
-                            "<td align='left'>" + position.loc + "</td>" +
-                        "</tr>" +
-                        "<tr>" +
-                            "<td align='left'>" + "Since: " + position.since + "</td>" +
-                        "</tr>" +
-                    "</table>" +
-                    "<hr>" +
-                    "<table style='width:100%;font-size:1.0em'>" +
-                        "<tr align='center'>" +
-                            (position.dfh != "null" ? "<th width=33%>&#127968;</th>" : "") +
-                            "<th width=33%>&#128270;</th>" +
-                            "<th width=33%>" + getSpeedIcon(position.spd) + "</th>" +
-                        "</tr>" +
-                        "<tr align='center'>" +
-                            (position.dfh != "null" ? "<td width=33%>" + position.dfh + " ${getLargeUnits()}</td>" : "") +
-                            "<td width=33%>" + position.acc + " ${getSmallUnits()}</td>" +
-                            "<td width=33%>" + position.spd + " ${getVelocityUnits()}</td>" +
-                        "</tr>" +
-                    "</table>" +
-                    "<hr>" +
-                    (position.stale ? "<div style='color:red'>" : "<div style='color:black'>") + "Last: " + position.last + "</div>" +
-                    ((position.bo != "0") ? "<div style='color:red'>&#9940;App battery usage: Optimized/Restricted</div>" : "") +
-                    ((position.hib != "0") ? "<div style='color:red'>&#9940;Permissions: App can pause</div>" : "") +
-                    ((position.per != "0") ? "<div style='color:red'>&#9940;Location permission: Not allowed all the time</div>" : "") +
-                    ((position.cmd == 0) ? "<div style='color:red'>&#9940;OwnTracks app setting 'Remote Configuration' is not enabled</div>" : "")
-
-                    return(contentString);
-                };
-
-                function formatDateToCustomPattern(date, timeOnly) {
-                    const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-                    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-                    const dayOfWeek = daysOfWeek[date.getDay()];
-                    const hour = date.getHours();
-                    const minute = date.getMinutes();
-                    const amPm = hour >= 12 ? "PM" : "AM";
-                    const amPmHour = (hour % 12) == 0 ? 12 : (hour % 12)
-
-                    if (timeOnly) {
-                        return (amPmHour + ":" + minute.toString().padStart(2, "0") + " " + amPm);
-                    } else {
-                        return(dayOfWeek + " " + amPmHour + ":" + minute.toString().padStart(2, "0") + " " + amPm + " " + date.getFullYear() + "-" + (date.getMonth() + 1).toString().padStart(2, "0") + "-" + date.getDate().toString().padStart(2, "0"));
-                    }
-                };
-
-                function getSinceTime(newTime, oldTime) {
-                    timeDelta = parseInt((newTime - oldTime) / (60*1000));
-                    timeHours = parseInt(timeDelta / 60);
-                    timeMinutes = parseInt(timeDelta - (timeHours*60));
-                    timeDays = parseInt(timeHours / 24);
-                    timeHours = timeHours % 24;
-                    // change the return phrase depending on duration
-                    if (timeDays == 0) {
-                        return(timeHours + " h " + timeMinutes + " m");
-                    } else {
-                        return(timeDays + " d " + timeHours + " h");
-                    }
-                };
-
-                function getTripStats(position, index, findFullTrip) {
-                    // default to current marker in case there are no beginning markers
-                    startTime = new Date(position[index].tst*1000);
-                    endTime = new Date(position[index].tst*1000);
-                    tripEndFound = false;
-                    for (let past=index; past<position.length; past++) {
-                        // find the next end marker
-                        if (findFullTrip && !tripEndFound && (position[past].mkr == "${memberEndMarker}")) {
-                            endTime = new Date(position[past].tst*1000);
-                            tripEndFound = true;
+                    function getSinceTime(newTime, oldTime) {
+                        timeDelta = parseInt((newTime - oldTime) / (60*1000));
+                        timeHours = parseInt(timeDelta / 60);
+                        timeMinutes = parseInt(timeDelta - (timeHours*60));
+                        timeDays = parseInt(timeHours / 24);
+                        timeHours = timeHours % 24;
+                        // change the return phrase depending on duration
+                        if (timeDays == 0) {
+                            return(timeHours + " h " + timeMinutes + " m");
+                        } else {
+                            return(timeDays + " d " + timeHours + " h");
                         }
-                    }
+                    };
 
-                    // if the current marker is a begin, then get the time since last trip - reverse the start/end times
-                    if (position[index].mkr == "${memberBeginMarker}") {
-                        if (index > 0) {
-                            startTime = new Date(position[index-1].tst*1000);
-                        }
-                        tripStatus = "Idle";
-                    } else {
-                        // start at the current marker, and go backwards until we find the being marker
-                        saveBegin = true
-                        for (let past=index; past>=0; past--) {
-                            if (position[past].mkr == "${memberBeginMarker}") {
-                                // store the first begin marker
-                                startTime = new Date(position[past].tst*1000);
-                                break;
+                    function getTripStats(position, index, findFullTrip) {
+                        // default to current marker in case there are no beginning markers
+                        startTime = new Date(position[index].tst*1000);
+                        endTime = new Date(position[index].tst*1000);
+                        tripEndFound = false;
+                        for (let past=index; past<position.length; past++) {
+                            // find the next end marker
+                            if (findFullTrip && !tripEndFound && (position[past].mkr == "${memberEndMarker}")) {
+                                endTime = new Date(position[past].tst*1000);
+                                tripEndFound = true;
                             }
                         }
-                        tripStatus = position[index].odo + " ${getLargeUnits()} Trip #" + position[index].tp;
-                    }
 
-                    if ((findFullTrip && !tripEndFound) || (!findFullTrip && (position[index].mkr == "${memberMiddleMarker}"))) {
-                        tripEndTime = "...";
-                    } else {
-                        tripEndTime = formatDateToCustomPattern(endTime, true);
-                    }
-                    timeDuration = getSinceTime(endTime, startTime);
-                    tripTimes = formatDateToCustomPattern(startTime, true) + " - " + tripEndTime + " " + "(" + timeDuration + ")";
-                    return[ tripStatus, tripTimes ]
-                };
+                        // if the current marker is a begin, then get the time since last trip - reverse the start/end times
+                        if (position[index].mkr == "${memberBeginMarker}") {
+                            if (index > 0) {
+                                startTime = new Date(position[index-1].tst*1000);
+                            }
+                            tripStatus = "Idle";
+                        } else {
+                            // start at the current marker, and go backwards until we find the being marker
+                            saveBegin = true
+                            for (let past=index; past>=0; past--) {
+                                if (position[past].mkr == "${memberBeginMarker}") {
+                                    // store the first begin marker
+                                    startTime = new Date(position[past].tst*1000);
+                                    break;
+                                }
+                            }
+                            tripStatus = position[index].odo + " ${getLargeUnits()} Trip #" + position[index].tp;
+                        }
 
-                function historyContent(name, position, index, fullTripStats) {
-                    tripNumber = position[index].tp;
-                    tripMember = name;
-                    historyTime = new Date(position[index].tst*1000);
-                    tripStatus = "";
-                    tripTimes = "";
-                    [tripStatus, tripTimes] = getTripStats(position, index, fullTripStats);
-                    const contentString =
-                    "<table style='width:100%;font-size:1.0em'>" +
-                        "<tr>" +
-                            "<td align='left'><b>" + name + "</b></td>" +
-                        "</tr>" +
-                        "<tr>" +
-                            "<td align='left'>" + position[index].loc + "</td>" +
-                        "</tr>" +
-                        "<tr>" +
-                            "<td align='left'>" + "(" + position[index].lat + "," + position[index].lng + ")" + "</td>" +
-                        "</tr>" +
-                        "<tr>" +
-                            "<td align='left'>" + formatDateToCustomPattern(historyTime, false) + "</td>" +
-                        "</tr>" +
-                    "</table>" +
-                    "<hr>" +
-                    "<table style='width:100%;font-size:1.0em'>" +
-                        "<tr>" +
-                            "<td align='left'><b>" + tripStatus + "</b></td>" +
-                        "</tr>" +
-                        "<tr>" +
-                            "<td align='left'>" + tripTimes + "</td>" +
-                        "</tr>" +
-                    "</table>" +
-                    "<hr>" +
-                    "<table style='width:100%;font-size:1.0em'>" +
-                        "<tr align='center'>" +
-                            "<th width=33%>" + getBearingIcon(position[index].cog) + "</th>" +
-                            "<th width=33%>&#128270;</th>" +
-                            "<th width=33%>" + getSpeedIcon(position[index].spd) + "</th>" +
-                        "</tr>" +
-                        "<tr align='center'>" +
-                            "<td width=33%>" + position[index].cog + "&#176;</td>" +
-                            "<td width=33%>" + convertMetersToFeet(position[index].acc) + " ${getSmallUnits()}</td>" +
-                            "<td width=33%>" + convertKMToMiles(position[index].spd) + " ${getVelocityUnits()}</td>" +
-                        "</tr>" +
-                    "</table>" +
-                    "<hr>" +
-                    "<table style='width:100%;font-size:1.0em'>" +
-                        "<tr align='center'>" +
-                            "<td width=33%>" + getSinceTime(Date.now(), historyTime) + " ago"  + "</td>" +
-                            "<td width=33%>" + "History: " + (position.length - index) + " / " + position.length + "</td>" +
-                        "</tr>" +
-                    "</table>"
+                        if ((findFullTrip && !tripEndFound) || (!findFullTrip && (position[index].mkr == "${memberMiddleMarker}"))) {
+                            tripEndTime = "...";
+                        } else {
+                            tripEndTime = formatDateToCustomPattern(endTime, true);
+                        }
+                        timeDuration = getSinceTime(endTime, startTime);
+                        tripTimes = formatDateToCustomPattern(startTime, true) + " - " + tripEndTime + " " + "(" + timeDuration + ")";
+                        return[ tripStatus, tripTimes ]
+                    };
 
-                    return(contentString)
-                };
-            </script>
-            <script src="https://maps.googleapis.com/maps/api/js?key=${APIKey}&loading=async&libraries=marker,maps&callback=initMap"></script>
-        </div>"""
+                    function historyContent(name, position, index, fullTripStats) {
+                        tripNumber = position[index].tp;
+                        tripMember = name;
+                        historyTime = new Date(position[index].tst*1000);
+                        tripStatus = "";
+                        tripTimes = "";
+                        [tripStatus, tripTimes] = getTripStats(position, index, fullTripStats);
+                        const contentString =
+                        "<table style='width:100%;font-size:1.0em'>" +
+                            "<tr>" +
+                                "<td align='left'><b>" + name + "</b></td>" +
+                            "</tr>" +
+                            "<tr>" +
+                                "<td align='left'>" + position[index].loc + "</td>" +
+                            "</tr>" +
+                            "<tr>" +
+                                "<td align='left'>" + "(" + position[index].lat + "," + position[index].lng + ")" + "</td>" +
+                            "</tr>" +
+                            "<tr>" +
+                                "<td align='left'>" + formatDateToCustomPattern(historyTime, false) + "</td>" +
+                            "</tr>" +
+                        "</table>" +
+                        "<hr>" +
+                        "<table style='width:100%;font-size:1.0em'>" +
+                            "<tr>" +
+                                "<td align='left'><b>" + tripStatus + "</b></td>" +
+                            "</tr>" +
+                            "<tr>" +
+                                "<td align='left'>" + tripTimes + "</td>" +
+                            "</tr>" +
+                        "</table>" +
+                        "<hr>" +
+                        "<table style='width:100%;font-size:1.0em'>" +
+                            "<tr align='center'>" +
+                                "<th width=33%>" + getBearingIcon(position[index].cog) + "</th>" +
+                                "<th width=33%>&#128270;</th>" +
+                                "<th width=33%>" + getSpeedIcon(position[index].spd) + "</th>" +
+                            "</tr>" +
+                            "<tr align='center'>" +
+                                "<td width=33%>" + position[index].cog + "&#176;</td>" +
+                                "<td width=33%>" + convertMetersToFeet(position[index].acc) + " ${getSmallUnits()}</td>" +
+                                "<td width=33%>" + convertKMToMiles(position[index].spd) + " ${getVelocityUnits()}</td>" +
+                            "</tr>" +
+                        "</table>" +
+                        "<hr>" +
+                        "<table style='width:100%;font-size:1.0em'>" +
+                            "<tr align='center'>" +
+                                "<td width=33%>" + getSinceTime(Date.now(), historyTime) + " ago"  + "</td>" +
+                                "<td width=33%>" + "History: " + (position.length - index) + " / " + position.length + "</td>" +
+                            "</tr>" +
+                        "</table>"
+
+                        return(contentString)
+                    };
+                </script>
+                <script src="https://maps.googleapis.com/maps/api/js?key=${APIKey}&loading=async&libraries=marker,maps&callback=initMap"></script>
+            </div>
+		</body>
+		</html>
+		"""
     }
 
     return render(contentType: "text/html", data: (insertOwnTracksFavicon() + htmlData))
