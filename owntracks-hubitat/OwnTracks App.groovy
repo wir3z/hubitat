@@ -165,6 +165,7 @@
  *  1.8.18	   2025-05-19	   - Changed the drawer behavior to allow a single click/tap to open/close vs dragging.  Increased width up to 500 pixels.
  *  1.8.19	   2025-05-23	   - Added scalers to the map zoom in mobile portrait mode and the drawer member details.
  *  1.8.20	   2025-06-01	   - Fixed the zoom issues and removed the mobile portrait mode zoom for the Google Family map.  Fixed race condition when the thumbnails were loading on the family map.  Fixed issue where new users were not being added to the default group.
+ *  1.8.21     2025-06-07      - Google Family Map: Improved zooming on members and member drawer.  Selecting a member row in the drawer selects that member.  Address issue that could lead to thumbnails not being displayed.  Added zoom option for smart displays (Nest, Amazon).
 */
 
 import groovy.transform.Field
@@ -173,7 +174,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.20" }
+def appVersion() { return "1.8.21" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -212,10 +213,10 @@ def appVersion() { return "1.8.20" }
 @Field Number  DEFAULT_memberHistoryLength = 60
 @Field Number  DEFAULT_maxMemberHistoryLength = 60
 @Field Number  DEFAULT_memberHistoryScale = 1.0
-@Field Number  DEFAULT_memberHistoryStroke = 1.0
 @Field Number  DEFAULT_memberHistoryRepeat = 300
-@Field Number  DEFAULT_memberThumbnailScale = 1.0
-@Field Number  DEFAULT_memberDrawerScale = 1.3
+@Field Number  DEFAULT_memberDrawerScale = 1.0
+@Field Number  DEFAULT_smartDisplayScale = 1.0
+@Field Boolean DEFAULT_useZoomWhenMembersAreClose = false
 @Field Boolean DEFAULT_displayAllMembersHistory = false
 @Field Boolean DEFAULT_removeMemberMarkersWithSameBearing = true
 @Field Number  DEFAULT_memberMarkerBearingDifferenceDegrees = 10
@@ -323,6 +324,13 @@ preferences {
 }
 
 def mainPage() {
+    // PAST CLEANUP - REMOVE IN FUTURE VERSION - added 1.8.21
+    app.remove("memberHistoryStroke")
+	app.remove("mobileBrowserScale")
+	app.remove("memberThumbnailScale")
+	app.remove("memberDrawerScale")
+    // PAST CLEANUP - REMOVE IN FUTURE VERSION
+
     // clear the setting fields
     clearSettingFields()
     app.removeSetting("regionToCheck")
@@ -538,6 +546,8 @@ def configureHubApp() {
                 input name: "googleMapsAPIKey", type: "string", title: "Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:", submitOnChange: true
                 paragraph ("<a href='${getAttributeURL("[cloud.hubitat.com]", "googlemap")}' target='_blank'>Test map API key</a>")
                 input name: "memberBoundsRadius", type: "number", title: "Map will only auto-zoom to fit members within this distance from home (${getLargeUnits()}) (0..${displayKmMiVal(6400).toInteger()}) Recommended=${displayKmMiVal(DEFAULT_memberBoundsRadius).toInteger()}, Show all members=0", range: "0..${displayKmMiVal(6400).toInteger()}", defaultValue: displayKmMiVal(DEFAULT_memberBoundsRadius).toInteger(), submitOnChange: true
+                input name: "smartDisplayScale", type: "decimal", title: "Scale value for casting to 1024x600 or 1280x800 smart displays. (1.0..1.3), recommended: 1.2:", range: "1.0..1.3", defaultValue: DEFAULT_smartDisplayScale
+                input name: "useZoomWhenMembersAreClose", type: "bool", title: "Enable to allow auto-zoom to zoom in closer when all member(s) are in the same area.", defaultValue: DEFAULT_useZoomWhenMembersAreClose
                 paragraph ("<h2>Member History and Pin Colors</h2>")
                 input name: "memberAccuracyRadiusOpacity", type: "decimal", title: "Opacity value for the member accuracy radius, 0=disabled (0.0..3.0):", range: "0.0..3.0", defaultValue: DEFAULT_memberAccuracyRadiusOpacity
                 input name: "memberHistoryLength", type: "number", title: "Number of total past member locations to save (0..${DEFAULT_maxMemberHistoryLength}):", range: "0..${DEFAULT_maxMemberHistoryLength}", defaultValue: DEFAULT_memberHistoryLength
@@ -546,8 +556,8 @@ def configureHubApp() {
                 if (removeMemberMarkersWithSameBearing) {
                     input name: "memberMarkerBearingDifferenceDegrees", type: "number", title: "Locations with bearings within this number of degrees are removed to reduce history size (0..45):", range: "0..45", defaultValue: DEFAULT_memberMarkerBearingDifferenceDegrees
                 }
-                input name: "memberHistoryScale", type: "decimal", title: "Scale value for the past member locations dots (1.0..3.0):", range: "1.0..3.0", defaultValue: DEFAULT_memberHistoryScale
-                input name: "memberHistoryStroke", type: "decimal", title: "Scale value for the past member locations lines (1.0..3.0):", range: "1.0..3.0", defaultValue: DEFAULT_memberHistoryStroke
+                input name: "memberDrawerScale", type: "decimal", title: "Scale value for the member details in the info boxes and map drawer. (1.0..1.3), recommended: 1.2:", range: "1.0..1.3", defaultValue: DEFAULT_memberDrawerScale
+                input name: "memberHistoryScale", type: "decimal", title: "Scale value for the past member locations (1.0..3.0):", range: "1.0..3.0", defaultValue: DEFAULT_memberHistoryScale
                 input name: "memberHistoryRepeat", type: "number", title: "Distance between repeat arrows on the history lines. '0' will place a single arrow in the middle of the line (0..1000):", range: "0..1000", defaultValue: DEFAULT_memberHistoryRepeat
                 input name: "useLastGoogleFriendsMapMember", type: "bool", title: "Save the last followed member between map reloads", defaultValue: DEFAULT_useLastGoogleFriendsMapMember
                 input name: "displayAllMembersHistory", type: "bool", title: "Enable to display all member(s) history on map.  Disable to only display history of selected member on map.", defaultValue: DEFAULT_displayAllMembersHistory
@@ -566,8 +576,6 @@ def configureHubApp() {
                     }
                     input name: "memberGlyphColor", type: "string", title: "<b>${selectMemberGlyph} glyph and history color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (Purple) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#800080):", defaultValue: (selectedMember?.color ? selectedMember.color : DEFAULT_MEMBER_GLYPH_COLOR), submitOnChange: true
                 }
-                input name: "memberThumbnailScale", type: "decimal", title: "Scale value for the member thumbnails in the map drawer. (0.5..2.0), default: ${DEFAULT_memberThumbnailScale}:", range: "0.5..2.0", defaultValue: DEFAULT_memberThumbnailScale
-                input name: "memberDrawerScale", type: "decimal", title: "Scale value for the member details in the map drawer. (1.0..1.5), default: ${DEFAULT_memberDrawerScale}:", range: "1.0..1.5", defaultValue: DEFAULT_memberDrawerScale
                 paragraph ("<h2>Region Pin Colors</h2>")
                 input name: "regionPinColor", type: "string", title: "<b>Region pin color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (DarkRed) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#b22222):", defaultValue: DEFAULT_REGION_PIN_COLOR
                 input name: "regionGlyphColor", type: "string", title: "<b>Region glyph color</b>:  Enter a <a href='https://www.w3schools.com/tags/ref_colornames.asp' target='_blank'>HTML color name</a> (Maroon) or a 6-digit <a href='https://www.w3schools.com/colors/colors_picker.asp' target='_blank'>HTML color code</a> (#800000):", defaultValue: DEFAULT_REGION_GLYPH_COLOR
@@ -1588,11 +1596,11 @@ def initializeHub(forceDefaults) {
     if (forceDefaults || (memberAccuracyRadiusOpacity == null)) app.updateSetting("memberAccuracyRadiusOpacity", [value: DEFAULT_memberAccuracyRadiusOpacity, type: "decimal"])
     if (forceDefaults || (memberHistoryLength == null)) app.updateSetting("memberHistoryLength", [value: DEFAULT_memberHistoryLength, type: "number"])
     if (forceDefaults || (memberHistoryScale == null)) app.updateSetting("memberHistoryScale", [value: DEFAULT_memberHistoryScale, type: "decimal"])
-    if (forceDefaults || (memberHistoryStroke == null)) app.updateSetting("memberHistoryStroke", [value: DEFAULT_memberHistoryStroke, type: "decimal"])
     if (forceDefaults || (memberHistoryRepeat == null)) app.updateSetting("memberHistoryRepeat", [value: DEFAULT_memberHistoryRepeat, type: "number"])
-    if (forceDefaults || (memberThumbnailScale == null)) app.updateSetting("memberThumbnailScale", [value: DEFAULT_memberThumbnailScale, type: "decimal"])
     if (forceDefaults || (memberDrawerScale == null)) app.updateSetting("memberDrawerScale", [value: DEFAULT_memberDrawerScale, type: "decimal"])
+    if (forceDefaults || (smartDisplayScale == null)) app.updateSetting("smartDisplayScale", [value: DEFAULT_smartDisplayScale, type: "decimal"])
     if (forceDefaults || (displayAllMembersHistory == null)) app.updateSetting("displayAllMembersHistory", [value: DEFAULT_displayAllMembersHistory, type: "bool"])
+    if (forceDefaults || (useZoomWhenMembersAreClose == null)) app.updateSetting("useZoomWhenMembersAreClose", [value: DEFAULT_useZoomWhenMembersAreClose, type: "bool"])
     if (forceDefaults || (memberTripIdleMarkerTime == null)) app.updateSetting("memberTripIdleMarkerTime", [value: DEFAULT_memberTripIdleMarkerTime, type: "number"])
     if (forceDefaults || (memberMarkerBearingDifferenceDegrees == null)) app.updateSetting("memberMarkerBearingDifferenceDegrees", [value: DEFAULT_memberMarkerBearingDifferenceDegrees, type: "number"])
     if (forceDefaults || (removeMemberMarkersWithSameBearing == null)) app.updateSetting("removeMemberMarkersWithSameBearing", [value: DEFAULT_removeMemberMarkersWithSameBearing, type: "bool"])
@@ -3388,7 +3396,8 @@ def generateRegionMap() {
                                 lat:${region.lat},
                                 lng:${region.lon}
                             },
-                            content:i.element
+                            content:i.element,
+							gmpClickable:true
                         }
                     );
                     // place the region radius
@@ -3540,7 +3549,8 @@ def generateConfigMap() {
                                     title: markerElement.desc,
                                     gmpDraggable: true,
                                     content: pin.element,
-                                    zIndex: markerElement.tst
+                                    zIndex: markerElement.tst,
+									gmpClickable:true
                                 }
                             );
                             const radius = new google.maps.Circle(
@@ -3567,7 +3577,7 @@ def generateConfigMap() {
                                 infoWindow.open(map, marker);
                                 updateRegionSelector()
                             });
-                            marker.addListener("click", (evt) => {
+                            marker.addListener("gmp-click", (evt) => {
                                 displayInfo({ lat: evt.latLng.lat(), lng: evt.latLng.lng() }, index, true);
                                 infoWindow.open(map, marker);
                                 updateRegionSelector()
@@ -4131,9 +4141,9 @@ def generateGoogleFriendsMap() {
             <div style="width:100%;height:100%;margin:5px;overflow:hidden">
                 <div id="map" style="width:100%;height:100%"></div>
                 <div id="footer" style="position:relative;width:100%;text-align:center">
-                    <div id="id-drawer" style="position:absolute;bottom:0px;width:100%;cursor:ns-resize;transition:height 0.5s ease-in-out;height:45px;font-size:0.8em;color:white;font-family:arial">
+                    <div id="id-drawer" style="position:absolute;bottom:0px;width:100%;cursor:ns-resize;transition:height 0.5s ease-in-out;font-size:0.8em;color:white;font-family:arial">
                         <div id="id-up_down" style="background:#555555">&#128316</div>
-                        <div id="id-lastTime" style="background:#555555;height:35px"></div>
+                        <div id="id-lastTime" style="background:#555555"></div>
                         <div id="id-members" style="display:inline-block;background:#FFFFFF;width:100%;max-width:500px"></div>
                         <canvas id="circleCanvas" width="40" height="40" style="display:none"></canvas>
                     </div>
@@ -4147,6 +4157,11 @@ def generateGoogleFriendsMap() {
                     }
                     const webAppVersion = "${appVersion()}";
                     console.log("Google Friends Map version " + webAppVersion)
+					const scaleText = ${(memberDrawerScale == null ? DEFAULT_memberDrawerScale : memberDrawerScale)};
+                    document.getElementById("id-drawer").style.height = scaleText * 45 + "px";
+                    document.getElementById("id-up_down").style.fontSize = scaleText + "em";
+                    document.getElementById("id-lastTime").style.fontSize = scaleText + "em";
+                    document.getElementById("id-lastTime").style.height = scaleText * 35 + "px";
 
                     markers = [];
                     locations = [];
@@ -4176,19 +4191,23 @@ def generateGoogleFriendsMap() {
                         inhibitAutoZoom = false;
                         tripNumber = 0;
                         tripMember = "null";
-                        const drawerMinHeight = 45;
-                        const drawerMaxHeight = window.innerHeight - drawerMinHeight;
+                        const drawerMinHeight = scaleText * 45;
+                        const drawerMaxHeight = window.innerHeight - 15;
                         drawerExpanded = false;
-                        const maxZoomLevel = 21;
-                        const minZoomLevel = 17;
-
+                        const maxClickZoomLevel = 21;
+                        const minClickZoomLevel = 14;
+						if (${(useZoomWhenMembersAreClose == null ? DEFAULT_useZoomWhenMembersAreClose : useZoomWhenMembersAreClose)}) {
+							minMapBoundsZoomLevel = 17;
+						} else {
+							minMapBoundsZoomLevel = 14;
+						}
                         addDrawerListener();
                         // get the member data with thumbnail images
                         retrieveMemberLocations("img");
-                        // restore the previous zoom level on the init
-                        currentZoom = ${retrieveGoogleFriendsMapZoom()};
-                        if (!currentZoom) {
-                            currentZoom = 2;
+
+						// special corner case to zoom on the Nest Hubs - NOTE:  zoom breaks misalignment between the coordinate system and the history points
+                        if ((window.innerWidth == 1024 && window.innerHeight == 600) || (window.innerWidth == 1280 && window.innerHeight == 800)) {
+							document.body.style.zoom = 100 * ${(smartDisplayScale == null ? DEFAULT_smartDisplayScale : smartDisplayScale)} + "%";
                         }
 
                         homePosition = new google.maps.LatLng(${getHomeRegion()?.lat}, ${getHomeRegion()?.lon});
@@ -4200,9 +4219,14 @@ def generateGoogleFriendsMap() {
                             htmlData += """
                         ];
 
+                        // restore the previous zoom level on the init
+                        initialZoom = ${retrieveGoogleFriendsMapZoom()};
+                        if (!initialZoom) {
+                            initialZoom = 2;
+                        }
                         const map = new google.maps.Map(
                             document.getElementById("map"), {
-                                zoom: currentZoom,
+                                zoom: initialZoom,
                                 center: {
                                     lat: 0, lng: 0
                                 },
@@ -4210,7 +4234,6 @@ def generateGoogleFriendsMap() {
                                 gestureHandling: "auto",
                             }
                         );
-
                         map.addListener("click", () => {
                             mapRegionClick();
                         });
@@ -4218,10 +4241,10 @@ def generateGoogleFriendsMap() {
                             // when the user clicks the +/- zoom buttons or we modify zoom by clicking on the marker
                             currentZoom = map.getZoom();
                             updateHistoryZoom(currentZoom);
+                            showHideRegions();
                             postData = {};
                             postData["zoom"] = currentZoom;
                             sendDataToHub(postData);
-                            showHideRegions();
                         });
                         map.addListener("dragstart", () => {
                             // user starting panning the map
@@ -4264,7 +4287,8 @@ def generateGoogleFriendsMap() {
                                         lng:position.lng,
                                     },
                                     title:position.desc,
-                                    content:i.element
+                                    content:i.element,
+									gmpClickable:true
                                 }
                             )
                             // place the region radius'
@@ -4335,19 +4359,20 @@ def generateGoogleFriendsMap() {
                         function followMemberMarker(marker) {
                             // assign the new current member so that the history can update
                             currentMember = getMember(marker.title);
-
                             // restores the marker index of the previous marker
                             restoreMarkerIndex();
                             // if a marker is clicked, then assign it a higher index so it comes out in front
                             marker.zIndex = maxZIndex;
+							map.setCenter(marker.position);
                             infoWindowVisible = -1;
-                            postData = {};
-                            postData["zoom"] = currentZoom;
-                            postData["member"] = currentMember.name;
-                            sendDataToHub(postData);
                             changeHistoryFocus(currentMember);
                             updateBottomBanner();
                             showHideHistory();
+							// update the Hub
+                            postData = {};
+                            postData["zoom"] = map.getZoom();
+                            postData["member"] = currentMember.name;
+                            sendDataToHub(postData);
                         };
 
                         function addMemberMarkers() {
@@ -4386,7 +4411,8 @@ def generateGoogleFriendsMap() {
                                     },
                                     title: locations[member].name,
                                     zIndex: (currentMember.name == locations[member].name ? maxZIndex : locations[member].zIndex),
-                                    content: pin.element
+                                    content: pin.element,
+									gmpClickable:true
                                 });
 
                                 // place the member's accuracy radius
@@ -4406,28 +4432,27 @@ def generateGoogleFriendsMap() {
                                 });
 
                                 // Add a click listener for each marker, and set up the info window
-                                marker.addListener("click", () => {
+                                marker.addListener("gmp-click", () => {
                                     infoWindow.close();
                                     infoWindow.setContent(infoContent(locations[member]));
                                     infoWindow.open(marker.map, marker);
-                                    map.setCenter(marker.position);
                                     // on the first click, just display the info box
                                     if ((currentMember.name == marker.title) && (infoWindowVisible == -1)) {
                                         // on second click, zoom to minZoomLevel, and then keep zooming in by 3 on each future click
                                         currentZoom = map.getZoom()
-                                        if (currentZoom < minZoomLevel) {
-                                            currentZoom = minZoomLevel;
+                                        if (currentZoom < minClickZoomLevel) {
+                                            currentZoom = minClickZoomLevel;
                                         } else {
                                             currentZoom += 3;
-                                            if (currentZoom > maxZoomLevel) {
-                                                currentZoom = maxZoomLevel;
+                                            if (currentZoom > maxClickZoomLevel) {
+                                                currentZoom = maxClickZoomLevel;
                                             }
                                         }
-                                        map.setZoom(currentZoom);
-                                    }
-
-                                    // assign the new current member so that the history can update
-                                    followMemberMarker(marker);
+										incrementalZoom(currentZoom, marker);
+									} else {
+	                                    // assign the new current member so that the history can update
+    	                                followMemberMarker(marker);
+									}
                                 });
 
                                 // create history circles for the past locations
@@ -4441,7 +4466,7 @@ def generateGoogleFriendsMap() {
                                                 lat: locations[member].lat,
                                                 lng: locations[member].lng
                                             },
-                                            radius:1 + ((Math.pow(2, (22 - currentZoom))*${memberHistoryScale})/10),
+                                            radius:1 + ((Math.pow(2, (22 - map.getZoom()))*${memberHistoryScale})/10),
                                             strokeColor:locations[member].color,
                                             strokeOpacity:historyGradient(${memberHistoryLength},past,minRadiusGradient),
                                             strokeWeight:2,
@@ -4476,7 +4501,7 @@ def generateGoogleFriendsMap() {
                                             map,
                                             strokeColor:locations[member].color,
                                             strokeOpacity:historyGradient(${memberHistoryLength},past,minBearingGradient),
-                                            strokeWeight:2.5*${memberHistoryStroke},
+                                            strokeWeight:2.5*${memberHistoryScale},
                                             fillColor:locations[member].color,
                                             fillOpacity:historyGradient(${memberHistoryLength},past,minBearingGradient),
                                             zIndex:past,
@@ -4510,6 +4535,23 @@ def generateGoogleFriendsMap() {
                             showHideHistory();
                         };
 
+                        function incrementalZoom(targetZoom, marker = null) {
+                            currentZoom = map.getZoom();
+                            // If we haven't reached the target zoom yet, continue zooming after a short delay
+                            if (currentZoom != targetZoom) {
+                                if (currentZoom < targetZoom) {
+                                    currentZoom++;
+                                } else {
+                                    currentZoom--;
+                                }
+                                map.setZoom(currentZoom);
+                                if (marker != null) {
+                                    map.setCenter(marker.position);
+                                }
+                                setTimeout(() => incrementalZoom(targetZoom, marker), 200);
+                            }
+                        };
+
                         function fitMapBounds() {
                             // if a member isn't selected, fit all members
                             if (currentMember == "null") {
@@ -4528,17 +4570,17 @@ def generateGoogleFriendsMap() {
                         function followLocation() {
                             // refresh the member data
                             currentMember = getMember(currentMember.name);
-                            // center the map on the member
-                            center = {};
-                            center["lat"] = currentMember.lat;
-                            center["lng"] = currentMember.lng;
-                            map.setZoom(currentZoom);
+							incrementalZoom(map.getZoom());
                             // member is selected, and the window is open
                             if (infoWindowVisible == -1) {
                                 infoWindow.setContent(infoContent(currentMember));
                             }
                             // member is selected, and the window is closed
                             if ((infoWindowVisible < 0) && !inhibitAutoZoom) {
+                                // center the map on the member
+                                center = {};
+                                center["lat"] = currentMember.lat;
+                                center["lng"] = currentMember.lng;
                                 // recenter the map if the marker is out of bounds, and the history window is closed
                                 const mapBounds = map.getBounds();
                                 if (!mapBounds.contains(center)) {
@@ -4610,9 +4652,11 @@ def generateGoogleFriendsMap() {
                             // set the map bounds, and restrict to a minimum zoom level
                             map.fitBounds(mapBounds);
                             currentZoom = map.getZoom()
-                            if (currentZoom > minZoomLevel) {
-                                map.setZoom(minZoomLevel);
-                           }
+							// set the map bounds dynamically if members are moving or not
+                            if (currentZoom > minMapBoundsZoomLevel) {
+								// Use map.setZoom instead of incrementalZoom to prevent zooming all the way in and then slowly back out
+								map.setZoom(minMapBoundsZoomLevel);
+                        	}
                         };
 
                         function showHideRegions() {
@@ -4760,12 +4804,10 @@ def generateGoogleFriendsMap() {
                                                 // save a previous image to prevent the copy from deleting it
                                                 if ("img" in locations[loc]) {
                                                     img = locations[loc].img
-                                                } else {
-                                                    img = ""
                                                 }
                                                 // update the location data
                                                 locations[loc] = data.members[mem];
-                                                locations[loc].img = img;
+                                                if (img) locations[loc].img = img;
                                                 // update the marker data
                                                 center = {};
                                                 center["lat"] = data.members[mem].lat;
@@ -4840,37 +4882,41 @@ def generateGoogleFriendsMap() {
                                     src = canvas.toDataURL();
                                 }
 
-                                thumbnailSize = 50 * ${(memberThumbnailScale == null ? DEFAULT_memberThumbnailScale : memberThumbnailScale)};
+                                thumbnailSize = 50 * scaleText;
                                 membersContent +=
-                                        "<table style='width:100%;font-size:${(memberDrawerScale == null ? DEFAULT_memberDrawerScale : memberDrawerScale)}em'>" +
-                                        "<tr>" +
-                                            "<td align='center' rowspan='5'><img src='" + src + "' width='" + thumbnailSize + "' height='" + thumbnailSize + "' data-member='" + member + "'></td>" +
-                                            "<td align='left'" + (((locations[member].wifi == "0") || (locations[member].hib != "0") || (locations[member].bo != "0") || (locations[member].per != "0")) ? " style='color:red'>" : ">") + ((locations[member].data == "m") ? "&#128246;" + (locations[member].wifi != "null" ? (locations[member].wifi == "0" ? "<s>&#128732;</s>" : "") : "") : (locations[member].data == "w" ? "&#128732;" : "")) + "</td>" +
-                                            "<td align='right'" + (locations[member].ps ? " style='color:red'>" : ">") + (locations[member].bs == "2" ? "&#9889;" : "&#128267;") + (locations[member].bat != "null" ? locations[member].bat + "%" : "") + "</td>" +
-                                        "</tr>" +
-                                        "<tr>" +
-                                            "<td align='left'" + (((locations[member].wifi == "0") || (locations[member].hib != "0") || (locations[member].bo != "0") || (locations[member].per != "0")) ? " style='color:red'>" : ">") + "<b>" + locations[member].name + "</b></td>" +
-                                            "<td align='right'>" + getBearingIcon(locations[member].cog) + "</td>" +
-                                        "</tr>" +
-                                        "<tr>" +
-                                            "<td align='left'>" + locations[member].loc + "</td>" +
-                                            "<td align='right'>" + (locations[member].dfh != 'null' ? locations[member].dfh + " ${getLargeUnits()}" : "&nbsp;") + "</td>" +
-                                        "</tr>" +
-                                        "<tr>" +
-                                            "<td align='left'>" + "Since: " + locations[member].since + "</td>" +
-                                            "<td align='right'>" + locations[member].spd + " ${getVelocityUnits()} </td>" +
-                                        "</tr>" +
-                                        "<tr>" +
-                                            "<td align='left' " + (locations[member].stale ? "style='color:red'>" : "style='color:gray'>") + "Last: " + locations[member].last + "</td>" +
-                                        "</tr>" +
-                                    "</table>"
+									"<div class='member-block-wrapper' data-member='" + member + "'>" +
+                                        "<table style='width:100%;font-size:" + scaleText + "em'>" +
+                                            "<tr>" +
+                                                "<td align='center' rowspan='5'><img src='" + src + "' width='" + thumbnailSize + "' height='" + thumbnailSize + "' data-member='" + member + "'></td>" +
+                                                "<td align='left'" + (((locations[member].wifi == "0") || (locations[member].hib != "0") || (locations[member].bo != "0") || (locations[member].per != "0")) ? " style='color:red'>" : ">") + ((locations[member].data == "m") ? "&#128246;" + (locations[member].wifi != "null" ? (locations[member].wifi == "0" ? "<s>&#128732;</s>" : "") : "") : (locations[member].data == "w" ? "&#128732;" : "")) + "</td>" +
+                                                "<td align='right'" + (locations[member].ps ? " style='color:red'>" : ">") + (locations[member].bs == "2" ? "&#9889;" : "&#128267;") + (locations[member].bat != "null" ? locations[member].bat + "%" : "") + "</td>" +
+                                            "</tr>" +
+                                            "<tr>" +
+                                                "<td align='left'" + (((locations[member].wifi == "0") || (locations[member].hib != "0") || (locations[member].bo != "0") || (locations[member].per != "0")) ? " style='color:red'>" : ">") + "<b>" + locations[member].name + "</b></td>" +
+                                                "<td align='right'>" + getBearingIcon(locations[member].cog) + "</td>" +
+                                            "</tr>" +
+                                            "<tr>" +
+                                                "<td align='left'>" + locations[member].loc + "</td>" +
+                                                "<td align='right'>" + (locations[member].dfh != 'null' ? locations[member].dfh + " ${getLargeUnits()}" : "&nbsp;") + "</td>" +
+                                            "</tr>" +
+                                            "<tr>" +
+                                                "<td align='left'>" + "Since: " + locations[member].since + "</td>" +
+                                                "<td align='right'>" + locations[member].spd + " ${getVelocityUnits()} </td>" +
+                                            "</tr>" +
+                                            "<tr>" +
+                                                "<td align='left' " + (locations[member].stale ? "style='color:red'>" : "style='color:gray'>") + "Last: " + locations[member].last + "</td>" +
+                                            "</tr>" +
+                                        "</table>" +
+									"</div>"
                             }
                             document.getElementById("id-members").innerHTML = membersContent;
                             if (registerDrawerListener) {
                                 registerDrawerListener = false;
                                 document.getElementById("id-members").addEventListener("click", function (event) {
-                                    if (event.target.tagName === "IMG") {
-                                        handleDrawerImageClick(event.target.getAttribute("data-member"));
+                                    let targetElement = event.target;
+                                    const memberBlockWrapper = targetElement.closest('.member-block-wrapper');
+                                    if (memberBlockWrapper) {
+                                        handleDrawerImageClick(memberBlockWrapper.getAttribute("data-member"));
                                     }
                                 });
                             }
@@ -4953,7 +4999,6 @@ def generateGoogleFriendsMap() {
                                     document.body.style.overflow = "hidden";
 
                                     followMemberMarker(markers[loc].marker);
-                                    map.setCenter(markers[loc].marker.position);
                                     return;
                                 }
                             }
@@ -4982,7 +5027,7 @@ def generateGoogleFriendsMap() {
                         if (val < 10)   return("&#128694;")    // walking
                         if (val < 30)   return("&#128692;")    // cycling
                         if (val < 200)  return("&#128663;")    // auto
-                        return("&#128747;")                    // plane
+                        return ("&#128747;")                   // plane
                     }
 
                     function getBearingIcon(val) {
@@ -5000,13 +5045,13 @@ def generateGoogleFriendsMap() {
                         tripNumber = 0;
                         tripMember = position.name;
                         const contentString =
-                        "<table style='width:100%;font-size:1.0em'>" +
+						"<table style='width:100%;font-size:" + scaleText + "em'>" +
                             "<tr>" +
                                 "<td align='left'" + (((position.wifi == "0") || (position.hib != "0") || (position.bo != "0") || (position.per != "0")) ? " style='color:red'>" : ">") + ((position.data == "m") ? "&#128246;" + (position.wifi != "null" ? (position.wifi == "0" ? "<s>&#128732;</s>" : "") : "") : (position.data == "w" ? "&#128732;" : "")) + "</td>" +
                                 "<td align='right'" + (position.ps ? " style='color:red'>" : ">") + (position.bs == "2" ? "&#9889;" : "&#128267;") + (position.bat != "null" ? position.bat + "%" : "") + "</td>" +
                             "</tr>" +
                         "</table>" +
-                        "<table style='width:100%;font-size:1.0em'>" +
+						"<table style='width:100%;font-size:" + scaleText + "em'>" +
                             "<tr>" +
                                 "<td align='left'" + (((position.wifi == "0") || (position.hib != "0") || (position.bo != "0") || (position.per != "0")) ? " style='color:red'>" : ">") + "<b>" + position.name + "</b></td>" +
                                 "<td align='right'>" + getBearingIcon(position.cog) + "</td>" +
@@ -5019,7 +5064,7 @@ def generateGoogleFriendsMap() {
                             "</tr>" +
                         "</table>" +
                         "<hr>" +
-                        "<table style='width:100%;font-size:1.0em'>" +
+						"<table style='width:100%;font-size:" + scaleText + "em'>" +
                             "<tr align='center'>" +
                                 (position.dfh != "null" ? "<th width=33%>&#127968;</th>" : "") +
                                 "<th width=33%>&#128270;</th>" +
@@ -5032,13 +5077,15 @@ def generateGoogleFriendsMap() {
                             "</tr>" +
                         "</table>" +
                         "<hr>" +
-                        (position.stale ? "<div style='color:red'>" : "<div style='color:black'>") + "Last: " + position.last + "</div>" +
-                        ((position.bo != "0") ? "<div style='color:red'>&#9940;App battery usage: Optimized/Restricted</div>" : "") +
-                        ((position.hib != "0") ? "<div style='color:red'>&#9940;Permissions: App can pause</div>" : "") +
-                        ((position.per != "0") ? "<div style='color:red'>&#9940;Location permission: Not allowed all the time</div>" : "") +
-                        ((position.cmd == 0) ? "<div style='color:red'>&#9940;OwnTracks app setting 'Remote Configuration' is not enabled</div>" : "")
+						"<div style='font-size:" + scaleText + "em'>" +
+                            (position.stale ? "<div style='color:red'>" : "<div style='color:black'>") + "Last: " + position.last + "</div>" +
+                            ((position.bo != "0") ? "<div style='color:red'>&#9940;App battery usage: Optimized/Restricted</div>" : "") +
+                            ((position.hib != "0") ? "<div style='color:red'>&#9940;Permissions: App can pause</div>" : "") +
+                            ((position.per != "0") ? "<div style='color:red'>&#9940;Location permission: Not allowed all the time</div>" : "") +
+                            ((position.cmd == 0) ? "<div style='color:red'>&#9940;OwnTracks app setting 'Remote Configuration' is not enabled</div>" : "") +
+						"</div>"
 
-                        return(contentString);
+                        return (contentString);
                     };
 
                     function formatDateToCustomPattern(date, timeOnly) {
@@ -5122,49 +5169,50 @@ def generateGoogleFriendsMap() {
                         tripTimes = "";
                         [tripStatus, tripTimes] = getTripStats(position, index, fullTripStats);
                         const contentString =
-                        "<table style='width:100%;font-size:1.0em'>" +
-                            "<tr>" +
-                                "<td align='left'><b>" + name + "</b></td>" +
-                            "</tr>" +
-                            "<tr>" +
-                                "<td align='left'>" + position[index].loc + "</td>" +
-                            "</tr>" +
-                            "<tr>" +
-                                "<td align='left'>" + "(" + position[index].lat + "," + position[index].lng + ")" + "</td>" +
-                            "</tr>" +
-                            "<tr>" +
-                                "<td align='left'>" + formatDateToCustomPattern(historyTime, false) + "</td>" +
-                            "</tr>" +
-                        "</table>" +
-                        "<hr>" +
-                        "<table style='width:100%;font-size:1.0em'>" +
-                            "<tr>" +
-                                "<td align='left'><b>" + tripStatus + "</b></td>" +
-                            "</tr>" +
-                            "<tr>" +
-                                "<td align='left'>" + tripTimes + "</td>" +
-                            "</tr>" +
-                        "</table>" +
-                        "<hr>" +
-                        "<table style='width:100%;font-size:1.0em'>" +
-                            "<tr align='center'>" +
-                                "<th width=33%>" + getBearingIcon(position[index].cog) + "</th>" +
-                                "<th width=33%>&#128270;</th>" +
-                                "<th width=33%>" + getSpeedIcon(position[index].spd) + "</th>" +
-                            "</tr>" +
-                            "<tr align='center'>" +
-                                "<td width=33%>" + position[index].cog + "&#176;</td>" +
-                                "<td width=33%>" + convertMetersToFeet(position[index].acc) + " ${getSmallUnits()}</td>" +
-                                "<td width=33%>" + convertKMToMiles(position[index].spd) + " ${getVelocityUnits()}</td>" +
-                            "</tr>" +
-                        "</table>" +
-                        "<hr>" +
-                        "<table style='width:100%;font-size:1.0em'>" +
-                            "<tr align='center'>" +
-                                "<td width=33%>" + getSinceTime(Date.now(), historyTime) + " ago"  + "</td>" +
-                                "<td width=33%>" + "History: " + (position.length - index) + " / " + position.length + "</td>" +
-                            "</tr>" +
-                        "</table>"
+                            "<table style='white-space:nowrap;font-size:" + scaleText + "em'>" +
+                                "<tr>" +
+                                    "<td align='left'><b>" + name + "</b></td>" +
+                                "</tr>" +
+                                "<tr>" +
+                                    "<td align='left'>" + position[index].loc + "</td>" +
+                                "</tr>" +
+                                "<tr>" +
+                                    "<td align='left'>" + "(" + position[index].lat + "," + position[index].lng + ")" + "</td>" +
+                                "</tr>" +
+                                "<tr>" +
+                                    "<td align='left'>" + formatDateToCustomPattern(historyTime, false) + "</td>" +
+                                "</tr>" +
+                            "</table>" +
+                            "<hr>" +
+                            "<table style='white-space:nowrap;font-size:" + scaleText + "em'>" +
+                                "<tr>" +
+                                    "<td align='left'><b>" + tripStatus + "</b></td>" +
+                                "</tr>" +
+                                "<tr>" +
+                                    "<td align='left'>" + tripTimes + "</td>" +
+                                "</tr>" +
+                            "</table>" +
+                            "<hr>" +
+                            "<table style='width:100%;white-space:nowrap;font-size:" + scaleText + "em'>" +
+                                "<tr align='center'>" +
+                                    "<th width=33%>" + getBearingIcon(position[index].cog) + "</th>" +
+                                    "<th width=33%>&#128270;</th>" +
+                                    "<th width=33%>" + getSpeedIcon(position[index].spd) + "</th>" +
+                                "</tr>" +
+                                "<tr align='center'>" +
+                                    "<td width=33%>" + position[index].cog + "&#176;</td>" +
+                                    "<td width=33%>" + convertMetersToFeet(position[index].acc) + " ${getSmallUnits()}</td>" +
+                                    "<td width=33%>" + convertKMToMiles(position[index].spd) + " ${getVelocityUnits()}</td>" +
+                                "</tr>" +
+                            "</table>" +
+                            "<hr>" +
+                            "<table style='width:100%;white-space:nowrap;font-size:" + scaleText + "em'>" +
+                                "<tr align='center'>" +
+                                    "<td width=50%>" + getSinceTime(Date.now(), historyTime) + " ago"  + "</td>" +
+                                    "<td>&nbsp;&nbsp;&nbsp</td>" +
+                                    "<td width=50%>" + "History: " + (position.length - index) + " / " + position.length + "</td>" +
+                                "</tr>" +
+                            "</table>"
 
                         return(contentString)
                     };

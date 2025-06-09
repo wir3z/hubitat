@@ -127,7 +127,11 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	- Paste the API key provided into the box.
 - Map will only auto-zoom to fit members within this distance from home or a member.  
 	- Entering 0 will allow the map to zoom out to fit all members.  Entering a distance will limit the amount of zoom.
-	- If the member name is appended to the end of the Google Family Map URL, that member will be used for the auto-zoom distance check.	
+	- If the member name is appended to the end of the Google Family Map URL, that member will be used for the auto-zoom distance check.
+- Scale value for casting to 1024x600 or 1280x800 smart displays
+	- Allows zoom on Google Nest Hub displays or Amazon Show displays.
+- Enable to allow auto-zoom to zoom in closer when all member(s) are in the same area.
+	- Enable to zoom to house level zoom.  Disable for neighborhood level zoom.
 	
 #### Member History and Pin Colors
 - Enter the opacity value for the member accuracy radius
@@ -138,10 +142,11 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 - Time in minutes between adjacent history locations to denote an end of trip
 - Remove previous history location if member is moving in the same direction
 	- Select the slide to remove history points with similar bearings (value entered in the next setting).
-	- Locations with bearings within this number of degrees are removed to reduce history size 
-- Scale value for the past member locations dots.
+	- Locations with bearings within this number of degrees are removed to reduce history size
+- Scale value for the member details in the info boxes and map drawer.
+	- Swiping up from the button of the Google Family Map will display the member information drawer.  This scaler changes the details size.
+- Scale value for the past member locations 
 	- Scales the history dots based on the value entered.
-- Scale value for the past member locations lines/arrows.
 	- Scales the history lines/arrows based on the value entered.
 - Distance between repeat arrows on the history lines
 	- Enter the number of pixels between each directional arrow on the history lines.  The smaller the number, the closer the arrows are together.
@@ -157,10 +162,6 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	- or an HTML color code starting with # (ie: #191970) (https://www.w3schools.com/colors/colors_picker.asp)
 	- Select each member from the drop box and change their respective glyph/history colors.  
 	- NOTE:  If thumbnails are enabled, the image will replace the pin's glyph.
-- Scale value for the member thumbnails in the map drawer.
-	- Swiping up from the button of the Google Family Map will display the member information drawer.  This scaler changes the thumbnail or colored dot sizes.
-- Scale value for the member details in the map drawer.
-	- Swiping up from the button of the Google Family Map will display the member information drawer.  This scaler changes the details size.
 
 #### Region Pin Colors
 - Change the region pin color, as well as the glyph (center circle of the pin) colors.
