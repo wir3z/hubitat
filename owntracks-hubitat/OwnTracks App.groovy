@@ -4802,12 +4802,12 @@ def generateGoogleFriendsMap() {
                                         for (let loc=0; loc<locations.length; loc++) {
                                             if (locations[loc].id == data.members[mem].id) {
                                                 // save a previous image to prevent the copy from deleting it
-                                                if ("img" in locations[loc]) {
-                                                    img = locations[loc].img
-                                                }
+                                                img = locations[loc] && locations[loc].img;
                                                 // update the location data
                                                 locations[loc] = data.members[mem];
-                                                if (img) locations[loc].img = img;
+												if (img) {
+													locations[loc].img = img;
+												}
                                                 // update the marker data
                                                 center = {};
                                                 center["lat"] = data.members[mem].lat;
