@@ -166,6 +166,7 @@
  *  1.8.19	   2025-05-23	   - Added scalers to the map zoom in mobile portrait mode and the drawer member details.
  *  1.8.20	   2025-06-01	   - Fixed the zoom issues and removed the mobile portrait mode zoom for the Google Family map.  Fixed race condition when the thumbnails were loading on the family map.  Fixed issue where new users were not being added to the default group.
  *  1.8.21     2025-06-07      - Google Family Map: Improved zooming on members and member drawer.  Selecting a member row in the drawer selects that member.  Address issue that could lead to thumbnails not being displayed.  Added zoom option for smart displays (Nest, Amazon).
+ *  1.8.22	   2025-07-02	   - Added member battery level to each history point.
 */
 
 import groovy.transform.Field
@@ -174,7 +175,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.21" }
+def appVersion() { return "1.8.22" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -324,11 +325,11 @@ preferences {
 }
 
 def mainPage() {
-    // PAST CLEANUP - REMOVE IN FUTURE VERSION - added 1.8.21
-    app.remove("memberHistoryStroke")
-	app.remove("mobileBrowserScale")
-	app.remove("memberThumbnailScale")
-	app.remove("memberDrawerScale")
+    // PAST CLEANUP - REMOVE IN FUTURE VERSION - added 1.8.22
+    app.removeSetting("memberHistoryStroke")
+	app.removeSetting("mobileBrowserScale")
+	app.removeSetting("memberThumbnailScale")
+	app.removeSetting("memberDrawerScale")
     // PAST CLEANUP - REMOVE IN FUTURE VERSION
 
     // clear the setting fields
@@ -2382,7 +2383,7 @@ def updateMemberAttributes(headers, data, member) {
     // only save history on valid location types (ignore region and manual types)
     if (validLocationType(data.t)) {
         // first create the new member location so that the getHistoryMarker can clean up repeating events as necessary
-        def memberLocation = [ "lat": member.latitude, "lng": member.longitude, "acc": member.accuracy, "cog": member.bearing, "spd": member.speed, "odo": member.odo, "tst": member.timeStamp, "loc": data.streetAddress, "mkr": getHistoryMarker(member, data) ]
+        def memberLocation = [ "lat": member.latitude, "lng": member.longitude, "acc": member.accuracy, "cog": member.bearing, "spd": member.speed, "odo": member.odo, "tst": member.timeStamp, "bat": member.battery, "bs": member.bs, "loc": data.streetAddress, "mkr": getHistoryMarker(member, data) ]
         try {
             // if the history buffer is full
             if (member.history.size == memberHistoryLength.toInteger()) {
@@ -5172,6 +5173,7 @@ def generateGoogleFriendsMap() {
                             "<table style='white-space:nowrap;font-size:" + scaleText + "em'>" +
                                 "<tr>" +
                                     "<td align='left'><b>" + name + "</b></td>" +
+	                                "<td align='right'>" + (position[index].bs ? (position[index].bs == "2" ? "&#9889;" : "&#128267;") : "") + (position[index].bat ? position[index].bat + "%" : "") + "</td>" +
                                 "</tr>" +
                                 "<tr>" +
                                     "<td align='left'>" + position[index].loc + "</td>" +
