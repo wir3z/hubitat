@@ -426,6 +426,8 @@ The defaults for the rest of these settings should be sufficient for verifying o
 - Create a notification if member leaves a region
 	- Sends Hubitat app notifications when the member leaves
 	NOTE:  Requires a notification device to be selected in the 'Configure Region Arrived/Departed Notifications' -> 'Select notification devices to get region enter/leave notifications."
+- Configure the number of seconds the member needs to be in the same region before the new transition update is sent.
+	- This is used to address arrived/departed ping-pong messages.
 - Enable Description Text logging
 	- Displays general descriptive logs (arrived, departed, etc.)
 - Enable Debug Logging

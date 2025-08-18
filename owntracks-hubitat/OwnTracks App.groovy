@@ -167,6 +167,7 @@
  *  1.8.20	   2025-06-01	   - Fixed the zoom issues and removed the mobile portrait mode zoom for the Google Family map.  Fixed race condition when the thumbnails were loading on the family map.  Fixed issue where new users were not being added to the default group.
  *  1.8.21     2025-06-07      - Google Family Map: Improved zooming on members and member drawer.  Selecting a member row in the drawer selects that member.  Address issue that could lead to thumbnails not being displayed.  Added zoom option for smart displays (Nest, Amazon).
  *  1.8.22	   2025-07-02	   - Added member battery level to each history point.
+ *  1.8.23	   2025-08-08	   - Removed past cleanup that removed drawer scaling.
 */
 
 import groovy.transform.Field
@@ -175,7 +176,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.22" }
+def appVersion() { return "1.8.23" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -325,13 +326,6 @@ preferences {
 }
 
 def mainPage() {
-    // PAST CLEANUP - REMOVE IN FUTURE VERSION - added 1.8.22
-    app.removeSetting("memberHistoryStroke")
-	app.removeSetting("mobileBrowserScale")
-	app.removeSetting("memberThumbnailScale")
-	app.removeSetting("memberDrawerScale")
-    // PAST CLEANUP - REMOVE IN FUTURE VERSION
-
     // clear the setting fields
     clearSettingFields()
     app.removeSetting("regionToCheck")
@@ -2440,7 +2434,7 @@ def updateDevicePresence(member, data) {
             logWarn("No 'Home' location has been defined.  Create a 'Home' region to enable presence detection.")
         }
         // update the child information
-        deviceWrapper.generatePresenceEvent(member, getHomeRegion().desc, data)
+        deviceWrapper.generateLocationEvent(member, getHomeRegion().desc, data)
     } catch(e) {
         logError("updateDevicePresence: Exception for member: ${member.name}  $e")
     }

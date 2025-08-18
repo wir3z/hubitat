@@ -141,12 +141,13 @@
  *  1.8.1      2024-12-14      - Ignore duplicate transition events if they occur within 5-seconds of the previous one.
  *  1.8.2      2024-12-20      - Force an update to the transition attributes to eliminate cache delays.
  *  1.8.3      2025-04-13      - Send the "switch off" during installation.
+ *  1.8.4      2025-07-27      - Added a deadband to prevent transition and presence  arrived/departed ping-pong notifications.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.8.3" }
+def driverVersion() { return "1.8.4" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -170,7 +171,7 @@ def driverVersion() { return "1.8.3" }
 @Field String  DEFAULT_privateLocation = "Private"
 @Field Boolean DEFAULT_lastLocationViewTracks = false
 @Field Number  DEFAULT_pastLocationSearchWindow = 0.5
-@Field Number  DEFAULT_transitionDeadBandSeconds = 5
+@Field Number  DEFAULT_notificationHysteresisSeconds = 90
 
 metadata {
   definition (
@@ -238,6 +239,7 @@ preferences {
     input name: "displayLastLocationTile", type: "bool", title: "Create a HTML PastLocations tile", defaultValue: DEFAULT_displayLastLocationTile
     input name: "lastLocationViewTracks", type: "bool", title: "Past locations history defaults to lines instead of points", defaultValue: DEFAULT_lastLocationViewTracks
     input name: "pastLocationSearchWindow", type: "decimal", title: "PastLocations tile search window start date is this many days from current date (0.1..31)", range: "0.1..31.0", defaultValue: DEFAULT_pastLocationSearchWindow
+    input name: "notificationHysteresisSeconds", type: "number", title: "Number of seconds the member needs to be in the same region before the new transition update is sent (0..300).  Used to address arrived/departed ping-pong notifications, Default ${DEFAULT_notificationHysteresisSeconds} seconds", range: "0..300", defaultValue: DEFAULT_notificationHysteresisSeconds
 
     input name: "descriptionTextOutput", type: "bool", title: "Enable Description Text logging", defaultValue: DEFAULT_descriptionTextOutput
     input name: "debugOutput", type: "bool", title: "Enable Debug Logging", defaultValue: DEFAULT_debugOutput
@@ -247,12 +249,13 @@ preferences {
 
 def installed() {
     log.info "${device.name}: Location Tracker User Driver Installed"
-    sendEvent( name: "sinceTime", value: now(), isStateChange: true )
+    sendEvent( name: "sinceTime", value: now() )
     sendEvent( name: "switch", value: "off" )
     state.driverVersion = driverVersion()
-    state.memberPresence = ""
     state.memberName = ""
     state.homeName = ""
+    state.pendingTransitionUpdateData = ""
+    state.transitionDeadband = 0
     updated()
 }
 
@@ -261,37 +264,7 @@ def updated() {
     // generate / remove the member tile as required
     generateTiles()
     // remove the extended attributes if not enabled
-    if (!displayExtendedAttributes) {
-        deleteExtendedAttributes(false)
-    }
-}
-
-def deleteExtendedAttributes(makePrivate) {
-    device.deleteCurrentState('accuracy')
-    device.deleteCurrentState('verticalAccuracy')
-    device.deleteCurrentState('altitude')
-    device.deleteCurrentState('bearing')
-    device.deleteCurrentState('sourceTopic')
-    device.deleteCurrentState('dataConnection')
-    device.deleteCurrentState('batteryStatus')
-    device.deleteCurrentState('BSSID')
-    device.deleteCurrentState('triggerSource')
-    device.deleteCurrentState('monitoringMode')
-    if (makePrivate) {
-        device.deleteCurrentState('location')
-        device.deleteCurrentState('transition')
-        device.deleteCurrentState('since')
-        device.deleteCurrentState('battery')
-        device.deleteCurrentState('lastSpeed')
-        device.deleteCurrentState('distanceFromHome')
-        device.deleteCurrentState('wifi')
-        device.deleteCurrentState('batterySaver')
-        device.deleteCurrentState('hiberateAllowed')
-        device.deleteCurrentState('batteryOptimizations')
-        device.deleteCurrentState('locationPermissions')
-        device.deleteCurrentState('address')
-        device.deleteCurrentState('streetAddress')
-    }
+    deleteExtendedAttributes(false)
 }
 
 def on() {
@@ -305,52 +278,62 @@ def off() {
 }
 
 def arrived() {
-    updatePresenceEvent("enter", "present")
+    updatePresenceEvent("enter", "present", (now()/1000).toInteger())
 }
 
 def departed() {
-    updatePresenceEvent("leave", "not present")
-}
-
-def updatePresenceEvent(dataEvent, presenceState) {
-    createNotificationEvent(state.homeName, dataEvent, new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()), (now()/1000).toInteger(), presenceState)
-    generateTiles()
-}
-
-def createNotificationEvent(dataRegion, dataEvent, dataTime, dataTst, presenceState) {
-    lastTime = device.currentValue("sinceTime")
-    if (lastTime == null) lastTime = 0
-    deadBandWindow = (DEFAULT_transitionDeadBandSeconds - (dataTst - lastTime))
-  	descriptionText = device.displayName +  " has ${TRANSITION_PHRASES[dataEvent]} " + dataRegion
-    // skip transition notification updates if duplicates are received within the deadband window
-    if ((dataRegion == device.currentValue("transitionRegion")) && (TRANSITION_DIRECTION[dataEvent] == device.currentValue("transitionDirection")) && (deadBandWindow > 0)) {
-        logDescriptionText ("Skipping duplicate transition event: '$descriptionText' occured $deadBandWindow seconds ago.")
-    } else {
-	    sendEvent( name: "transitionRegion", value: dataRegion, isStateChange: true )
-    	sendEvent( name: "transitionTime", value: dataTime, isStateChange: true )
-	    sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION[dataEvent], isStateChange: true )
-	    logDescriptionText("$descriptionText")
-    	parent.generateTransitionNotification(state.memberName, TRANSITION_PHRASES[dataEvent], dataRegion, dataTime)
-	    // create a presence event if a state was passed
-    	if (presenceState) {
-	        descriptionText = device.displayName + " is " + presenceState
-    	    sendEvent (name: "presence", value: presenceState, descriptionText: descriptionText, isStateChange: true )
-	        logDescriptionText("$descriptionText")
-    	}
-    }
+    updatePresenceEvent("leave", "not present", (now()/1000).toInteger())
 }
 
 def createMemberTile() {
     generateTiles()
 }
 
-def updateAttributes(member, data, locationType) {
-    // remove the attributes if not enabled or the member is private
-    if (data.private || !displayExtendedAttributes) {
-         deleteExtendedAttributes(true)
+def updatePresenceEvent(dataEvent, presenceState, dataTst) {
+    createTransitionEvent(state.homeName, dataEvent, dataTst)
+    createPresenceEvent(presenceState, dataTst)
+    generateTiles()
+}
+
+def deleteExtendedAttributes(privateMember = false) {
+    if (!displayExtendedAttributes || privateMember) {
+        device.deleteCurrentState('accuracy')
+        device.deleteCurrentState('verticalAccuracy')
+        device.deleteCurrentState('altitude')
+        device.deleteCurrentState('bearing')
+        device.deleteCurrentState('sourceTopic')
+        device.deleteCurrentState('dataConnection')
+        device.deleteCurrentState('batteryStatus')
+        device.deleteCurrentState('BSSID')
+        device.deleteCurrentState('triggerSource')
+        device.deleteCurrentState('monitoringMode')
     }
-    // display the extended attributes if they were received, but only allow them to be removed on non-transition event
-    if (!data.private) {
+}
+
+def deletePrivateExtendedAttributes() {
+    device.deleteCurrentState('location')
+    device.deleteCurrentState('transition')
+    device.deleteCurrentState('since')
+    device.deleteCurrentState('battery')
+    device.deleteCurrentState('lastSpeed')
+    device.deleteCurrentState('distanceFromHome')
+    device.deleteCurrentState('wifi')
+    device.deleteCurrentState('batterySaver')
+    device.deleteCurrentState('hiberateAllowed')
+    device.deleteCurrentState('batteryOptimizations')
+    device.deleteCurrentState('locationPermissions')
+    device.deleteCurrentState('address')
+    device.deleteCurrentState('streetAddress')
+}
+
+def updateAttributes(data) {
+    // remove the attributes if not enabled or the member is private
+    deleteExtendedAttributes(data.private)
+    if (data.private) {
+        deletePrivateExtendedAttributes()
+    } else {
+        // display the extended attributes if they were received, but only allow them to be removed on non-transition event
+        locationType = (data._type == "location")
         if (data?.acc)         sendEvent (name: "accuracy", value: parent.displayMFtVal(data.acc))             else if (locationType) device.deleteCurrentState('accuracy')
         if (data?.vac)         sendEvent (name: "verticalAccuracy", value: parent.displayMFtVal(data.vac))     else if (locationType) device.deleteCurrentState('verticalAccuracy')
         if (data?.alt)         sendEvent (name: "altitude", value: parent.displayMFtVal(data.alt))             else if (locationType) device.deleteCurrentState('altitude')
@@ -371,101 +354,60 @@ def updateAttributes(member, data, locationType) {
         if (data?.BSSID)       sendEvent (name: "BSSID", value: data.BSSID)                                    else if (locationType) device.deleteCurrentState('BSSID')
         if (data?.t)           sendEvent (name: "triggerSource", value: TRIGGER_TYPE[data.t])                  else if (locationType) device.deleteCurrentState('triggerSource')
         if (data?.m)           sendEvent (name: "monitoringMode", value: MONITORING_MODE[data.m])              else if (locationType) device.deleteCurrentState('monitoringMode')
-
-        // process the additional status information
-        if (member?.wifi != null) {
-            sendEvent( name: "wifi", value: (member?.wifi ? "on" : "off") )
-            if (member?.wifi == 0) {
-                logDebug("Phone has WiFi turned off.  Please turn WiFi on.")
-            }
-        } else {
-            device.deleteCurrentState('wifi')
-        }
-        // only display the extra phone fields if they are in a non-optimal state
-        if (member?.ps == 1) {
-            sendEvent( name: "batterySaver", value: "on" )
-            logDebug("Phone is currently in battery saver mode")
-        } else {
-            device.deleteCurrentState('batterySaver')
-        }
-        if (member?.bo == 1) {
-            sendEvent( name: "batteryOptimizations", value: "Optimized/Restricted" )
-            logNonOptimalSettings("App setting: 'App battery usage' is 'Optimized' or 'Restricted'.  Please change to 'Unrestricted'")
-        } else {
-            device.deleteCurrentState('batteryOptimizations')
-        }
-        if (member?.hib == 1) {
-            sendEvent( name: "hiberateAllowed", value: "App can pause" )
-            logNonOptimalSettings("App setting: 'Pause app activity if unused' is 'Enabled'.  Please change to 'Disabled'")
-        } else {
-            device.deleteCurrentState('hiberateAllowed')
-        }
-        if ((member?.loc != null) && (member?.loc < 0)) {
-            sendEvent( name: "locationPermissions", value: LOCATION_PERMISION["${member?.loc}"])
-            logNonOptimalSettings("Location permissions currently set to '${LOCATION_PERMISION["${member?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
-        } else {
-            device.deleteCurrentState('locationPermissions')
-        }
     }
-
+    // update the coordinates so the member tile can populate correctly
+    if (data?.lat) sendEvent (name: "lat", value: data.lat)
+    if (data?.lon) sendEvent (name: "lon", value: data.lon)
     // needed for the presence detection check -- if the phone holds onto the SSID, check if we switched to wifi
     if ((data?.SSID) && ((data?.conn) == "w"))  sendEvent (name: "SSID", value: data.SSID) else if (locationType) device.deleteCurrentState('SSID')
 }
 
-Boolean generatePresenceEvent(member, homeName, data) {
-    // update the driver version if necessary
-    if (state.driverVersion != driverVersion()) {
-        state.driverVersion = driverVersion()
-    }
-    // update the member name if necessary
-    if (state.memberName != member.name) {
-        state.memberName = member.name
-    }
-    // update the home name if necessary
-    if (state.homeName != homeName) {
-        state.homeName = homeName
-    }
-    // defaults for the private member case
-    descriptionText = ""
-    currentLocation = DEFAULT_privateLocation
-
-    //logDebug("Member Data: $data")
-    if (data.private) {
-        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${(data.memberAtHome ? "'present'" : "'not present'")}, accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits()} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")}")
-    } else {
-        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${(data.memberAtHome ? "'present'" : "'not present'")} (Home Wifi: ${data.memberWiFiHome}, High Accuracy: ${member.dynamicLocaterAccuracy}), " +
-                 "${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt != null ? "Battery: ${data.batt}%, ":"")}${(data.vel != null ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}" +
-                 "accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }" +
-                 (debugLogAddresses ? ", Location: [${data.lat},${data.lon}] ${(data?.address ? ", Address: [${data.address}]" : "")} ${(data?.streetAddress ? ", Street Address: [${data.streetAddress}]" : "")} " : "") +
-                 "${(data?.inregions ? ", Regions: ${data.inregions}" : "")} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")} " )
-    }
-
-    // update the last location time
-    locationTime = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date())
-    sendEvent( name: "lastLocationtime", value: locationTime )
+def updateAdditionalAttributes(member) {
     sendEvent( name: "imperialUnits", value: parent.isimperialUnits() )
+    // process the additional status information
+    if (member?.wifi != null) {
+        sendEvent( name: "wifi", value: (member?.wifi ? "on" : "off") )
+        if (member?.wifi == 0) {
+            logDebug("Phone has WiFi turned off.  Please turn WiFi on.")
+        }
+    } else {
+        device.deleteCurrentState('wifi')
+    }
+    // only display the extra phone fields if they are in a non-optimal state
+    if (member?.ps == 1) {
+        sendEvent( name: "batterySaver", value: "on" )
+        logDebug("Phone is currently in battery saver mode")
+    } else {
+        device.deleteCurrentState('batterySaver')
+    }
+    if (member?.bo == 1) {
+        sendEvent( name: "batteryOptimizations", value: "Optimized/Restricted" )
+        logNonOptimalSettings("App setting: 'App battery usage' is 'Optimized' or 'Restricted'.  Please change to 'Unrestricted'")
+    } else {
+        device.deleteCurrentState('batteryOptimizations')
+    }
+    if (member?.hib == 1) {
+        sendEvent( name: "hiberateAllowed", value: "App can pause" )
+        logNonOptimalSettings("App setting: 'Pause app activity if unused' is 'Enabled'.  Please change to 'Disabled'")
+    } else {
+        device.deleteCurrentState('hiberateAllowed')
+    }
+    if ((member?.loc != null) && (member?.loc < 0)) {
+        sendEvent( name: "locationPermissions", value: LOCATION_PERMISION["${member?.loc}"])
+        logNonOptimalSettings("Location permissions currently set to '${LOCATION_PERMISION["${member?.loc}"]}'.  Please change to 'Allow all the time' and 'Use precise location'")
+    } else {
+        device.deleteCurrentState('locationPermissions')
+    }
+}
 
-    // update the attributes - only allow attribute deletion on location updates
-    updateAttributes(member, data, (data._type == "location"))
-
-    // update the coordinates so the member tile can populate correctly
-    if (data?.lat) sendEvent (name: "lat", value: data.lat)
-    if (data?.lon) sendEvent (name: "lon", value: data.lon)
-
-    // only log additional data if the user is not marked as private
-    if (!data.private) {
-        // if we have a tranistion event
+def getCurrentLocation(data) {
+    // retrieves the current location from the data packet
+    if (data.private) {
+        currentLocation = DEFAULT_privateLocation
+    } else {
+        // if we have a transition event
         if (data._type == "transition") {
             currentLocation = data.desc
-            // only allow the transition event / notifications for non-home regions.  Home will be addressed in the presence check below
-            if (state.homeName != data.desc) {
-                // create the notification event, update the transition and log the message
-                createNotificationEvent(data.desc, data.event, locationTime, data.tst, "")
-                // only update the time if there was a state change
-                if ((device.currentValue('transitionDirection') != data.event) || (device.currentValue('transitionRegion') != data.desc)) {
-                    sendEvent( name: "sinceTime", value: data.tst, isStateChange: true )
-                }
-            }
         } else {
             // if we are in a region stored in the app
             if (data.inregions) {
@@ -482,41 +424,162 @@ Boolean generatePresenceEvent(member, homeName, data) {
                 // display the street address if it was reported (or the default lat,lon if no geocodeing was sent from the app)
                 currentLocation = data.streetAddress
             }
-            descriptionText = device.displayName +  " is at " + currentLocation
-
-            // only log if there was a valid time, a location change and log changes is enabled
-            if (device.currentValue("location") != currentLocation) {
-                if (logLocationChanges) log.info "$descriptionText"
-                sendEvent( name: "sinceTime", value: data.tst, isStateChange: true )
-            }
         }
+    }
+    return (currentLocation)
+}
 
-        long sinceTimeMilliSeconds = device.currentValue("sinceTime")
-        sinceDate = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date(sinceTimeMilliSeconds * 1000))
-        tileDate = new SimpleDateFormat("E h:mm a").format(new Date(sinceTimeMilliSeconds * 1000))
+def createTransitionEvent(dataRegion, dataEvent, dataTst) {
+    // set the deadband to a future time
+    state.transitionDeadband = dataTst + notificationHysteresisSeconds
+    // skip duplicate transition events
+    if ((TRANSITION_DIRECTION[dataEvent] != device.currentValue('transitionDirection')) || (dataRegion != device.currentValue('transitionRegion'))) {
+        dataTime = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date((long)dataTst * 1000))
+        descriptionText = device.displayName +  " has ${TRANSITION_PHRASES[dataEvent]} " + dataRegion
+        logDescriptionText("$descriptionText")
 
-        sendEvent( name: "since", value: sinceDate )
-        sendEvent( name: "distanceFromHome", value:  parent.displayKmMiVal(data.currentDistanceFromHome) )
-        if (data?.vel) {
-            sendEvent( name: "lastSpeed", value:  parent.displayKmMiVal(data.vel).toInteger() )
-        } else {
-            sendEvent( name: "lastSpeed", value:  0 )
-        }
+        sendEvent( name: "transitionRegion", value: dataRegion )
+        sendEvent( name: "transitionTime", value: dataTime )
+        sendEvent( name: "transitionDirection", value: TRANSITION_DIRECTION[dataEvent] )
+        sendEvent( name: "sinceTime", value: dataTst )
+        parent.generateTransitionNotification(state.memberName, TRANSITION_PHRASES[dataEvent], dataRegion, dataTime)
+	} else {
+    	logDebug("Skipping duplicate transition event '${dataEvent} ${dataRegion} at ${new SimpleDateFormat("E h:mm:ss a yyyy-MM-dd").format(new Date((long)dataTst * 1000))}'.")
+	}
+}
 
-        generateMemberTile()
+def createPresenceEvent(presenceState, dataTst) {
+    // skip duplicate presence events
+    if (device.currentValue("presence") != presenceState) {
+        descriptionText = device.displayName + " is " + presenceState
+        sendEvent (name: "presence", value: presenceState, descriptionText: descriptionText )
+        logDescriptionText("$descriptionText")
+        updateSinceTime(dataTst)
+        generatePresenceTile()
+    } else {
+        logDebug("Skipping duplicate presence event '${state.memberName} ${presenceState}' at ${new SimpleDateFormat("E h:mm:ss a yyyy-MM-dd").format(new Date((long)dataTst * 1000))}.")
+    }
+}
+
+def updateSinceTime (dataTst) {
+    // update the timestamp and string date for the last location change
+	sendEvent( name: "sinceTime", value: dataTst )
+    sendEvent( name: "since", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date((long)dataTst * 1000)) )
+}
+
+Boolean generateLocationEvent(member, homeName, data) {
+// ADDED IN 1.8.4 for cleanup
+if (state.memberPresence) state.remove("memberPresence")
+// ADDED IN 1.8.4 for cleanup
+
+    // update the driver version if necessary
+    if (state.driverVersion != driverVersion()) {
+        state.driverVersion = driverVersion()
+    }
+    // update the member name if necessary
+    if (state.memberName != member.name) {
+        state.memberName = member.name
+    }
+    // update the home name if necessary
+    if (state.homeName != homeName) {
+        state.homeName = homeName
+    }
+    // update the attributes
+    updateAttributes(data)
+    // update the additional attributes from the forked version
+    updateAdditionalAttributes(member)
+
+    if (state.transitionDeadband == null) state.transitionDeadband = 0
+    if (notificationHysteresisSeconds == null) notificationHysteresisSeconds = DEFAULT_notificationHysteresisSeconds
+
+    //logDebug("Member Data: $data")
+    if (data.private) {
+        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${(data.memberAtHome ? "'present'" : "'not present'")}, accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits()} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")}")
+    } else {
+        logDebug("Updating '${(data.event ? "Event ${data.event}" : (data.t ? TRIGGER_TYPE[data.t] : "Location"))}' presence for ${device.displayName} -- ${(data.memberAtHome ? "'present'" : "'not present'")} (Home Wifi: ${data.memberWiFiHome}, High Accuracy: ${member.dynamicLocaterAccuracy}), " +
+                 "${parent.displayKmMiVal(data.currentDistanceFromHome)} ${parent.getLargeUnits()} from Home, ${(data.batt != null ? "Battery: ${data.batt}%, ":"")}${(data.vel != null ? "Velocity: ${parent.displayKmMiVal(data.vel)} ${parent.getVelocityUnits()}, ":"")}" +
+                 "accuracy: ${parent.displayMFtVal(data.acc)} ${parent.getSmallUnits() }" +
+                 (debugLogAddresses ? ", Location: [${data.lat},${data.lon}] ${(data?.address ? ", Address: [${data.address}]" : "")} ${(data?.streetAddress ? ", Street Address: [${data.streetAddress}]" : "")} " : "") +
+                 "${(data?.inregions ? ", Regions: ${data.inregions}" : "")} ${(data?.SSID ? ", SSID: ${data.SSID}" : "")} " )
     }
 
-    // allowed all the time
-    memberPresence = (data.memberAtHome ? "present" : "not present")
-    if (state.memberPresence != memberPresence) {
-        // in case we missed the transition event, update the attributes to align to the presence
-        createNotificationEvent(state.homeName, (data.memberAtHome ? "enter" : "leave"), locationTime, data.tst, memberPresence)
+    // update the last location time
+    sendEvent( name: "lastLocationtime", value: new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date()) )
+
+    // get the required data for the current or pending update
+    updateData = [
+        desc: data.desc,
+        event: data.event,
+        _type: data._type,
+        currentDistanceFromHome: data.currentDistanceFromHome,
+        vel: data.vel,
+        tst: data.tst,
+        memberPresence: (data.memberAtHome ? "present" : "not present"),
+        memberAtHome: data.memberAtHome,
+        currentLocation: getCurrentLocation(data),
+    ]
+
+    // if transition message occurs, we are in the same region and the deadband has not expired
+    if ((data?.desc == device.currentValue("transitionRegion")) && (data.tst < state.transitionDeadband)) {
+        // set the deadband to a future time
+        state.transitionDeadband = data.tst + notificationHysteresisSeconds
+        // store the pending update
+        state.pendingTransitionUpdateData = updateData
+        // reschedule a update to trigger after the deadband expires
+        unschedule(processScheduledTransitionEvent)
+        runIn((state.transitionDeadband - data.tst), processScheduledTransitionEvent)
+        if (!data.private) logDebug("Scheduling transition update for '${data.event} ${data?.desc} at ${new SimpleDateFormat("E h:mm:ss a yyyy-MM-dd").format(new Date((long)data.tst * 1000))}' to occur in ${(state.transitionDeadband - data.tst)} seconds.")
+    } else {
+        if (data._type == "transition") {
+            // if we had a pending transition update process it first
+            processScheduledTransitionEvent()
+        }
+        // send the latest notification
+        processLocationEvent(updateData)
     }
-    state.memberPresence = memberPresence
-    sendEvent( name: "location", value: currentLocation )
-    generatePresenceTile()
+
+    // if we missed a presence change and we don't have a hysteresis event pending
+    if ((device.currentValue("presence") != updateData.memberPresence) && (data.tst > state.transitionDeadband)) {
+        createTransitionEvent(state.homeName, (updateData.memberPresence == "present" ? "enter" : "leave"), data.tst)
+        createPresenceEvent(updateData.memberPresence, updateData.tst)
+        logDescriptionText("Correcting presence of '${state.memberName}' to '${updateData.memberPresence}'.")
+    }
 
     return true
+}
+
+void processScheduledTransitionEvent() {
+    // cancel any pending tranistion updates
+    unschedule(processScheduledTransitionEvent)
+	if (state.pendingTransitionUpdateData) processLocationEvent(state.pendingTransitionUpdateData)
+    // clear the pending updates
+    state.pendingTransitionUpdateData = ""
+}
+
+void processLocationEvent(data) {
+    // mask private data
+    if (!data.private) {
+        // if we have a transition event
+        if (data._type == "transition") {
+            // create the notification event, update the transition and log the message
+            createTransitionEvent(data.desc, data.event, data.tst)
+        } else {
+            // only log if there was a location change
+            if (device.currentValue("location") != data.currentLocation) {
+                if (logLocationChanges) log.info "${device.displayName} is at $data.currentLocation"
+                updateSinceTime(data.tst)
+            }
+        }
+	    sendEvent( name: "distanceFromHome", value: parent.displayKmMiVal(data.currentDistanceFromHome) )
+    	sendEvent( name: "lastSpeed", value: (data?.vel ? parent.displayKmMiVal(data.vel).toInteger() : 0) )
+    }
+    // we only get .desc on a transition event
+    if (state.homeName == data.desc) {
+        // trigger a presence update
+        createPresenceEvent(data.memberPresence, data.tst)
+    }
+    sendEvent( name: "location", value: data.currentLocation )
+    generateMemberTile()
 }
 
 def generateTiles() {
@@ -542,7 +605,6 @@ def generatePastLocationsTile() {
     } else {
         device.deleteCurrentState('PastLocations')
     }
-
 }
 
 def generatePresenceTile() {
