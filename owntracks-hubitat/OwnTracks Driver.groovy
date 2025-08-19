@@ -142,12 +142,13 @@
  *  1.8.2      2024-12-20      - Force an update to the transition attributes to eliminate cache delays.
  *  1.8.3      2025-04-13      - Send the "switch off" during installation.
  *  1.8.4      2025-07-27      - Added a deadband to prevent transition and presence  arrived/departed ping-pong notifications.
+ *  1.8.5      2025-08-19      - Fixed timestamp type causing exceptions during transitions.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.8.4" }
+def driverVersion() { return "1.8.5" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -431,7 +432,7 @@ def getCurrentLocation(data) {
 
 def createTransitionEvent(dataRegion, dataEvent, dataTst) {
     // set the deadband to a future time
-    state.transitionDeadband = dataTst + notificationHysteresisSeconds
+    state.transitionDeadband = dataTst.toInteger() + notificationHysteresisSeconds
     // skip duplicate transition events
     if ((TRANSITION_DIRECTION[dataEvent] != device.currentValue('transitionDirection')) || (dataRegion != device.currentValue('transitionRegion'))) {
         dataTime = new SimpleDateFormat("E h:mm a yyyy-MM-dd").format(new Date((long)dataTst * 1000))
