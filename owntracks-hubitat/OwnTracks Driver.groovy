@@ -145,12 +145,13 @@
  *  1.8.5      2025-08-19      - Fixed timestamp type causing exceptions during transitions.
  *  1.8.6      2025-08-19      - Fixed timestamp type causing exceptions during transitions.
  *  1.8.7      2025-08-20      - Fixed migration issue with transition deadband.
+ *  1.8.8      2025-08-26      - Fixed issue with private members.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.8.7" }
+def driverVersion() { return "1.8.8" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -315,7 +316,9 @@ def deleteExtendedAttributes(privateMember = false) {
 
 def deletePrivateExtendedAttributes() {
     device.deleteCurrentState('location')
-    device.deleteCurrentState('transition')
+    device.deleteCurrentState('transitionRegion')
+    device.deleteCurrentState('transitionDirection')
+    device.deleteCurrentState('transitionTime')
     device.deleteCurrentState('since')
     device.deleteCurrentState('battery')
     device.deleteCurrentState('lastSpeed')
@@ -412,6 +415,8 @@ def getCurrentLocation(data) {
         if (data._type == "transition") {
             currentLocation = data.desc
         } else {
+            // default to display the street address if it was reported (or the default lat,lon if no geocodeing was sent from the app)
+            currentLocation = data.streetAddress
             // if we are in a region stored in the app
             if (data.inregions) {
                 locationList = ""
@@ -421,11 +426,10 @@ def getCurrentLocation(data) {
                         locationList += "$place,"
                     }
                 }
-                // remove the trailing comma
-                currentLocation = locationList.substring(0, locationList.length() - 1)
-            } else {
-                // display the street address if it was reported (or the default lat,lon if no geocodeing was sent from the app)
-                currentLocation = data.streetAddress
+                if (locationList) {
+                	// remove the trailing comma
+	                currentLocation = locationList.substring(0, locationList.length() - 1)
+                }
             }
         }
     }
@@ -519,6 +523,7 @@ if (state.memberPresence) state.remove("memberPresence")
         memberPresence: (data.memberAtHome ? "present" : "not present"),
         memberAtHome: data.memberAtHome,
         currentLocation: getCurrentLocation(data),
+        private: data.private,
     ]
 
     // if transition message occurs, we are in the same region and the deadband has not expired
