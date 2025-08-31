@@ -146,12 +146,13 @@
  *  1.8.6      2025-08-19      - Fixed timestamp type causing exceptions during transitions.
  *  1.8.7      2025-08-20      - Fixed migration issue with transition deadband.
  *  1.8.8      2025-08-26      - Fixed issue with private members.
+ *  1.8.9      2025-08-31      - Added member attribute for the mobile app version.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.8.8" }
+def driverVersion() { return "1.8.9" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -212,6 +213,7 @@ metadata {
         attribute  "hiberateAllowed", "string"
         attribute  "batteryOptimizations", "string"
         attribute  "locationPermissions", "string"
+        attribute  "mobileAppVersion", "string"
 
         attribute  "MemberLocation", "string"
         attribute  "PastLocations", "string"
@@ -370,6 +372,11 @@ def updateAttributes(data) {
 
 def updateAdditionalAttributes(member) {
     sendEvent( name: "imperialUnits", value: parent.isimperialUnits() )
+    if (member?.appVersion != null) {
+        sendEvent( name: "mobileAppVersion", value: member?.appVersion )
+    } else {
+        device.deleteCurrentState('mobileAppVersion')
+    }
     // process the additional status information
     if (member?.wifi != null) {
         sendEvent( name: "wifi", value: (member?.wifi ? "on" : "off") )
