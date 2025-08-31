@@ -2,8 +2,10 @@ package org.owntracks.android.support.receiver
 
 import android.app.ForegroundServiceStartNotAllowedException
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -13,6 +15,13 @@ import timber.log.Timber
 
 @AndroidEntryPoint
 class StartBackgroundServiceReceiver : BroadcastReceiver() {
+  companion object {
+    fun enable(context: Context) {
+      val receiver = ComponentName(context, StartBackgroundServiceReceiver::class.java)
+      context.packageManager.setComponentEnabledSetting(
+          receiver, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
+    }
+  }
 
   @Inject lateinit var preferences: Preferences
 
@@ -29,6 +38,7 @@ class StartBackgroundServiceReceiver : BroadcastReceiver() {
             context.startForegroundService(startIntent)
           } catch (e: ForegroundServiceStartNotAllowedException) {
             Timber.e(
+                e,
                 "Unable to start foreground service, because Android has prevented it. " +
                     "This should not happen if intent action is ${Intent.ACTION_MY_PACKAGE_REPLACED} or " +
                     "${Intent.ACTION_BOOT_COMPLETED}. intent action was ${intent.action}")

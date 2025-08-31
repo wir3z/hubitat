@@ -1,19 +1,56 @@
 # Changelog
 
+## Version 2.5.4
+
+### New features
+
+- Galician Translation (thanks to Miguel Anxo Bouzada)
+- Hebrew Translation (thanks to Ahiel and Natan)
+- Dutch Translation (thanks to all contributors)
+- Setting a preference that doesn't actually change the value won't have any effects (such as MQTT reconnecting) (#1875)
+- Status messages contain the app version and flavour
+- There's now an option to send a remote command "request location" to selected contacts from the map view
+- New experimental preference `discardNetworkLocationThresholdSeconds` that allows OT to discard locations from inaccurate providers (e.g. network) if there's been a recent location from an accurate provider (e.g. gps/fused). (#2053)
+
+### Bug fixes
+
+- Try to not block the main thread when generating an Status Message, which causes an ANR
+- Messages that fail to send because the endpoint isn't ready now retry every 10 seconds, not every second
+- Import config screen displays JSON config LTR under RTL locales
+- setting / importing configuration options that are enums are now case-insensitive
+- Fix regression where setting the locatorPriority preference using a number wasn't working (#1874)
+- Slightly less noisey and more useful logging at the info level
+- Persistent notification updates its "when" displayed time to be that of the last update (#1954)
+
+## Version 2.5.3
+
+### New features
+
+- OSM map is a little easier to zoom without accidentally rotating (#1825)
+
+### Bug fixes
+
+- Use AGP-provided version of R8 rather than version from Google so that F-Droid can build it (#1852)
+
 ## Version 2.5.2
 
 ### New features
 
 - Added `cog` field to location messages showing current bearing (#1777)
 - Added `status` remote command to retrieve system configuration status (#1618)
+- On crash, details written to file and then printed at the top of the log next time OT starts
 
 ### Bug fixes
 
 - Fix crash where changing the theme via setting the preferences remotely causes the theme change to not happen on the main thread
 - Fix crash where trying to close the MQTT connection whilst it's connecting thows an unhandled exception
 - Only latest stop reason should be printed to logs on startup
-- Fix bug where geofencing client wasn't initialized properly, leading to very unreliable region transition detection
+- Fix bug where geofencing client wasn't initialized properly, leading to very unreliable region transition detection (#1764)
 - Fix bug where some settings (`pubQos`, `mqttProtocolLevel` etc.) couldn't be set via the config editor (#1801)
+- Fix crash when trying to decode an invalid face image on an info card
+- Fix MQTT disconnect when receiving an encrypted message that can't be decrypted (#1831)
+- Fix HTTP client certs not working properly with Nginx (#1793)
+- Fix ability to handle trigger="v" and "C" locations generated from iOS (#1768)
 
 ## Version 2.5.1
 

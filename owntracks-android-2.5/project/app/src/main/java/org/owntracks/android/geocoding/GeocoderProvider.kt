@@ -1,6 +1,5 @@
 package org.owntracks.android.geocoding
 
-import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -52,10 +51,10 @@ constructor(
           withContext(ioDispatcher) {
             geocoder =
                 when (preferences.reverseGeocodeProvider) {
-                  ReverseGeocodeProvider.OPENCAGE ->
+                  ReverseGeocodeProvider.OpenCage ->
                       OpenCageGeocoder(preferences.opencageApiKey, httpClient)
-                  ReverseGeocodeProvider.DEVICE -> DeviceGeocoder(context)
-                  ReverseGeocodeProvider.NONE -> GeocoderNone()
+                  ReverseGeocodeProvider.Device -> DeviceGeocoder(context)
+                  ReverseGeocodeProvider.None -> GeocoderNone()
                 }
           }
         }
@@ -89,7 +88,6 @@ constructor(
         else -> null
       }
 
-  @SuppressLint("MissingPermission")
   private fun maybeCreateErrorNotification(result: GeocodeResult) {
     if (result is GeocodeResult.Formatted ||
         result is GeocodeResult.Empty ||

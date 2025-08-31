@@ -36,7 +36,6 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.components.SingletonComponent
 import java.time.Duration
-import java.util.LinkedList
 import java.util.concurrent.TimeUnit
 import java.util.stream.Collectors
 import javax.inject.Inject
@@ -46,10 +45,10 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import org.owntracks.android.App
-import org.owntracks.android.App.Companion.NOTIFICATION_GROUP_EVENTS
-import org.owntracks.android.App.Companion.NOTIFICATION_ID_EVENT_GROUP
-import org.owntracks.android.App.Companion.NOTIFICATION_ID_ONGOING
+import org.owntracks.android.BaseApp.Companion.NOTIFICATION_CHANNEL_EVENTS
+import org.owntracks.android.BaseApp.Companion.NOTIFICATION_GROUP_EVENTS
+import org.owntracks.android.BaseApp.Companion.NOTIFICATION_ID_EVENT_GROUP
+import org.owntracks.android.BaseApp.Companion.NOTIFICATION_ID_ONGOING
 import org.owntracks.android.R
 import org.owntracks.android.data.repos.ContactsRepo
 import org.owntracks.android.data.repos.EndpointStateRepo
@@ -88,7 +87,7 @@ import timber.log.Timber
 @AndroidEntryPoint
 class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeListener {
   private var lastLocation: Location? = null
-  private val activeNotifications = LinkedList<Spannable>()
+  private val activeNotifications = mutableListOf<Spannable>()
   private var hasBeenStartedExplicitly = false
 
   @Inject lateinit var preferences: Preferences
@@ -193,7 +192,7 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
         launch {
           waypointsRepo.migrationCompleteFlow.collect {
             if (it) {
-              waypointsRepo.operations.collect { waypointOperation ->
+              waypointsRepo.repoChangedEvent.collect { waypointOperation ->
                 when (waypointOperation) {
                   is WaypointsRepo.WaypointOperation.Insert ->
                       locationProcessor.publishWaypointMessage(waypointOperation.waypoint)
@@ -244,6 +243,7 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     Timber.v("Backgroundservice onStartCommand intent=$intent")
     super.onStartCommand(intent, flags, startId)
     handleIntent(intent)
+    startForegroundService()
     return START_STICKY
   }
 
@@ -259,9 +259,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       when (intent.action) {
         INTENT_ACTION_SEND_LOCATION_USER -> {
           lifecycleScope.launch {
-            locationProviderClient.singleHighAccuracyLocation(
-                callbackForReportType[MessageLocation.ReportType.USER]!!.value,
-                runThingsOnOtherThreads.getBackgroundLooper())
+            if (requirementsChecker.hasLocationPermissions()) {
+              locationProviderClient.singleHighAccuracyLocation(
+                  callbackForReportType[MessageLocation.ReportType.USER]!!.value,
+                  runThingsOnOtherThreads.getBackgroundLooper())
+            }
           }
           return
         }
@@ -321,8 +323,7 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     }
   }
 
-  private fun setupAndStartService() {
-    Timber.v("setupAndStartService")
+  private fun startForegroundService() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
       try {
         startForeground(
@@ -343,6 +344,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     } else {
       startForeground(NOTIFICATION_ID_ONGOING, ongoingNotification.getNotification())
     }
+  }
+
+  private fun setupAndStartService() {
+    Timber.v("setupAndStartService")
+    startForegroundService()
     setupLocationRequest()
     scheduler.scheduleLocationPing()
     messageProcessor.initialize()
@@ -405,19 +411,31 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
             })
     val eventText = "$transitionText $location"
     val whenStr = formatDate(timestampInMs)
-    activeNotifications.push(
-        SpannableString("$whenStr $title $eventText").apply {
-          setSpan(
-              StyleSpan(Typeface.BOLD), 0, whenStr.length + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-        })
-    Timber.v("groupedNotifications: ${activeNotifications.size}")
-    val summary =
-        resources.getQuantityString(
-            R.plurals.notificationEventsTitle, activeNotifications.size, activeNotifications.size)
-    val inbox = NotificationCompat.InboxStyle().setSummaryText(summary)
-    activeNotifications.forEach { inbox.addLine(it) }
+    // Need to lock to prevent "clear()" being called while we're adding to it
+    val summaryAndInbox =
+        synchronized(activeNotifications) {
+          activeNotifications.add(
+              SpannableString("$whenStr $title $eventText").apply {
+                setSpan(
+                    StyleSpan(Typeface.BOLD),
+                    0,
+                    whenStr.length + 1,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+              })
+          Timber.v("groupedNotifications: ${activeNotifications.size}")
+          val summary =
+              resources.getQuantityString(
+                  R.plurals.notificationEventsTitle,
+                  activeNotifications.size,
+                  activeNotifications.size)
+          val inbox = NotificationCompat.InboxStyle().setSummaryText(summary)
+          activeNotifications.forEach { inbox.addLine(it) }
+          Pair(summary, inbox)
+        }
+    val summary = summaryAndInbox.first
+    val inbox = summaryAndInbox.second
 
-    NotificationCompat.Builder(this, App.NOTIFICATION_CHANNEL_EVENTS)
+    NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_EVENTS)
         .setContentTitle(getString(R.string.events))
         .setContentText(summary)
         .setGroup(NOTIFICATION_GROUP_EVENTS) // same as group of single notifications
@@ -453,7 +471,7 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
 
   fun clearEventStackNotification() {
     Timber.v("clearing notification stack")
-    activeNotifications.clear()
+    synchronized(activeNotifications) { activeNotifications.clear() }
   }
 
   private suspend fun onGeofencingEvent(event: GeofencingEvent) {
@@ -485,95 +503,91 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
   }
 
   fun requestOnDemandLocationUpdate(reportType: MessageLocation.ReportType) {
-    if (locationPermissionIsMissing()) {
+    if (requirementsChecker.hasLocationPermissions()) {
+      Timber.d("On demand location request")
+      locationProviderClient.singleHighAccuracyLocation(
+          callbackForReportType[reportType]!!.value, runThingsOnOtherThreads.getBackgroundLooper())
+    } else {
       Timber.e("missing location permission")
-      return
     }
-    Timber.d("On demand location request")
-    locationProviderClient.singleHighAccuracyLocation(
-        callbackForReportType[reportType]!!.value, runThingsOnOtherThreads.getBackgroundLooper())
   }
 
-  private fun setupLocationRequest(): Boolean {
+  private fun setupLocationRequest(): Result<Unit> {
     Timber.v("setupLocationRequest")
-    if (locationPermissionIsMissing()) {
-      Timber.e("missing location permission")
-      return false
-    }
-
-    val monitoring = preferences.monitoring
-    var interval: Duration? = null
-    var smallestDisplacement: Float? = null
-    val priority: LocatorPriority
-    when (monitoring) {
-      MonitoringMode.QUIET,
-      MonitoringMode.MANUAL -> {
-        interval = Duration.ofSeconds(preferences.locatorInterval.toLong())
-        smallestDisplacement = preferences.locatorDisplacement.toFloat()
-        priority = preferences.locatorPriority ?: LocatorPriority.LowPower
-      }
-      MonitoringMode.SIGNIFICANT -> {
-        interval = Duration.ofSeconds(preferences.locatorInterval.toLong())
-        smallestDisplacement = preferences.locatorDisplacement.toFloat()
-        priority = preferences.locatorPriority ?: LocatorPriority.BalancedPowerAccuracy
-      }
-      MonitoringMode.MOVE -> {
-        interval = Duration.ofSeconds(preferences.moveModeLocatorInterval.toLong())
-        priority = preferences.locatorPriority ?: LocatorPriority.HighAccuracy
-      }
-    }
-    val fastestInterval =
-        if (preferences.pegLocatorFastestIntervalToInterval) {
-          interval
-        } else {
-          Duration.ofSeconds(1)
+    if (requirementsChecker.hasLocationPermissions()) {
+      val monitoring = preferences.monitoring
+      var interval: Duration? = null
+      var smallestDisplacement: Float? = null
+      val priority: LocatorPriority
+      when (monitoring) {
+        MonitoringMode.Quiet,
+        MonitoringMode.Manual -> {
+          interval = Duration.ofSeconds(preferences.locatorInterval.toLong())
+          smallestDisplacement = preferences.locatorDisplacement.toFloat()
+          priority = preferences.locatorPriority ?: LocatorPriority.LowPower
         }
-    val request =
-        LocationRequest(fastestInterval, smallestDisplacement, null, null, priority, interval, null)
-    Timber.d("location update request params: $request")
-    locationProviderClient.flushLocations()
-    locationProviderClient.requestLocationUpdates(
-        request,
-        callbackForReportType[MessageLocation.ReportType.DEFAULT]!!.value,
-        runThingsOnOtherThreads.getBackgroundLooper())
-    return true
+
+        MonitoringMode.Significant -> {
+          interval = Duration.ofSeconds(preferences.locatorInterval.toLong())
+          smallestDisplacement = preferences.locatorDisplacement.toFloat()
+          priority = preferences.locatorPriority ?: LocatorPriority.BalancedPowerAccuracy
+        }
+
+        MonitoringMode.Move -> {
+          interval = Duration.ofSeconds(preferences.moveModeLocatorInterval.toLong())
+          priority = preferences.locatorPriority ?: LocatorPriority.HighAccuracy
+        }
+      }
+      val fastestInterval =
+          if (preferences.pegLocatorFastestIntervalToInterval) {
+            interval
+          } else {
+            Duration.ofSeconds(1)
+          }
+      val request =
+          LocationRequest(
+              fastestInterval, smallestDisplacement, null, null, priority, interval, null)
+      Timber.d("location update request params: $request")
+      locationProviderClient.flushLocations()
+      locationProviderClient.requestLocationUpdates(
+          request,
+          callbackForReportType[MessageLocation.ReportType.DEFAULT]!!.value,
+          runThingsOnOtherThreads.getBackgroundLooper())
+      return Result.success(Unit)
+    } else {
+      return Result.failure(Exception("Missing location permission"))
+    }
   }
 
   private suspend fun setupGeofences() {
-    if (locationPermissionIsMissing()) {
-      Timber.e("missing location permission")
-      return
-    }
-    withContext(ioDispatcher) {
-      val waypoints = waypointsRepo.all
-      Timber.i("Setting up geofences for ${waypoints.size} waypoints")
-      val geofences =
-          waypoints
-              .map {
-                Geofence(
-                    it.id.toString(),
-                    Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT,
-                    2.minutes.inWholeMilliseconds.toInt(),
-                    it.geofenceLatitude,
-                    it.geofenceLongitude,
-                    it.geofenceRadius.toFloat(),
-                    Geofence.NEVER_EXPIRE,
-                    null)
-              }
-              .toList()
-      geofencingClient.removeGeofences(this@BackgroundService)
-      if (geofences.isNotEmpty()) {
-        val request = GeofencingRequest(Geofence.GEOFENCE_TRANSITION_ENTER, geofences)
-        geofencingClient.addGeofences(request, this@BackgroundService)
-      }
-    }
-  }
+    if (requirementsChecker.hasLocationPermissions()) {
 
-  private fun locationPermissionIsMissing(): Boolean {
-    return (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
-        PackageManager.PERMISSION_DENIED &&
-        ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
-            PackageManager.PERMISSION_DENIED)
+      withContext(ioDispatcher) {
+        val waypoints = waypointsRepo.getAll()
+        Timber.i("Setting up geofences for ${waypoints.size} waypoints")
+        val geofences =
+            waypoints
+                .map {
+                  Geofence(
+                      it.id.toString(),
+                      Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT,
+                      2.minutes.inWholeMilliseconds.toInt(),
+                      it.geofenceLatitude,
+                      it.geofenceLongitude,
+                      it.geofenceRadius.toFloat(),
+                      Geofence.NEVER_EXPIRE,
+                      null)
+                }
+                .toList()
+        geofencingClient.removeGeofences(this@BackgroundService)
+        if (geofences.isNotEmpty()) {
+          val request = GeofencingRequest(Geofence.GEOFENCE_TRANSITION_ENTER, geofences)
+          geofencingClient.addGeofences(request, this@BackgroundService)
+        }
+      }
+    } else {
+      Timber.e("Missing location permission")
+    }
   }
 
   fun onGeocodingProviderResult(latLng: LatLng, reverseGeocodedText: String) {
@@ -627,7 +641,7 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     Timber.v("Reinitializing location requests")
     runThingsOnOtherThreads.postOnServiceHandlerDelayed(
         {
-          if (setupLocationRequest()) {
+          if (setupLocationRequest().isSuccess) {
             Timber.d("Getting last location")
             locationProviderClient.getLastLocation()?.run {
               lifecycleScope.launch {

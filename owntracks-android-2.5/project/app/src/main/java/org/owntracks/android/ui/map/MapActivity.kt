@@ -1,5 +1,6 @@
 package org.owntracks.android.ui.map
 
+import android.Manifest.permission.POST_NOTIFICATIONS
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
@@ -20,11 +21,12 @@ import android.util.TypedValue
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.addCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.annotation.RequiresPermission
 import androidx.annotation.VisibleForTesting
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.LinearLayoutCompat
 import androidx.appcompat.widget.TooltipCompat
@@ -34,7 +36,9 @@ import androidx.core.widget.ImageViewCompat
 import androidx.databinding.BindingAdapter
 import androidx.databinding.DataBindingUtil
 import androidx.fragment.app.commit
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -59,8 +63,8 @@ import org.owntracks.android.services.BackgroundService.Companion.BACKGROUND_LOC
 import org.owntracks.android.support.ContactImageBindingAdapter
 import org.owntracks.android.support.DrawerProvider
 import org.owntracks.android.support.RequirementsChecker
-import org.owntracks.android.test.CountingIdlingResourceShim
 import org.owntracks.android.test.SimpleIdlingResource
+import org.owntracks.android.test.ThresholdIdlingResourceInterface
 import org.owntracks.android.ui.NotificationsStash
 import org.owntracks.android.ui.mixins.BackgroundLocationPermissionRequester
 import org.owntracks.android.ui.mixins.LocationPermissionRequester
@@ -93,7 +97,7 @@ class MapActivity :
   private var orientationSensor: Sensor? = null
   private lateinit var binding: UiMapBinding
 
-  private lateinit var locationServicesAlertDialog: AlertDialog
+  private lateinit var backPressedCallback: OnBackPressedCallback
 
   @Inject lateinit var notificationsStash: NotificationsStash
 
@@ -102,7 +106,7 @@ class MapActivity :
   @Inject
   @Named("outgoingQueueIdlingResource")
   @get:VisibleForTesting
-  lateinit var outgoingQueueIdlingResource: CountingIdlingResourceShim
+  lateinit var outgoingQueueIdlingResource: ThresholdIdlingResourceInterface
 
   @Inject
   @Named("publishResponseMessageIdlingResource")
@@ -159,6 +163,9 @@ class MapActivity :
           contactPeek.contactRow.setOnClickListener(this@MapActivity)
           contactPeek.contactRow.setOnLongClickListener(this@MapActivity)
           contactClearButton.setOnClickListener { viewModel.onClearContactClicked() }
+          requestLocationReportButton.setOnClickListener {
+            viewModel.sendLocationRequestToCurrentContact()
+          }
           contactShareButton.setOnClickListener {
             startActivity(
                 Intent.createChooser(
@@ -239,34 +246,66 @@ class MapActivity :
               .also { listener -> labels.forEach { it.withListener(listener) } }
         }
 
+    backPressedCallback =
+        onBackPressedDispatcher.addCallback(this, false) {
+          when (bottomSheetBehavior?.state) {
+            BottomSheetBehavior.STATE_COLLAPSED -> {
+              setBottomSheetHidden()
+            }
+            BottomSheetBehavior.STATE_EXPANDED -> {
+              setBottomSheetCollapsed()
+            }
+            else -> {
+              // If the bottom sheet is hidden, we can just finish the activity
+              if (bottomSheetBehavior?.state == BottomSheetBehavior.STATE_HIDDEN) {
+                finish()
+              } else {
+                setBottomSheetHidden()
+              }
+            }
+          }
+        }
     setBottomSheetHidden()
 
-    viewModel.currentContact.observe(this) { contact: Contact? ->
-      contact?.let {
-        binding.contactPeek.run {
-          image.setImageResource(0) // Remove old image before async loading the new one
-          lifecycleScope.launch {
-            contactImageBindingAdapter.run { image.setImageBitmap(getBitmapFromCache(it)) }
+    viewModel.apply {
+      lifecycleScope.launch {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+          launch {
+            locationRequestContactCommandFlow.collect { contact ->
+              Snackbar.make(
+                      binding.root, getString(R.string.requestLocationSent), Snackbar.LENGTH_SHORT)
+                  .show()
+            }
           }
         }
       }
-    }
-    viewModel.bottomSheetHidden.observe(this) { o: Boolean? ->
-      if (o == null || o) {
-        setBottomSheetHidden()
-      } else {
-        setBottomSheetCollapsed()
+      currentContact.observe(this@MapActivity) { contact: Contact? ->
+        contact?.let {
+          binding.contactPeek.run {
+            image.setImageResource(0) // Remove old image before async loading the new one
+            lifecycleScope.launch {
+              contactImageBindingAdapter.run { image.setImageBitmap(getBitmapFromCache(it)) }
+            }
+          }
+        }
       }
-    }
-    viewModel.currentLocation.observe(this) { location ->
-      if (location == null) {
-        disableLocationMenus()
-      } else {
-        enableLocationMenus()
-        binding.vm?.run { updateActiveContactDistanceAndBearing(location) }
+      bottomSheetHidden.observe(this@MapActivity) { o: Boolean? ->
+        if (o == null || o) {
+          setBottomSheetHidden()
+        } else {
+          setBottomSheetCollapsed()
+        }
       }
+      currentLocation.observe(this@MapActivity) { location ->
+        if (location == null) {
+          disableLocationMenus()
+        } else {
+          enableLocationMenus()
+          binding.vm?.run { updateActiveContactDistanceAndBearing(location) }
+        }
+      }
+      currentMonitoringMode.observe(this@MapActivity) { updateMonitoringModeMenu() }
     }
-    viewModel.currentMonitoringMode.observe(this) { updateMonitoringModeMenu() }
 
     startService(this)
 
@@ -274,31 +313,6 @@ class MapActivity :
     NotificationManagerCompat.from(this).cancel(BACKGROUND_LOCATION_RESTRICTION_NOTIFICATION_TAG, 0)
 
     notifyOnWorkManagerInitFailure(this)
-
-    onBackPressedDispatcher.addCallback(this) {
-      if (bottomSheetBehavior == null) {
-        finish()
-      } else {
-        when (bottomSheetBehavior?.state) {
-          BottomSheetBehavior.STATE_HIDDEN -> finish()
-          BottomSheetBehavior.STATE_COLLAPSED -> {
-            setBottomSheetHidden()
-          }
-          BottomSheetBehavior.STATE_DRAGGING -> {
-            // Noop
-          }
-          BottomSheetBehavior.STATE_EXPANDED -> {
-            setBottomSheetCollapsed()
-          }
-          BottomSheetBehavior.STATE_HALF_EXPANDED -> {
-            setBottomSheetCollapsed()
-          }
-          BottomSheetBehavior.STATE_SETTLING -> {
-            // Noop
-          }
-        }
-      }
-    }
   }
 
   private fun navigateToCurrentContact() {
@@ -385,6 +399,7 @@ class MapActivity :
   }
 
   /** User has granted notification permission. Notify everything that's in the NotificationStash */
+  @RequiresPermission(POST_NOTIFICATIONS)
   private fun notificationPermissionGranted() {
     Timber.d("Notification permission granted. Showing all notifications in stash")
     notificationsStash.showAll(NotificationManagerCompat.from(this))
@@ -613,19 +628,19 @@ class MapActivity :
   private fun updateMonitoringModeMenu() {
     menu?.findItem(R.id.menu_monitoring)?.run {
       when (preferences.monitoring) {
-        MonitoringMode.QUIET -> {
+        MonitoringMode.Quiet -> {
           setIcon(R.drawable.ic_baseline_stop_36)
           setTitle(R.string.monitoring_quiet)
         }
-        MonitoringMode.MANUAL -> {
+        MonitoringMode.Manual -> {
           setIcon(R.drawable.ic_baseline_pause_36)
           setTitle(R.string.monitoring_manual)
         }
-        MonitoringMode.SIGNIFICANT -> {
+        MonitoringMode.Significant -> {
           setIcon(R.drawable.ic_baseline_play_arrow_36)
           setTitle(R.string.monitoring_significant)
         }
-        MonitoringMode.MOVE -> {
+        MonitoringMode.Move -> {
           setIcon(R.drawable.ic_step_forward_2)
           setTitle(R.string.monitoring_move)
         }
@@ -674,6 +689,7 @@ class MapActivity :
     orientationSensor?.let {
       sensorManager?.registerListener(viewModel.orientationSensorEventListener, it, SENSOR_DELAY_UI)
     }
+    backPressedCallback.isEnabled = true
   }
 
   // BOTTOM SHEET CALLBACKS
@@ -685,6 +701,7 @@ class MapActivity :
     bottomSheetBehavior!!.state = BottomSheetBehavior.STATE_COLLAPSED
     binding.mapFragment.setPadding(0)
     sensorManager?.unregisterListener(viewModel.orientationSensorEventListener)
+    backPressedCallback.isEnabled = true
   }
 
   private fun setBottomSheetHidden() {
@@ -692,6 +709,7 @@ class MapActivity :
     binding.mapFragment.setPadding(0)
     menu?.run { close() }
     sensorManager?.unregisterListener(viewModel.orientationSensorEventListener)
+    backPressedCallback.isEnabled = false
   }
 
   override fun onStart() {

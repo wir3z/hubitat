@@ -9,11 +9,7 @@ import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
-import org.mockito.ArgumentMatchers.anyString
-import org.mockito.Mock
-import org.mockito.Mockito.`when`
 import org.mockito.kotlin.doReturn
 import org.mockito.kotlin.mock
 import org.owntracks.android.location.geofencing.Geofence
@@ -51,7 +47,7 @@ class ParserTest {
         batteryStatus = BatteryStatus.CHARGING
         bssid = "12:34:56:78"
         conn = "TestConn"
-        monitoringMode = MonitoringMode.SIGNIFICANT
+        monitoringMode = MonitoringMode.Significant
         ssid = "Wifi SSID"
       }
   private val messageLocation =
@@ -68,23 +64,16 @@ class ParserTest {
         inregions = listOf("Testregion1", "Testregion2")
       }
 
-  @Mock private lateinit var testPreferences: Preferences
-
-  // Need to mock this as we can't unit test native lib off-device
-  @Mock private lateinit var encryptionProvider: EncryptionProvider
-
   // Going to need a way of getting JSON strings into trees
   private val objectMapper = ObjectMapper()
 
-  @Before
-  fun setupEncryptionProvider() {
-    testPreferences = mock {
-      on { encryptionKey } doReturn "testEncryptionKey"
-      on { pubTopicLocations } doReturn "owntracks/testUsername/testDevice"
-      on { pubQosLocations } doReturn MqttQos.ONE
-    }
-    encryptionProvider = mock { on { isPayloadEncryptionEnabled } doReturn false }
+  private val testPreferences: Preferences = mock {
+    on { encryptionKey } doReturn ""
+    on { pubTopicLocations } doReturn "owntracks/testUsername/testDevice"
+    on { pubQosLocations } doReturn MqttQos.One
   }
+
+  private val encryptionProvider = EncryptionProvider(testPreferences)
 
   @Test
   fun `Parser can serialize extended location message to a pretty JSON message`() {
@@ -146,7 +135,7 @@ class ParserTest {
 
   @Test
   fun `Parser can deserialize a location message`() {
-    `when`(encryptionProvider.isPayloadEncryptionEnabled).thenReturn(false)
+
     val parser = Parser(encryptionProvider)
 
     // language=JSON
@@ -196,7 +185,7 @@ class ParserTest {
 
   @Test
   fun `a location message with a timer trigger can be parsed`() {
-    `when`(encryptionProvider.isPayloadEncryptionEnabled).thenReturn(false)
+
     val parser = Parser(encryptionProvider)
     val input =
         """
@@ -228,7 +217,7 @@ class ParserTest {
 
   @Test
   fun `a location message with a beacon trigger can be parsed`() {
-    `when`(encryptionProvider.isPayloadEncryptionEnabled).thenReturn(false)
+
     val parser = Parser(encryptionProvider)
     val input =
         """
@@ -260,7 +249,7 @@ class ParserTest {
 
   @Test
   fun `Parser can serialize a location message`() {
-    `when`(encryptionProvider.isPayloadEncryptionEnabled).thenReturn(false)
+
     val parser = Parser(encryptionProvider)
     val input = extendedMessageLocation
     val serialized = input.toJson(parser)
@@ -290,10 +279,10 @@ class ParserTest {
 
   @Test
   fun `Parser can serialize a location message with the topic visible`() {
-    `when`(encryptionProvider.isPayloadEncryptionEnabled).thenReturn(false)
+
     val parser = Parser(encryptionProvider)
     val input = extendedMessageLocation
-    input.addMqttPreferences(testPreferences)
+    input.annotateFromPreferences(testPreferences)
     input.setTopicVisible()
     val serialized = input.toJson(parser)
     val jsonNode = objectMapper.readTree(serialized)
@@ -321,76 +310,8 @@ class ParserTest {
     assertEquals(5, jsonNode.get("vel").asInt())
   }
 
-  @Test
-  fun `Parser can deserialize an encrypted location message`() {
-    `when`(encryptionProvider.isPayloadEncryptionEnabled).thenReturn(true)
-    // language=JSON
-    val messageLocationJSON =
-        """
-                {
-                  "_type": "location",
-                  "tid": "s5",
-                  "acc": 1600,
-                  "alt": 0.0,
-                  "batt": 99,
-                  "bs": 1,
-                  "cog": 56,
-                  "conn": "w",
-                  "lat": 52.3153748,
-                  "lon": 5.0408462,
-                  "t": "p",
-                  "tst": 1514455575,
-                  "vac": 0,
-                  "vel": 2
-                }
-        """
-            .trimIndent()
-    `when`(encryptionProvider.decrypt("TestCipherText")).thenReturn(messageLocationJSON)
-    val parser = Parser(encryptionProvider)
-
-    // language=JSON
-    val input =
-        """
-            {
-              "_type": "encrypted",
-              "data": "TestCipherText"
-            }
-        """
-            .trimIndent()
-    val messageBase = parser.fromJson(input)
-    assertEquals(MessageLocation::class.java, messageBase.javaClass)
-    val messageLocation = messageBase as MessageLocation
-    assertEquals(1514455575L, messageLocation.timestamp)
-    assertEquals("s5", messageLocation.trackerId)
-    assertEquals(1600, messageLocation.accuracy.toLong())
-    assertEquals(0.0, messageLocation.altitude.toDouble(), 0.0)
-    assertEquals(99, messageLocation.battery)
-    assertEquals(56, messageLocation.bearing)
-    assertEquals("w", messageLocation.conn)
-    assertEquals(52.3153748, messageLocation.latitude, 0.0)
-    assertEquals(5.0408462, messageLocation.longitude, 0.0)
-    assertEquals(MessageLocation.ReportType.PING, messageLocation.trigger)
-    assertEquals(0f, messageLocation.verticalAccuracy.toFloat(), 0f)
-    assertEquals(2f, messageLocation.velocity.toFloat(), 0f)
-  }
-
-  @Test
-  fun `Parser can serialize an encrypted location message`() {
-    val dummyCipherText = "TestCipherText"
-    `when`(encryptionProvider.isPayloadEncryptionEnabled).thenReturn(true)
-    `when`(encryptionProvider.encrypt(anyString())).thenReturn(dummyCipherText)
-    val parser = Parser(encryptionProvider)
-    val input = extendedMessageLocation
-    val serialized = input.toJson(parser)
-    val jsonNode = objectMapper.readTree(serialized)
-    assertTrue(jsonNode.isObject)
-    assertEquals("encrypted", jsonNode.get("_type").asText())
-    assertEquals(dummyCipherText, jsonNode.get("data").asText())
-  }
-
   @Test(expected = EncryptionException::class)
   fun `Parser should raise an exception when given an encrypted message with encryption disabled`() {
-    `when`(encryptionProvider.isPayloadEncryptionEnabled).thenReturn(false)
     val parser = Parser(encryptionProvider)
 
     // language=JSON
@@ -454,6 +375,7 @@ class ParserTest {
     val secondMessageLocation = messages[1] as MessageLocation
     assertEquals(1514455579L, secondMessageLocation.timestamp)
   }
+
   // endregion
 
   // region Command Messages
@@ -567,6 +489,7 @@ class ParserTest {
             .trimIndent()
     parser.fromJson(input)
   }
+
   // endregion
 
   // region Transition Messages
@@ -610,7 +533,7 @@ class ParserTest {
 
   @Test
   fun `Parser can serialize a transition message`() {
-    `when`(encryptionProvider.isPayloadEncryptionEnabled).thenReturn(false)
+
     val parser = Parser(encryptionProvider)
     val message =
         MessageTransition().apply {
@@ -638,6 +561,7 @@ class ParserTest {
     assertEquals(message.timestamp, jsonNode.get("tst").asLong())
     assertEquals(message.waypointTimestamp, jsonNode.get("wtst").asLong())
   }
+
   // endregion
 
   // region Configuration messages
@@ -720,7 +644,7 @@ class ParserTest {
 
   @Test
   fun `Parser can serialize a configuration message`() {
-    `when`(encryptionProvider.isPayloadEncryptionEnabled).thenReturn(false)
+
     val parser = Parser(encryptionProvider)
     val message = MessageConfiguration()
     message["TestBoolKey"] = true
@@ -755,6 +679,7 @@ class ParserTest {
     assertEquals(13487, jsonNode.get("TestIntKey").asInt())
     assertEquals("testString", jsonNode.get("TestStringKey").asText())
   }
+
   // endregion
 
   // region Waypoint Messages
@@ -788,7 +713,7 @@ class ParserTest {
 
   @Test
   fun `Parser can serialize a waypoint message`() {
-    `when`(encryptionProvider.isPayloadEncryptionEnabled).thenReturn(false)
+
     val parser = Parser(encryptionProvider)
     val message =
         MessageWaypoint().apply {
@@ -808,12 +733,12 @@ class ParserTest {
     assertEquals(message.radius, jsonNode.get("rad").asInt())
     assertEquals(message.timestamp, jsonNode.get("tst").asLong())
   }
+
   // endregion
 
   // region Status Messages
   @Test
   fun `Parser can serialize a status message`() {
-    `when`(encryptionProvider.isPayloadEncryptionEnabled).thenReturn(false)
     val parser = Parser(encryptionProvider)
     val message =
         MessageStatus().apply {
@@ -836,12 +761,13 @@ class ParserTest {
     assertEquals(message.android?.appHibernation, jsonNode.get("android").get("hib").asInt())
     assertEquals(message.android?.locationPermission, jsonNode.get("android").get("loc").asInt())
   }
+
   // endregion
 
   // region Clear Messages
   @Test
   fun `Parser can serialize a clear messages`() {
-    `when`(encryptionProvider.isPayloadEncryptionEnabled).thenReturn(false)
+
     val parser = Parser(encryptionProvider)
     val message = MessageClear()
     val serialized = message.toJson(parser)
@@ -850,12 +776,13 @@ class ParserTest {
 
   @Test
   fun `Parser can serialize a clear messages to a byte array`() {
-    `when`(encryptionProvider.isPayloadEncryptionEnabled).thenReturn(false)
+
     val parser = Parser(encryptionProvider)
     val message = MessageClear()
     val serialized = message.toJsonBytes(parser)
     assertEquals(0, serialized.size)
   }
+
   // endregion
 
   // Card Messages
@@ -902,6 +829,7 @@ class ParserTest {
     assertEquals("MyName!", messageCard.name)
     assertEquals("overridden-topic", messageCard.trackerId)
   }
+
   // endregion
 
   // region  Invalid messages
@@ -933,6 +861,7 @@ class ParserTest {
     val parser = Parser(encryptionProvider)
     parser.fromJson("not JSON")
   }
+
   // endregion
 
   @Test

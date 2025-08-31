@@ -4,7 +4,6 @@ import android.os.Build
 import android.os.Build.VERSION.SDK_INT
 import androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_AUTO_BATTERY
 import androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
-import java.util.WeakHashMap
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -58,7 +57,7 @@ constructor(
       }
 
   private val placeholder = Any()
-  private val listeners = WeakHashMap<OnPreferenceChangeListener, Any>()
+  private val listeners = HashMap<OnPreferenceChangeListener, Any>()
 
   private val remappedPreferenceKeys = mapOf("pubExtendedData" to Preferences::extendedData)
 
@@ -204,6 +203,10 @@ constructor(
 
   @Preference var deviceId: String by preferencesStore
 
+  // Number of seconds that must have elapsed since the last GPS location before we accept a network
+  // location
+  @Preference var discardNetworkLocationThresholdSeconds: Int by preferencesStore
+
   @Preference(exportModeMqtt = false) var dontReuseHttpClient: Boolean by preferencesStore
 
   @Preference var enableMapRotation: Boolean by preferencesStore
@@ -330,9 +333,9 @@ constructor(
       return pubQos
     }
 
-  val pubQosWaypoints = MqttQos.ZERO
+  val pubQosWaypoints = MqttQos.Zero
 
-  val pubQosStatus = MqttQos.ZERO
+  val pubQosStatus = MqttQos.Zero
 
   val pubRetainLocations: Boolean
     get() {
@@ -380,6 +383,7 @@ constructor(
     get() {
       return pubTopicBaseWithUserDetails + waypointTopicSuffix
     }
+
   // For status command
   val pubTopicStatus: String
     get() {

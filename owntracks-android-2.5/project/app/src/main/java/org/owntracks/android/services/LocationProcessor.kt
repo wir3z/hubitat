@@ -65,6 +65,8 @@ constructor(
   suspend fun publishLocationMessage(trigger: MessageLocation.ReportType) =
       locationRepo.currentPublishedLocation.value?.run { publishLocationMessage(trigger, this) }
 
+  private val highAccuracyProviders = setOf("gps", "fused")
+
   private suspend fun publishLocationMessage(
       trigger: MessageLocation.ReportType,
       location: Location
@@ -72,7 +74,22 @@ constructor(
     Timber.v("Maybe publishing $location with trigger $trigger")
     if (!locationIsWithAccuracyThreshold(location))
         return Result.failure(Exception("location accuracy too low"))
-    val loadedWaypoints = withContext(ioDispatcher) { waypointsRepo.all }
+
+    // If this location has come from the network *and* the most recent location was both recent and
+    // high-accuracy, then it's probably not usefully accurate. Drop it.
+    locationRepo.currentPublishedLocation.value?.let { lastLocation ->
+      if (highAccuracyProviders.contains(location.provider) &&
+          lastLocation.provider == "network" &&
+          location.time - lastLocation.time <
+              preferences.discardNetworkLocationThresholdSeconds * 1000) {
+        Timber.d(
+            "Ignoring location from ${location.provider}, last was from gps, and time difference is less than 1s")
+        return Result.failure(
+            Exception("Ignoring location from ${location.provider}, last was recent and from gps"))
+      }
+    }
+
+    val loadedWaypoints = withContext(ioDispatcher) { waypointsRepo.getAll() }
     Timber.d("publishLocationMessage for $location triggered by $trigger")
 
     // Check if publish would trigger a region if fusedRegionDetection is enabled
@@ -82,6 +99,7 @@ constructor(
         preferences.fusedRegionDetection &&
         trigger != MessageLocation.ReportType.CIRCULAR) {
       loadedWaypoints.forEach { waypoint ->
+        Timber.d("onWaypointTransition triggered by location waypoint intersection event")
         onWaypointTransition(
             waypoint,
             location,
@@ -94,12 +112,12 @@ constructor(
             MessageTransition.TRIGGER_LOCATION)
       }
     }
-    if (preferences.monitoring === MonitoringMode.QUIET &&
+    if (preferences.monitoring === MonitoringMode.Quiet &&
         MessageLocation.ReportType.USER != trigger) {
       Timber.v("message suppressed by monitoring settings: quiet")
       return Result.failure(Exception("message suppressed by monitoring settings: quiet"))
     }
-    if (preferences.monitoring === MonitoringMode.MANUAL &&
+    if (preferences.monitoring === MonitoringMode.Manual &&
         MessageLocation.ReportType.USER != trigger &&
         MessageLocation.ReportType.CIRCULAR != trigger) {
       Timber.v("message suppressed by monitoring settings: manual")
@@ -113,6 +131,7 @@ constructor(
                 batteryStatus = deviceMetricsProvider.batteryStatus
                 conn = deviceMetricsProvider.connectionType
                 monitoringMode = preferences.monitoring
+                source = location.provider
               }
             } else {
               fromLocation(location, Build.VERSION.SDK_INT)
@@ -191,7 +210,7 @@ constructor(
         waypointModel.lastTransition = transition
         waypointModel.lastTriggered = Instant.now()
         waypointsRepo.update(waypointModel, false)
-        if (preferences.monitoring === MonitoringMode.QUIET) {
+        if (preferences.monitoring === MonitoringMode.Quiet) {
           Timber.v("message suppressed by monitoring settings: ${preferences.monitoring}")
         } else {
           publishTransitionMessage(waypointModel, location, transition, trigger)
@@ -234,7 +253,7 @@ constructor(
               MessageWaypointCollection().apply {
                 withContext(ioDispatcher) {
                   addAll(
-                      waypointsRepo.all.map {
+                      waypointsRepo.getAll().map {
                         MessageWaypoint().apply {
                           description = it.description
                           latitude = it.geofenceLatitude.value
@@ -250,17 +269,20 @@ constructor(
   }
 
   fun publishStatusMessage() {
-    messageProcessor.queueMessageForSending(
-        MessageStatus().apply {
-          android =
-              AddMessageStatus().apply {
-                wifistate = wifiInfoProvider.isWiFiEnabled()
-                powerSave = deviceMetricsProvider.powerSave
-                batteryOptimizations = deviceMetricsProvider.batteryOptimizations
-                appHibernation = deviceMetricsProvider.appHibernation
-                locationPermission = deviceMetricsProvider.locationPermission
-              }
-        })
-    publishResponseMessageIdlingResource.setIdleState(true)
+    // Getting appHibernation takes a while, so lets not block the main thread
+    scope.launch(ioDispatcher) {
+      messageProcessor.queueMessageForSending(
+          MessageStatus().apply {
+            android =
+                AddMessageStatus().apply {
+                  wifistate = wifiInfoProvider.isWiFiEnabled()
+                  powerSave = deviceMetricsProvider.powerSave
+                  batteryOptimizations = deviceMetricsProvider.batteryOptimizations
+                  appHibernation = deviceMetricsProvider.appHibernation
+                  locationPermission = deviceMetricsProvider.locationPermission
+                }
+          })
+      publishResponseMessageIdlingResource.setIdleState(true)
+    }
   }
 }

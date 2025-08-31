@@ -22,7 +22,8 @@ interface DefaultsProvider {
               .lowercase(Locale.getDefault())
       Preferences::connectionTimeoutSeconds -> 30
       Preferences::debugLog -> false
-      Preferences::deviceId -> "Phone"
+	  Preferences::deviceId -> "Phone"
+      Preferences::discardNetworkLocationThresholdSeconds -> 0
       Preferences::dontReuseHttpClient -> false
       Preferences::enableMapRotation -> true
       Preferences::encryptionKey -> ""
@@ -30,40 +31,40 @@ interface DefaultsProvider {
       Preferences::fusedRegionDetection -> true
       Preferences::firstStart -> true
       Preferences::host -> ""
-            Preferences::ignoreInaccurateLocations -> 50
-            Preferences::ignoreStaleLocations -> 7.0f
+      Preferences::ignoreInaccurateLocations -> 50
+      Preferences::ignoreStaleLocations -> 7.0f
       Preferences::info -> true
       Preferences::keepalive -> 3600
-            Preferences::locatorDisplacement -> 50
+      Preferences::locatorDisplacement -> 50
       Preferences::locatorInterval -> 60
       Preferences::locatorPriority -> null
       Preferences::mode -> ConnectionMode.HTTP
-      Preferences::monitoring -> MonitoringMode.SIGNIFICANT
-            Preferences::moveModeLocatorInterval -> 30
+      Preferences::monitoring -> MonitoringMode.Significant
+      Preferences::moveModeLocatorInterval -> 30
       Preferences::mqttProtocolLevel -> MqttProtocolLevel.MQTT_3_1
       Preferences::notificationEvents -> true
-            Preferences::notificationGeocoderErrors -> false
+      Preferences::notificationGeocoderErrors -> false
       Preferences::notificationHigherPriority -> false
-            Preferences::notificationLocation -> false
+      Preferences::notificationLocation -> false
       Preferences::opencageApiKey -> ""
       Preferences::osmTileScaleFactor -> 1.0f
       Preferences::password -> ""
-            Preferences::pegLocatorFastestIntervalToInterval -> true
+      Preferences::pegLocatorFastestIntervalToInterval -> true
       Preferences::ping -> 15
       Preferences::port -> 8883
       Preferences::extendedData -> true
-      Preferences::pubQos -> MqttQos.ONE
+      Preferences::pubQos -> MqttQos.One
       Preferences::pubRetain -> true
       Preferences::pubTopicBase -> "owntracks/%u/%d"
-            Preferences::publishLocationOnConnect -> true
+      Preferences::publishLocationOnConnect -> true
       Preferences::cmd -> true
-            Preferences::remoteConfiguration -> true
+      Preferences::remoteConfiguration -> true
       Preferences::setupCompleted -> false
-            Preferences::showRegionsOnMap -> true
+      Preferences::showRegionsOnMap -> true
       Preferences::sub -> true
-      Preferences::subQos -> MqttQos.TWO
+      Preferences::subQos -> MqttQos.Two
       Preferences::subTopic -> DEFAULT_SUB_TOPIC
-      Preferences::theme -> AppTheme.AUTO
+      Preferences::theme -> AppTheme.Auto
       Preferences::tls -> true
       Preferences::tlsClientCrt -> ""
       Preferences::tid ->

@@ -1,31 +1,29 @@
 package org.owntracks.android
 
-import android.Manifest
 import android.app.ActivityManager
 import android.app.Application
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.ComponentCallbacks2
 import android.content.Context
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.StrictMode
 import androidx.annotation.MainThread
 import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AppCompatDelegate
-import androidx.core.app.ActivityCompat
-import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.databinding.DataBindingUtil
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.lifecycle.MutableLiveData
-import androidx.test.espresso.IdlingResource
 import androidx.work.Configuration
 import dagger.hilt.EntryPoints
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EarlyEntryPoint
+import dagger.hilt.android.EarlyEntryPoints
 import dagger.hilt.android.HiltAndroidApp
+import dagger.hilt.components.SingletonComponent
 import java.security.Security
-import javax.inject.Inject
-import javax.inject.Named
 import javax.inject.Provider
 import kotlinx.datetime.Instant
 import org.bouncycastle.jce.provider.BouncyCastleProvider
@@ -35,67 +33,80 @@ import org.owntracks.android.di.CustomBindingComponentBuilder
 import org.owntracks.android.di.CustomBindingEntryPoint
 import org.owntracks.android.geocoding.GeocoderProvider
 import org.owntracks.android.logging.TimberInMemoryLogTree
-import org.owntracks.android.model.messages.MessageBase
 import org.owntracks.android.preferences.Preferences
 import org.owntracks.android.preferences.PreferencesStore
 import org.owntracks.android.preferences.types.AppTheme
 import org.owntracks.android.services.MessageProcessor
 import org.owntracks.android.services.worker.Scheduler
 import org.owntracks.android.support.RunThingsOnOtherThreads
-import org.owntracks.android.test.CountingIdlingResourceShim
-import org.owntracks.android.test.IdlingResourceWithData
-import org.owntracks.android.test.SimpleIdlingResource
+import org.owntracks.android.support.receiver.StartBackgroundServiceReceiver
 import timber.log.Timber
 
 @HiltAndroidApp
-class App : Application(), Configuration.Provider, Preferences.OnPreferenceChangeListener {
-  @Inject lateinit var preferences: Preferences
+class App : BaseApp() {
+  override fun onCreate() {
+    super.onCreate()
+    StartBackgroundServiceReceiver.enable(this)
+  }
+}
 
-  @Inject lateinit var workerFactory: HiltWorkerFactory
+open class BaseApp :
+    Application(),
+    Configuration.Provider,
+    Preferences.OnPreferenceChangeListener,
+    ComponentCallbacks2 {
 
-  @Inject lateinit var scheduler: Scheduler
+  @EarlyEntryPoint
+  @InstallIn(SingletonComponent::class)
+  internal interface ApplicationEntrypoint {
+    fun preferences(): Preferences
 
-  @Inject lateinit var bindingComponentProvider: Provider<CustomBindingComponentBuilder>
+    fun workerFactory(): HiltWorkerFactory
 
-  @Inject lateinit var messageProcessor: MessageProcessor
+    fun scheduler(): Scheduler
 
-  @Inject lateinit var notificationManager: NotificationManagerCompat
+    fun bindingComponentProvider(): Provider<CustomBindingComponentBuilder>
 
-  @Inject lateinit var preferencesStore: PreferencesStore
+    fun messageProcessor(): MessageProcessor
 
-  @Inject lateinit var runThingsOnOtherThreads: RunThingsOnOtherThreads
+    fun notificationManager(): NotificationManagerCompat
 
-  @Inject
-  @get:VisibleForTesting
-  @Named("mockLocationIdlingResource")
-  lateinit var mockLocationIdlingResource: SimpleIdlingResource
+    fun preferencesStore(): PreferencesStore
 
-  @get:VisibleForTesting
-  val preferenceSetIdlingResource: SimpleIdlingResource =
-      SimpleIdlingResource("preferenceSetIdlingResource", true)
+    fun runThingsOnOtherThreads(): RunThingsOnOtherThreads
 
-  @Inject
-  @Named("outgoingQueueIdlingResource")
-  @get:VisibleForTesting
-  lateinit var outgoingQueueIdlingResource: CountingIdlingResourceShim
+    fun roomWaypointsRepo(): RoomWaypointsRepo
+  }
 
-  @Inject
-  @Named("contactsClearedIdlingResource")
-  @get:VisibleForTesting
-  lateinit var contactsClearedIdlingResource: SimpleIdlingResource
+  private val preferences by lazy {
+    EarlyEntryPoints.get(this, ApplicationEntrypoint::class.java).preferences()
+  }
 
-  @Inject
-  @Named("messageReceivedIdlingResource")
-  @get:VisibleForTesting
-  lateinit var messageReceivedIdlingResource: IdlingResourceWithData<MessageBase>
+  private val workerFactory: HiltWorkerFactory by lazy {
+    EarlyEntryPoints.get(this, ApplicationEntrypoint::class.java).workerFactory()
+  }
 
-  @Inject lateinit var waypointsRepo: RoomWaypointsRepo
+  private val scheduler: Scheduler by lazy {
+    EarlyEntryPoints.get(this, ApplicationEntrypoint::class.java).scheduler()
+  }
+
+  private val bindingComponentProvider: Provider<CustomBindingComponentBuilder> by lazy {
+    EarlyEntryPoints.get(this, ApplicationEntrypoint::class.java).bindingComponentProvider()
+  }
+
+  private val notificationManager: NotificationManagerCompat by lazy {
+    EarlyEntryPoints.get(this, ApplicationEntrypoint::class.java).notificationManager()
+  }
+
+  private val preferencesStore: PreferencesStore by lazy {
+    EarlyEntryPoints.get(this, ApplicationEntrypoint::class.java).preferencesStore()
+  }
+
+  private val runThingsOnOtherThreads: RunThingsOnOtherThreads by lazy {
+    EarlyEntryPoints.get(this, ApplicationEntrypoint::class.java).runThingsOnOtherThreads()
+  }
 
   val workManagerFailedToInitialize = MutableLiveData(false)
-
-  @get:VisibleForTesting
-  val migrationIdlingResource: SimpleIdlingResource =
-      SimpleIdlingResource("waypointsMigration", false)
 
   override fun onCreate() {
     // Make sure we use Conscrypt for advanced TLS features on all devices.
@@ -106,6 +117,8 @@ class App : Application(), Configuration.Provider, Preferences.OnPreferenceChang
     Security.addProvider(BouncyCastleProvider())
 
     super.onCreate()
+
+    setGlobalExceptionHandler()
 
     val dataBindingComponent = bindingComponentProvider.get().build()
     val dataBindingEntryPoint =
@@ -139,8 +152,6 @@ class App : Application(), Configuration.Provider, Preferences.OnPreferenceChang
 
     setThemeFromPreferences()
 
-    migrateWaypoints()
-
     // Notifications can be sent from multiple places, so let's make sure we've got the channels in
     // place
     createNotificationChannels()
@@ -151,17 +162,44 @@ class App : Application(), Configuration.Provider, Preferences.OnPreferenceChang
           .firstOrNull()
           ?.run {
             Timber.i(
-                "Historical process exited at ${Instant.fromEpochMilliseconds(timestamp)}. reason: $description")
+                "Historical process exited at ${Instant.fromEpochMilliseconds(timestamp)}. reason: $description, status: $status, reason: $reason")
           }
+    }
+    applicationContext.noBackupFilesDir.resolve("crash.log").run {
+      if (exists()) {
+        readText().let { Timber.e("Previous crash: $it") }
+        delete()
+      }
+    }
+  }
+
+  private fun setGlobalExceptionHandler() {
+    val currentHandler = Thread.getDefaultUncaughtExceptionHandler()
+    Thread.setDefaultUncaughtExceptionHandler { t, e ->
+      try {
+        applicationContext.noBackupFilesDir
+            .resolve("crash.log")
+            .writeText(
+                """
+          |Thread: ${t.name}
+          |Exception: ${e.message}
+          |Stacktrace:
+          |${e.stackTrace.joinToString("\n\t")}
+          """
+                    .trimMargin())
+      } catch (e: Exception) {
+        Timber.e(e, "Error writing crash log")
+      }
+      currentHandler?.uncaughtException(t, e)
     }
   }
 
   @MainThread
   private fun setThemeFromPreferences() {
     when (preferences.theme) {
-      AppTheme.AUTO -> AppCompatDelegate.setDefaultNightMode(Preferences.SYSTEM_NIGHT_AUTO_MODE)
-      AppTheme.DARK -> AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
-      AppTheme.LIGHT -> AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
+      AppTheme.Auto -> AppCompatDelegate.setDefaultNightMode(Preferences.SYSTEM_NIGHT_AUTO_MODE)
+      AppTheme.Dark -> AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
+      AppTheme.Light -> AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
     }
   }
 
@@ -232,12 +270,7 @@ class App : Application(), Configuration.Provider, Preferences.OnPreferenceChang
       runThingsOnOtherThreads.postOnMainHandlerDelayed(::setThemeFromPreferences, 0)
     }
     Timber.v("Idling preferenceSetIdlingResource because of $properties")
-    preferenceSetIdlingResource.setIdleState(true)
   }
-
-  @get:VisibleForTesting
-  val mqttConnectionIdlingResource: IdlingResource
-    get() = messageProcessor.mqttConnectionIdlingResource
 
   /** Migrate preferences. Available to be called from espresso tests. */
   @VisibleForTesting
@@ -245,40 +278,22 @@ class App : Application(), Configuration.Provider, Preferences.OnPreferenceChang
     preferencesStore.migrate()
   }
 
-  /**
-   * Migrate waypoints. We need a way to call this from an espresso test after it's written the test
-   * files so have this visible for testing so it can be called post-startup
-   */
-  @VisibleForTesting
-  fun migrateWaypoints() {
-    Timber.v("UnIdling migrationIdlingResource")
-    migrationIdlingResource.setIdleState(false)
-    waypointsRepo.migrateFromLegacyStorage().invokeOnCompletion { throwable ->
-      if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
-          PackageManager.PERMISSION_GRANTED) {
-        throwable?.run {
-          Timber.e(throwable, "Error migrating waypoints")
-          NotificationCompat.Builder(
-                  applicationContext, GeocoderProvider.ERROR_NOTIFICATION_CHANNEL_ID)
-              .setContentTitle(getString(R.string.waypointMigrationErrorNotificationTitle))
-              .setContentText(getString(R.string.waypointMigrationErrorNotificationText))
-              .setAutoCancel(true)
-              .setSmallIcon(R.drawable.ic_owntracks_80)
-              .setStyle(
-                  NotificationCompat.BigTextStyle()
-                      .bigText(getString(R.string.waypointMigrationErrorNotificationText)))
-              .setPriority(NotificationCompat.PRIORITY_LOW)
-              .setSilent(true)
-              .build()
-              .run { notificationManager.notify("WaypointsMigrationNotification", 0, this) }
-        }
-      } else if (throwable != null) {
-        Timber.w(
-            throwable,
-            "notification permissions not granted, can't display waypoints migration error notification")
-      }
-      Timber.v("Idling migrationIdlingResource")
-      migrationIdlingResource.setIdleState(true)
+  override fun onTrimMemory(level: Int) {
+    Timber.w(
+        "onTrimMemory notified ${getAvailableMemory().run { "isLowMemory: $lowMemory availMem: ${android.text.format.Formatter.formatShortFileSize(applicationContext,availMem)}, threshold: ${android.text.format.Formatter.formatShortFileSize(applicationContext,threshold)} totalMemory: ${android.text.format.Formatter.formatShortFileSize(applicationContext,totalMem)} " }}")
+    super.onTrimMemory(level)
+  }
+
+  override fun onLowMemory() {
+    Timber.w(
+        "onLowMemory notified ${getAvailableMemory().run { "isLowMemory: $lowMemory availMem: ${android.text.format.Formatter.formatShortFileSize(applicationContext,availMem)}, threshold: ${android.text.format.Formatter.formatShortFileSize(applicationContext,threshold)} totalMemory: ${android.text.format.Formatter.formatShortFileSize(applicationContext,totalMem)} " }}")
+    super.onLowMemory()
+  }
+
+  private fun getAvailableMemory(): ActivityManager.MemoryInfo {
+    val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    return ActivityManager.MemoryInfo().also { memoryInfo ->
+      activityManager.getMemoryInfo(memoryInfo)
     }
   }
 

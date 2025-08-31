@@ -2,7 +2,6 @@ package org.owntracks.android.ui.map.osm
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.drawable.BitmapDrawable
 import android.hardware.display.DisplayManager
 import android.location.Location
 import android.os.Build
@@ -15,6 +14,7 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.graphics.drawable.toBitmap
+import androidx.core.graphics.drawable.toDrawable
 import androidx.lifecycle.Observer
 import androidx.preference.PreferenceManager
 import kotlin.math.roundToInt
@@ -35,7 +35,6 @@ import org.osmdroid.views.overlay.TilesOverlay
 import org.osmdroid.views.overlay.compass.CompassOverlay
 import org.osmdroid.views.overlay.compass.IOrientationConsumer
 import org.osmdroid.views.overlay.compass.IOrientationProvider
-import org.osmdroid.views.overlay.gestures.RotationGestureOverlay
 import org.osmdroid.views.overlay.infowindow.MarkerInfoWindow
 import org.osmdroid.views.overlay.mylocation.IMyLocationConsumer
 import org.osmdroid.views.overlay.mylocation.IMyLocationProvider
@@ -129,7 +128,9 @@ internal constructor(
                     MapLocationZoomLevelAndRotation(
                         LatLng(mapCenter.latitude, mapCenter.longitude),
                         zoomLevelDouble,
-                        mapOrientation))
+                        mapOrientation,
+                    ),
+                )
               }
             }
 
@@ -142,7 +143,8 @@ internal constructor(
               updateViewModelMapLocation()
               return true
             }
-          })
+          },
+      )
 
   class MapRotationOrientationProvider(context: Context) : IOrientationProvider {
     private val display = context.safeGetDisplay()
@@ -237,11 +239,13 @@ internal constructor(
                   setPersonIcon(dot)
                   setPersonAnchor(0.5f, 0.5f)
                   setDirectionAnchor(0.5f, 0.5f)
-                })
+                },
+            )
           }
 
-          if (!overlays.any { it is RotationGestureOverlay } && preferences.enableMapRotation) {
-            overlays.add(RotationGestureOverlay(this))
+          if (!overlays.any { it is RotationGestureOverlayWithDeadZone } &&
+              preferences.enableMapRotation) {
+            overlays.add(RotationGestureOverlayWithDeadZone(this))
           }
           if (!overlays.any { it is CopyrightOverlay }) {
             overlays.add(CopyrightOverlay(context))
@@ -253,12 +257,16 @@ internal constructor(
 
             overlays.add(
                 ClickableCompassOverlay(
-                        requireContext().applicationContext, orientationProvider, this)
+                        requireContext().applicationContext,
+                        orientationProvider,
+                        this,
+                    )
                     .apply {
                       isPointerMode = false
                       enableCompass()
                       setCompassCenter(compassMargin, compassMargin)
-                    })
+                    },
+            )
           }
           if (!overlays.any { it is ScaleBarOverlay }) {
             overlays.add(ScaleBarOverlay(this))
@@ -301,11 +309,12 @@ internal constructor(
                 true
               }
               setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-            })
+            },
+        )
       }
       overlays
           .firstOrNull { it is Marker && it.id == id }
-          ?.run { (this as Marker).icon = BitmapDrawable(resources, image) }
+          ?.run { (this as Marker).icon = image.toDrawable(resources) }
       invalidate()
     }
   }
@@ -344,7 +353,83 @@ internal constructor(
     compassOrientationMapListener.onScroll(null)
   }
 
-  override fun drawRegions(regions: Set<WaypointModel>) {
+  override fun addRegion(waypoint: WaypointModel) {
+    if (preferences.showRegionsOnMap) {
+      mapView?.run {
+        Timber.d("Adding region ${waypoint.id} to map")
+        val regionPolygon =
+            Polygon(this).apply {
+              id = "regionpolygon-${waypoint.id}"
+              points =
+                  Polygon.pointsAsCircle(
+                      waypoint.getLocation().toLatLng().toGeoPoint(),
+                      waypoint.geofenceRadius.toDouble(),
+                  )
+              fillPaint.color = getRegionColor()
+              outlinePaint.strokeWidth = 1f
+              setOnClickListener { _, mapView, _ ->
+                mapView.overlays
+                    .filterIsInstance<Marker>()
+                    .first { it.id == "regionmarker-${waypoint.id}" }
+                    .showInfoWindow()
+                true
+              }
+            }
+        val regionMarker =
+            Marker(this).apply {
+              id = "regionmarker-${waypoint.id}"
+              position = waypoint.getLocation().toLatLng().toGeoPoint()
+              title = waypoint.description
+              setInfoWindow(MarkerInfoWindow(R.layout.osm_region_bubble, this@run))
+            }
+        overlays.addAll(0, listOf(regionPolygon, regionMarker))
+      }
+    }
+  }
+
+  override fun deleteRegion(waypoint: WaypointModel) {
+    if (preferences.showRegionsOnMap) {
+      mapView?.run {
+        Timber.d("Removing region ${waypoint.id} from map")
+        overlays
+            .filterIsInstance<Marker>()
+            .firstOrNull { it.id == "regionmarker-${waypoint.id}" }
+            ?.let(overlays::remove)
+        overlays
+            .filterIsInstance<Polygon>()
+            .firstOrNull { it.id == "regionpolygon-${waypoint.id}" }
+            ?.let(overlays::remove)
+      }
+    }
+  }
+
+  override fun updateRegion(waypoint: WaypointModel) {
+    if (preferences.showRegionsOnMap) {
+      mapView?.run {
+        Timber.d("Updating region ${waypoint.id} on map")
+        overlays
+            .filterIsInstance<Polygon>()
+            .firstOrNull { it.id == "regionpolygon-${waypoint.id}" }
+            ?.apply {
+              points =
+                  Polygon.pointsAsCircle(
+                      waypoint.getLocation().toLatLng().toGeoPoint(),
+                      waypoint.geofenceRadius.toDouble(),
+                  )
+              fillPaint.color = getRegionColor()
+            }
+        overlays
+            .filterIsInstance<Marker>()
+            .firstOrNull { it.id == "regionmarker-${waypoint.id}" }
+            ?.apply {
+              position = waypoint.getLocation().toLatLng().toGeoPoint()
+              title = waypoint.description
+            }
+      }
+    }
+  }
+
+  override fun reDrawRegions(regions: Set<WaypointModel>) {
     if (preferences.showRegionsOnMap) {
       mapView?.run {
         Timber.d("Drawing ${regions.size} regions on map")
@@ -365,7 +450,8 @@ internal constructor(
                     points =
                         Polygon.pointsAsCircle(
                                 region.getLocation().toLatLng().toGeoPoint(),
-                                region.geofenceRadius.toDouble())
+                                region.geofenceRadius.toDouble(),
+                            )
                             .filter {
                               (TileSystemWebMercator.MinLatitude..TileSystemWebMercator.MaxLatitude)
                                   .contains(it.latitude) &&
@@ -389,7 +475,8 @@ internal constructor(
                     position = region.getLocation().toLatLng().toGeoPoint()
                     title = region.description
                     setInfoWindow(MarkerInfoWindow(R.layout.osm_region_bubble, this@run))
-                  })
+                  },
+              )
             }
             .let { overlays.addAll(0, it) }
       }

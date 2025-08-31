@@ -10,20 +10,18 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import kotlinx.datetime.Clock
-import kotlinx.datetime.Instant
-import org.owntracks.android.App
-import org.owntracks.android.App.Companion.NOTIFICATION_ID_ONGOING
+import org.owntracks.android.BaseApp.Companion.NOTIFICATION_CHANNEL_ONGOING
+import org.owntracks.android.BaseApp.Companion.NOTIFICATION_ID_ONGOING
 import org.owntracks.android.R
 import org.owntracks.android.data.EndpointState
 import org.owntracks.android.preferences.types.MonitoringMode
 import org.owntracks.android.ui.map.MapActivity
 import timber.log.Timber
 
-class OngoingNotification(private val context: Context, private val initialMode: MonitoringMode) {
+class OngoingNotification(private val context: Context, initialMode: MonitoringMode) {
   data class ServiceNotificationState(
       val title: String,
       val content: String,
-      val `when`: Instant,
       val subText: String,
       val notificationHigherPriority: Boolean
   )
@@ -55,14 +53,10 @@ class OngoingNotification(private val context: Context, private val initialMode:
   }
   private var serviceNotificationState =
       ServiceNotificationState(
-          context.getString(R.string.app_name),
-          "",
-          Clock.System.now(),
-          getMonitoringLabel(initialMode),
-          false)
+          context.getString(R.string.app_name), "", getMonitoringLabel(initialMode), false)
 
   private val notificationBuilder =
-      NotificationCompat.Builder(context, App.NOTIFICATION_CHANNEL_ONGOING)
+      NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ONGOING)
           .setOngoing(true)
           .setContentIntent(resultPendingIntent)
           .setStyle(NotificationCompat.BigTextStyle())
@@ -84,7 +78,7 @@ class OngoingNotification(private val context: Context, private val initialMode:
       notificationBuilder
           .setContentTitle(serviceNotificationState.title)
           .setContentText(serviceNotificationState.content)
-          .setWhen(serviceNotificationState.`when`.toEpochMilliseconds())
+          .setWhen(Clock.System.now().toEpochMilliseconds())
           .setSubText(serviceNotificationState.subText)
           .setPriority(
               if (serviceNotificationState.notificationHigherPriority) {
@@ -126,10 +120,10 @@ class OngoingNotification(private val context: Context, private val initialMode:
   private fun getMonitoringLabel(monitoringMode: MonitoringMode) =
       context.run {
         when (monitoringMode) {
-          MonitoringMode.QUIET -> getString(R.string.monitoring_quiet)
-          MonitoringMode.MANUAL -> getString(R.string.monitoring_manual)
-          MonitoringMode.SIGNIFICANT -> getString(R.string.monitoring_significant)
-          MonitoringMode.MOVE -> getString(R.string.monitoring_move)
+          MonitoringMode.Quiet -> getString(R.string.monitoring_quiet)
+          MonitoringMode.Manual -> getString(R.string.monitoring_manual)
+          MonitoringMode.Significant -> getString(R.string.monitoring_significant)
+          MonitoringMode.Move -> getString(R.string.monitoring_move)
         }
       }
 

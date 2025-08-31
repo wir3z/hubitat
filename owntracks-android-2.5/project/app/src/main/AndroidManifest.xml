@@ -9,7 +9,7 @@
     <uses-feature
         android:name="android.hardware.location.gps"
         android:required="true"
-        tools:ignore="UnsupportedChromeOsHardware" />
+        tools:ignore="UnnecessaryRequiredFeature,UnsupportedChromeOsHardware" />
 
     <uses-feature
         android:name="android.hardware.telephony"
@@ -25,7 +25,6 @@
 
     <!-- To handle connectivity changes and reconnect -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-
 
     <!-- To prevent the device from sleeping while handling MQTT traffic -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -64,6 +63,7 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.Owntracks"
         tools:ignore="UnusedAttribute"
         tools:replace="android:allowBackup">
@@ -205,7 +205,7 @@
 
         <receiver
             android:name=".support.receiver.StartBackgroundServiceReceiver"
-            android:enabled="true"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
