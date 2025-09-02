@@ -359,6 +359,8 @@ The defaults for the rest of these settings should be sufficient for verifying o
 	- Reduces mobile data communications and battery consumption by throttling updates to the locater interval time
 - How far the device travels before receiving another location update (Android Only)
 	- If the phone has moved further than this distance in the alloted time, it will report a location
+- Ignore incoming network locations if the last high accuracy location was received this many seconds ago. (Android)	
+	- This filters out lower accuracy cellular locations if a higher accuracy GPS location was received recently.
 - Device will not report location updates faster than this interval (seconds) unless moving
 	- Location updates will be reported on this interval unless the mobile is moving
 - How often should locations be continuously sent from the device while in 'Move' mode (seconds) 

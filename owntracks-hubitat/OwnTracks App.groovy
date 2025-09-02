@@ -168,6 +168,7 @@
  *  1.8.21     2025-06-07      - Google Family Map: Improved zooming on members and member drawer.  Selecting a member row in the drawer selects that member.  Address issue that could lead to thumbnails not being displayed.  Added zoom option for smart displays (Nest, Amazon).
  *  1.8.22	   2025-07-02	   - Added member battery level to each history point.
  *  1.8.23	   2025-08-08	   - Removed past cleanup that removed drawer scaling.
+ *  1.8.24	   2025-09-01	   - Added Android setting to ignore incoming network locations if a high accuracy location was received recently.
 */
 
 import groovy.transform.Field
@@ -176,7 +177,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.23" }
+def appVersion() { return "1.8.24" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -250,6 +251,7 @@ def appVersion() { return "1.8.23" }
 @Field Number  DEFAULT_staleLocationWatchdogInterval = 900
 @Field Boolean DEFAULT_highAccuracyOnPing = true
 @Field Boolean DEFAULT_highPowerMode = true
+@Field Number  DEFAULT_discardNetworkLocationThresholdSeconds = 3
 @Field Boolean DEFAULT_lowPowerModeInRegion = false
 @Field Number  DEFAULT_googleMapsZoom = 0
 @Field String  DEFAULT_googleMapsMember = "null"
@@ -778,6 +780,7 @@ def advancedLocation() {
             paragraph("<h3><b>Settings for Significant Monitoring Mode</b></h3>")
             if (getAndroidMembers()) {
                 input name: "locatorDisplacement", type: "number", title: "How far the device travels (${getSmallUnits()}) before receiving another location update, Recommended=${displayMFtVal(DEFAULT_locatorDisplacement)}  <i><b>This value needs to be less than the minimum configured region radius for automations to trigger.</b></i> (<b>Android ONLY</b>)", required: true, range: "0..${displayMFtVal(1000)}", defaultValue: displayMFtVal(DEFAULT_locatorDisplacement)
+                input name: "discardNetworkLocationThresholdSeconds", type: "number", title: "Ignore incoming network locations if the last high accuracy location was received this many seconds ago, Range 0-10 seconds, Recommended=${DEFAULT_discardNetworkLocationThresholdSeconds}. (<b>Android ONLY</b>)", required: true, range: "0..10", defaultValue: DEFAULT_discardNetworkLocationThresholdSeconds
             }
             input name: "locatorInterval", type: "number", title: "Device will not report location updates faster than this interval (seconds) unless moving.  When moving, Android uses this 'locaterInterval/6' or '5-seconds' (whichever is greater, unless 'locaterInterval' is less than 5-seconds, then 'locaterInterval' is used), Recommended=60  <i><b>Requires the device to move the above distance, otherwise no update is sent.</b></i>", required: true, range: "0..3600", defaultValue: DEFAULT_locatorInterval, submitOnChange: true
             // IE:  locatorInterval=0-seconds,   then locations every 0-seconds  if moved locatorDisplacement meters
@@ -2863,46 +2866,47 @@ private def sendConfiguration(currentMember) {
 
     // create the configuration response.  Note: Configuration below are only the HTTP from the exported config.otrc file values based on the build version below
     def configurationList = [
-                                "_type" :                               "configuration",
+                                "_type" :                               	"configuration",
 
                                 // static configuration
-                                "mode" :                                3,                                   // Endpoint protocol mode: 0=MQTT, 3=HTTP
-                                "autostartOnBoot" :                     true,                                // Autostart the app on device boot
-                                "cmd" :                                 true,                                // Respond to cmd messages
-                                "remoteConfiguration" :                 true,                                // Allow remote configuration
-                                "allowRemoteLocation" :                 true,                                // Allow remote location command
-                                "reverseGeocodeProvider" :              "Device",                            // Reverse Geocode provider -- use device (Google for Android)
-                                "allowRemoteLocation" :                 true,                                // required for 'reportLocation' to be processed
-                                "connectionTimeoutSeconds" :            30,
-                                "debugLog" :                            false,
-                                "dontReuseHttpClient" :                 false,
-                                "experimentalFeatures" :                [],
-                                "fusedRegionDetection" :                true,
-                                "notificationHigherPriority" :          false,
-                                "opencageApiKey" :                      "",
+                                "mode" :                                	3,                                   	// Endpoint protocol mode: 0=MQTT, 3=HTTP
+                                "autostartOnBoot" :                     	true,                                	// Autostart the app on device boot
+                                "cmd" :                                 	true,                                	// Respond to cmd messages
+                                "remoteConfiguration" :                 	true,                                	// Allow remote configuration
+                                "allowRemoteLocation" :                 	true,                                	// Allow remote location command
+                                "reverseGeocodeProvider" :              	"Device",                            	// Reverse Geocode provider -- use device (Google for Android)
+                                "allowRemoteLocation" :                 	true,                                	// required for 'reportLocation' to be processed
+                                "connectionTimeoutSeconds" :            	30,
+                                "debugLog" :                            	false,
+                                "dontReuseHttpClient" :                 	false,
+                                "experimentalFeatures" :                	[],
+                                "fusedRegionDetection" :                	true,
+                                "notificationHigherPriority" :          	false,
+                                "opencageApiKey" :                      	"",
                             ]
 
 
     def deviceLocatorList = [
                                 // dynamic configurations
-                                "pegLocatorFastestIntervalToInterval" : pegLocatorFastestIntervalToInterval, // Request that the location provider deliver updates no faster than the requested locator interval
-                                "monitoring" :                          monitoring.toInteger(),              // Monitoring mode (quiet, manual, significant, move)
-                                "locatorPriority" :                     getLocatorPriority(false),           // source/power setting for location updates (no power, low power, balanced power, high power)
-                                "locatorDisplacement" :                 state.locatorDisplacement,           // How far should the device travel (in metres) before receiving another location
-                                "locatorInterval" :                     locatorInterval,                     // How often should locations be requested from the device (seconds)
-                                "moveModeLocatorInterval" :             moveModeLocatorInterval,             // How often should locations be requested from the device whilst in Move mode (seconds)
-                                "ignoreInaccurateLocations" :           state.ignoreInaccurateLocations,     // Ignore location, if the accuracy is greater than the given meters.  NOTE: Build 420412000 occasionally reports events with acc=1799.999
-                                "ignoreStaleLocations" :                ignoreStaleLocations,                // Number of days after which location updates are assumed stale
-                                "ping" :                                ping,                                // Device will send a location interval at this heart beat interval (minutes).  Minimum 15, seems to be fixed at 30 minutes.
+                                "pegLocatorFastestIntervalToInterval" : 	pegLocatorFastestIntervalToInterval, 	// Request that the location provider deliver updates no faster than the requested locator interval
+                                "monitoring" :                          	monitoring.toInteger(),              	// Monitoring mode (quiet, manual, significant, move)
+                                "locatorPriority" :                     	getLocatorPriority(false),           	// source/power setting for location updates (no power, low power, balanced power, high power)
+                                "locatorDisplacement" :                 	state.locatorDisplacement,           	// How far should the device travel (in metres) before receiving another location
+                                "locatorInterval" :                     	locatorInterval,                     	// How often should locations be requested from the device (seconds)
+                                "moveModeLocatorInterval" :             	moveModeLocatorInterval,             	// How often should locations be requested from the device whilst in Move mode (seconds)
+                                "ignoreInaccurateLocations" :           	state.ignoreInaccurateLocations,     	// Ignore location, if the accuracy is greater than the given meters.  NOTE: Build 420412000 occasionally reports events with acc=1799.999
+                                "ignoreStaleLocations" :                	ignoreStaleLocations,                	// Number of days after which location updates are assumed stale
+                                "ping" :                                	ping,                                	// Device will send a location interval at this heart beat interval (minutes).  Minimum 15, seems to be fixed at 30 minutes.
+                                "discardNetworkLocationThresholdSeconds" : 	(discardNetworkLocationThresholdSeconds ?: DEFAULT_discardNetworkLocationThresholdSeconds), // Ignore network locations if a high accuracy location occured this many seconds ago.
                             ]
 
     def deviceDisplayList = [
-                                "notificationLocation" :                notificationLocation,                // Display last reported location and time in ongoing notification
-                                "extendedData" :                        extendedData,                        // Include extended data in location reports
-                                "notificationEvents" :                  notificationEvents,                  // Notify about received events
-                                "enableMapRotation" :                   enableMapRotation,                   // Allow the map to be rotated
-                                "showRegionsOnMap" :                    showRegionsOnMap,                    // Display the region pins/bubbles on the map
-                                "notificationGeocoderErrors" :          notificationGeocoderErrors,          // Display Geocoder errors in the notification banner
+                                "notificationLocation" :                	notificationLocation,                	// Display last reported location and time in ongoing notification
+                                "extendedData" :                        	extendedData,                        	// Include extended data in location reports
+                                "notificationEvents" :                  	notificationEvents,                  	// Notify about received events
+                                "enableMapRotation" :                   	enableMapRotation,                   	// Allow the map to be rotated
+                                "showRegionsOnMap" :                    	showRegionsOnMap,                    	// Display the region pins/bubbles on the map
+                                "notificationGeocoderErrors" :          	notificationGeocoderErrors,          	// Display Geocoder errors in the notification banner
                             ]
 
     // if we enabled a high accuracy location fix, then mark the user
