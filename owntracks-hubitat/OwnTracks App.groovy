@@ -169,6 +169,7 @@
  *  1.8.22	   2025-07-02	   - Added member battery level to each history point.
  *  1.8.23	   2025-08-08	   - Removed past cleanup that removed drawer scaling.
  *  1.8.24	   2025-09-01	   - Added Android setting to ignore incoming network locations if a high accuracy location was received recently.
+ *  1.8.25	   2025-09-03	   - Reformat the mobile app version sent to the driver for better readability.
 */
 
 import groovy.transform.Field
@@ -177,7 +178,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.24" }
+def appVersion() { return "1.8.25" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -2338,6 +2339,23 @@ def getHistoryMarker(member, data) {
     return(marker)
 }
 
+def parseAppVersion(appVersion) {
+    parsedVersion = splitTopic(appVersion)
+    if (isAndroidMember(appVersion)) {
+        def tempString = parsedVersion[2].substring(1)
+        def parts = [
+            tempString.substring(0, 1),
+            tempString.substring(1, 3),
+            tempString.substring(3, 5),
+            tempString.substring(5, 8)
+        ]
+        versionString = "Android: v" + parts.collect { it.toInteger() }.join('.')
+    } else {
+        versionString = "iOS: v" + parsedVersion[1].split(' ')[0]
+    }
+    return (versionString)
+}
+
 def updateMemberAttributes(headers, data, member) {
     // round to 6-decimal places
     data.lat = data?.lat?.toDouble()?.round(6)
@@ -2358,7 +2376,7 @@ def updateMemberAttributes(headers, data, member) {
     calcMemberVelocity(member, data)
 
     // save the position and timestamp so we can push to other users
-    member.appVersion               = headers.'User-agent'.toString()
+    member.appVersion               = parseAppVersion(headers.'User-agent'.toString())
     member.lastReportTime           = now()
     member.latitude                 = data?.lat
     member.longitude                = data?.lon
@@ -2857,7 +2875,7 @@ private def sendWaypoints(currentMember) {
         return ([ "_type":"cmd","action":"setWaypoints", "waypoints": [ "_type":"waypoints", "waypoints":getHomeRegion() ] ])
     } else {
         // if the member is an android user, then do not send the +follow region
-        return ([ "_type":"cmd","action":"setWaypoints", "waypoints": [ "_type":"waypoints", "waypoints":(currentMember?.appVersion?.indexOf(ANDROID_USER_AGENT,0) >= 0 ? getNonFollowRegions(COLLECT_PLACES["map"]) : state.places) ] ])
+        return ([ "_type":"cmd","action":"setWaypoints", "waypoints": [ "_type":"waypoints", "waypoints":(isAndroidMember(currentMember?.appVersion) ? getNonFollowRegions(COLLECT_PLACES["map"]) : state.places) ] ])
     }
 }
 
@@ -3007,7 +3025,7 @@ def getAndroidMembers() {
     members = []
     settings?.enabledMembers.each { enabledMember->
         member = state.members.find {it.name==enabledMember}
-        if (isAndroidMember(member)) {
+        if (isAndroidMember(member?.appVersion)) {
             members << member.name
         }
     }
@@ -3028,8 +3046,8 @@ def getiOSMembers() {
     return(members)
 }
 
-def isAndroidMember(member) {
-    if (member?.appVersion?.toString()?.indexOf(ANDROID_USER_AGENT,0) >= 0) {
+def isAndroidMember(appVersion) {
+    if (appVersion?.toString()?.indexOf(ANDROID_USER_AGENT,0) >= 0) {
         return (true)
     } else {
         return (false)
