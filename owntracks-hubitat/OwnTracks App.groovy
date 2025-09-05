@@ -170,6 +170,7 @@
  *  1.8.23	   2025-08-08	   - Removed past cleanup that removed drawer scaling.
  *  1.8.24	   2025-09-01	   - Added Android setting to ignore incoming network locations if a high accuracy location was received recently.
  *  1.8.25	   2025-09-03	   - Reformat the mobile app version sent to the driver for better readability.
+ *  1.8.26	   2025-09-05	   - Fix to address the different incoming HTTP header value from Android.
 */
 
 import groovy.transform.Field
@@ -178,7 +179,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.25" }
+def appVersion() { return "1.8.26" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -238,7 +239,7 @@ def appVersion() { return "1.8.25" }
 @Field String  MQTT_TOPIC_PREFIX = "owntracks"
 @Field Number  INVALID_COORDINATE = 999
 @Field String  COMMON_CHILDNAME = "OwnTracks"
-@Field String  ANDROID_USER_AGENT = "Owntracks-Android"
+@Field String  ANDROID_USER_AGENT = "Android"
 @Field String  DEFAULT_CHILDPREFIX = "OwnTracks - "
 @Field Number  DEFAULT_RADIUS = 75
 @Field Number  DEFAULT_regionHighAccuracyRadius = 750
