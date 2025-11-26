@@ -391,7 +391,7 @@ def mainPage() {
                     URL_SOURCE.each{ source->
                         if ((source != URL_SOURCE[0]) || (disableCloudLinks != true)) {
                             paragraph ((source == URL_SOURCE[0] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>"))
-                            if (googleMapsAPIKey && (disableCloudLinks != true)) {
+                            if (googleMapsAPIKey && (source == URL_SOURCE[0])) {
                                 paragraph ("<b>Google family map:</b></br>&emsp;<a href='${getAttributeURL(source, "googlemap")}" + "&member='" + ">${getAttributeURL(source, "googlemap")}" + "&member=" + "</a></br>")
                                 paragraph ("<b>Region configuration map:</b></br>&emsp;<a href='${getAttributeURL(source, "configmap")}'>${getAttributeURL(source, "configmap")}</a></br>")
                             }
