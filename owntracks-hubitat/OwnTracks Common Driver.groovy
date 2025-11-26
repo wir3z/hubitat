@@ -29,15 +29,15 @@
  *  1.7.8      2024-04-07      - Changed cloud/local URL sourcing.
  *  1.8.0      2024-09-23      - Up-reved version to match app.
  *  1.8.1      2025-04-13      - Removed presence capability.
+ *  1.8.2      2025-11-25      - Changed to dynamic tile URL.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.8.1" }
+def driverVersion() { return "1.8.2" }
 
 @Field Boolean DEFAULT_displayFriendsTile = false
-@Field String  CLOUD_URL_SOURCE = "[cloud.hubitat.com]"
 
 metadata {
   definition (
@@ -88,7 +88,7 @@ def push() {
 
 def generateRecorderFriendsLocationTile() {
     if (displayRecorderFriendsLocation) {
-        sendEvent(name: "RecorderFriendsLocation", value: parent.displayTile(parent.recorderURLType(), "recordermap"), displayed: true)
+        sendEvent(name: "RecorderFriendsLocation", value: parent.displayTile(true, "recordermap"), displayed: true)
     } else {
         device.deleteCurrentState('RecorderFriendsLocation')
     }
@@ -96,7 +96,7 @@ def generateRecorderFriendsLocationTile() {
 
 def generateGoogleFriendsLocationTile() {
     if (displayGoogleFriendsLocation) {
-        sendEvent(name: "GoogleFriendsLocation", value: parent.displayTile(CLOUD_URL_SOURCE, "googlemap"), displayed: true)
+        sendEvent(name: "GoogleFriendsLocation", value: parent.displayTile(false, "googlemap"), displayed: true)
     } else {
         device.deleteCurrentState('GoogleFriendsLocation')
     }
@@ -104,7 +104,7 @@ def generateGoogleFriendsLocationTile() {
 
 def generateConfigMapTile() {
     if (parent.getGoogleMapsAPIKey()) {
-        sendEvent(name: "ConfigurationMap", value: parent.displayTile(CLOUD_URL_SOURCE, "configmap"), displayed: true)
+        sendEvent(name: "ConfigurationMap", value: parent.displayTile(false, "configmap"), displayed: true)
     } else {
         device.deleteCurrentState('ConfigurationMap')
     }

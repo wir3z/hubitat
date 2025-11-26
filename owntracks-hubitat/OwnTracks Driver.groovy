@@ -38,6 +38,11 @@
  *      SSID:WIFIAP,     			    // WiFi AP SSID
  *      t:u, 						    // trigger: p=ping, c=region, r=reportLocation, u=manual
  *      m:1, 						    // identifies the monitoring mode at which the message is constructed (significant=1, move=2)
+ *      hib:0,                          // App can pause when unused (1=yes, 0=no)
+ *      ps:0,                           // Phone is in power save mode (1=yes, 0=no)
+ *      bo:0,                           // App has battery optimizations (1=restricted/optimized, 0=unrestricted)
+ *      wifi:1,                         // WiFi is enabled (1=yes, 0=no)
+ *      loc:0,                          // 0 = Background location, fine precision, -1 = Background location, coarse precision, -2 = Foreground location, fine precision, -3 = Foreground location, coarse precision, -4 = Disabled
  *
  *      // added to packet
  *      currentDistanceFromHome:0.234,  // distance from home in current units
@@ -46,11 +51,6 @@
  *      memberAtHome:true               // if true, user is at home
  *
  *      // added in the sided load APK
- *      hib:0,                          // App can pause when unused (1=yes, 0=no)
- *      ps:0,                           // Phone is in power save mode (1=yes, 0=no)
- *      bo:0,                           // App has battery optimizations (1=restricted/optimized, 0=unrestricted)
- *      wifi:1,                         // WiFi is enabled (1=yes, 0=no)
- *      loc:0,                          // 0 = Background location, fine precision, -1 = Background location, coarse precision, -2 = Foreground location, fine precision, -3 = Foreground location, coarse precision, -4 = Disabled
  *      address: 742 Evergreen Terrace  // address for the lat/lon reported
  *  ]
  *
@@ -147,12 +147,13 @@
  *  1.8.7      2025-08-20      - Fixed migration issue with transition deadband.
  *  1.8.8      2025-08-26      - Fixed issue with private members.
  *  1.8.9      2025-08-31      - Added member attribute for the mobile app version.
+ *  1.8.10     2025-11-25      - Changed to dynamic tile URL.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.8.9" }
+def driverVersion() { return "1.8.10" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -163,7 +164,6 @@ def driverVersion() { return "1.8.9" }
 @Field static final Map TRANSITION_DIRECTION = [ "enter": "arrived", "leave": "departed" ]
 @Field static final Map TRANSITION_PHRASES = [ "enter": "arrived at", "leave": "departed from" ]
 
-@Field String  CLOUD_URL_SOURCE = "[cloud.hubitat.com]"
 @Field Boolean DEFAULT_presenceTileBatteryField = 0
 @Field Boolean DEFAULT_displayExtendedAttributes = true
 @Field Boolean DEFAULT_displayMemberTile = false
@@ -482,10 +482,6 @@ def updateSinceTime (dataTst) {
 }
 
 Boolean generateLocationEvent(member, homeName, data) {
-// ADDED IN 1.8.4 for cleanup
-if (state.memberPresence) state.remove("memberPresence")
-// ADDED IN 1.8.4 for cleanup
-
     // update the driver version if necessary
     if (state.driverVersion != driverVersion()) {
         state.driverVersion = driverVersion()
@@ -607,7 +603,7 @@ def generateTiles() {
 
 def generateMemberTile() {
     if (displayMemberTile) {
-        sendEvent(name: "MemberLocation", value: parent.displayTile(CLOUD_URL_SOURCE, "membermap/${state.memberName.toLowerCase()}"), displayed: true)
+        sendEvent(name: "MemberLocation", value: parent.displayTile(false, "membermap/${state.memberName.toLowerCase()}"), displayed: true)
     } else {
         device.deleteCurrentState('MemberLocation')
     }
@@ -615,14 +611,14 @@ def generateMemberTile() {
 
 def generatePastLocationsTile() {
     if (displayLastLocationTile) {
-        sendEvent(name: "PastLocations", value: parent.displayTile(parent.recorderURLType(), "memberpastlocations/${state.memberName.toLowerCase()}"), displayed: true)
+        sendEvent(name: "PastLocations", value: parent.displayTile(true, "memberpastlocations/${state.memberName.toLowerCase()}"), displayed: true)
     } else {
         device.deleteCurrentState('PastLocations')
     }
 }
 
 def generatePresenceTile() {
-    sendEvent(name: "PresenceTile", value: parent.displayTile(CLOUD_URL_SOURCE, "memberpresence/${state.memberName.toLowerCase()}"), displayed: true)
+    sendEvent(name: "PresenceTile", value: parent.displayTile(false, "memberpresence/${state.memberName.toLowerCase()}"), displayed: true)
 }
 
 def generateMember(urlSource) {

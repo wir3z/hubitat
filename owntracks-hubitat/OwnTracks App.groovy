@@ -171,6 +171,7 @@
  *  1.8.24	   2025-09-01	   - Added Android setting to ignore incoming network locations if a high accuracy location was received recently.
  *  1.8.25	   2025-09-03	   - Reformat the mobile app version sent to the driver for better readability.
  *  1.8.26	   2025-09-05	   - Fix to address the different incoming HTTP header value from Android.
+ *  1.8.27     2025-11-25	   - Changed to dynamic tile URLs to fix tiles not working when web links were disabled.
 */
 
 import groovy.transform.Field
@@ -179,7 +180,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return "1.8.26" }
+def appVersion() { return "1.8.27" }
 
 @Field static final Map BATTERY_STATUS = [ "0": "Unknown", "1": "Unplugged", "2": "Charging", "3": "Full" ]
 @Field static final Map DATA_CONNECTION = [ "w": "WiFi", "m": "Mobile", "o": "Offline"  ]
@@ -390,7 +391,7 @@ def mainPage() {
                     URL_SOURCE.each{ source->
                         if ((source != URL_SOURCE[0]) || (disableCloudLinks != true)) {
                             paragraph ((source == URL_SOURCE[0] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>"))
-                            if (googleMapsAPIKey) {
+                            if (googleMapsAPIKey && (disableCloudLinks != true)) {
                                 paragraph ("<b>Google family map:</b></br>&emsp;<a href='${getAttributeURL(source, "googlemap")}" + "&member='" + ">${getAttributeURL(source, "googlemap")}" + "&member=" + "</a></br>")
                                 paragraph ("<b>Region configuration map:</b></br>&emsp;<a href='${getAttributeURL(source, "configmap")}'>${getAttributeURL(source, "configmap")}</a></br>")
                             }
@@ -2162,10 +2163,14 @@ def parseMessage(headers, data, member) {
                     // send waypoints
                     payload = sendWaypoints(member)
                 break
-                case "restart":
                 case "reportLocation":
+                	// returns data.topic of the member to request from, and data._id for the unique id
+                	// http version cannot request from members, so this is not implemented
                 case "setConfiguration":
-                case "dump":
+                case "dump": 				// iOS
+                case "status": 				// iOS
+                case "reportSteps": 		// iOS
+                case "clearWaypoints": 		// iOS
                 default:
                     // do nothing
                 break
@@ -5301,8 +5306,19 @@ def insertThumbnailObject(memberName, size, embed) {
     return((memberURL ? """<object data="${memberURL}" type="image/jpeg" width="${size}" height="${size}">${memberName}</object>""" : memberName))
 }
 
-def displayTile(urlSource, tileSource) {
+def displayTile(recorderUrl, tileSource) {
     String htmlData = ""
+
+    // set the local/cloud base URL as required
+    if (recorderUrl) {
+        urlSource = recorderURLType()
+    } else {
+        if (disableCloudLinks == true) {
+            urlSource = URL_SOURCE[1]
+        } else {
+            urlSource = URL_SOURCE[0]
+        }
+    }
     urlPath = getAttributeURL(urlSource, tileSource)
 
     // create the embedded tile frame
