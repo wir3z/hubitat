@@ -172,6 +172,7 @@
  *  1.8.25	   2025-09-03	   - Reformat the mobile app version sent to the driver for better readability.
  *  1.8.26	   2025-09-05	   - Fix to address the different incoming HTTP header value from Android.
  *  1.8.27     2025-11-25	   - Changed to dynamic tile URLs to fix tiles not working when web links were disabled.
+ *  1.8.28     2025-11-26      - Fixed local Google maps links not working.
 */
 
 import groovy.transform.Field
@@ -391,7 +392,7 @@ def mainPage() {
                     URL_SOURCE.each{ source->
                         if ((source != URL_SOURCE[0]) || (disableCloudLinks != true)) {
                             paragraph ((source == URL_SOURCE[0] ? "<h2>Cloud Links</h2>" : "<h2>Local Links</h2>"))
-                            if (googleMapsAPIKey && (source == URL_SOURCE[0])) {
+                            if (googleMapsAPIKey) {
                                 paragraph ("<b>Google family map:</b></br>&emsp;<a href='${getAttributeURL(source, "googlemap")}" + "&member='" + ">${getAttributeURL(source, "googlemap")}" + "&member=" + "</a></br>")
                                 paragraph ("<b>Region configuration map:</b></br>&emsp;<a href='${getAttributeURL(source, "configmap")}'>${getAttributeURL(source, "configmap")}</a></br>")
                             }
@@ -1730,6 +1731,8 @@ def updated() {
             // update the child name if the prefix changed
             updateChildName(member)
         }
+        // recreate the tiles
+        getChildDevice(member.id)?.generateTiles()
 
         // if we selected member(s) to update settings
         if (settings?.syncMobileSettings.find {it==member.name}) {
@@ -3106,6 +3109,8 @@ private def createCommonChild() {
             logError("Common Child device creation failed with error ${e}")
         }
     }
+    // recreate the tiles
+    deviceWrapper?.push()
 }
 
 private def createChild(name) {
@@ -3383,9 +3388,9 @@ def generateRegionMap() {
     // convert the string back to a map
     def region = evaluate((params.region).replaceAll("%20",""))
 
-    String htmlData = "Google Maps API Not Configured or Quota Exceeded"
+    String htmlData = "Google Maps API Not Configured or Quota Exceeded or Cloud Web Links are Disabled"
     APIKey = getGoogleMapsAPIKey()
-    if (APIKey && isMapAllowed(true)) {
+    if (APIKey && isMapAllowed(true) && isCloudLinkEnabled(request.HOST)) {
         htmlData = """
         <div style="width:100%;height:100%;margin:5px">
             <div id="map" style="width:100%;height:100%;"></div>
@@ -4006,13 +4011,17 @@ def displayMemberPastLocations() {
     member = state.members.find {it.name.toLowerCase()==params.member}
     String htmlData = "OwnTracks Recorder Not Configured or Private Member"
 
-    def deviceWrapper = getChildDevice(member.id)
-    if (deviceWrapper) {
-        displayData = deviceWrapper.generatePastLocations()
-        // only display if we could retrieve the data
-        if (displayData) {
-            htmlData = displayData
+    if (isCloudLinkEnabled(request.HOST)) {
+        def deviceWrapper = getChildDevice(member.id)
+        if (deviceWrapper) {
+            displayData = deviceWrapper.generatePastLocations()
+            // only display if we could retrieve the data
+            if (displayData) {
+                htmlData = displayData
+            }
         }
+    } else {
+        htmlData = "Cloud web links are disabled."
     }
 
     return render(contentType: "text/html", data: (insertOwnTracksFavicon() + htmlData))
