@@ -148,12 +148,13 @@
  *  1.8.8      2025-08-26      - Fixed issue with private members.
  *  1.8.9      2025-08-31      - Added member attribute for the mobile app version.
  *  1.8.10     2025-11-25      - Changed to dynamic tile URL.
+ *  1.8.11     2026-01-15      - The wifi home lock was missed in the past improvements.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.8.10" }
+def driverVersion() { return "1.8.11" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -572,7 +573,10 @@ void processLocationEvent(data) {
         // if we have a transition event
         if (data._type == "transition") {
             // create the notification event, update the transition and log the message
-            createTransitionEvent(data.desc, data.event, data.tst)
+            // prevent a leave event if we are still connected to wifi
+            if ((data.event == "enter") || !data.memberWiFiHome) {
+            	createTransitionEvent(data.desc, data.event, data.tst)
+            }
         } else {
             // only log if there was a location change
             if (device.currentValue("location") != data.currentLocation) {
@@ -580,8 +584,8 @@ void processLocationEvent(data) {
                 updateSinceTime(data.tst)
             }
         }
-	    sendEvent( name: "distanceFromHome", value: parent.displayKmMiVal(data.currentDistanceFromHome) )
-    	sendEvent( name: "lastSpeed", value: (data?.vel ? parent.displayKmMiVal(data.vel).toInteger() : 0) )
+        sendEvent( name: "distanceFromHome", value: parent.displayKmMiVal(data.currentDistanceFromHome) )
+        sendEvent( name: "lastSpeed", value: (data?.vel ? parent.displayKmMiVal(data.vel).toInteger() : 0) )
     }
     // we only get .desc on a transition event
     if (state.homeName == data.desc) {
