@@ -149,12 +149,13 @@
  *  1.8.9      2025-08-31      - Added member attribute for the mobile app version.
  *  1.8.10     2025-11-25      - Changed to dynamic tile URL.
  *  1.8.11     2026-01-15      - The wifi home lock was missed in the past improvements.
+ *  1.8.12     2026-01-17      - Prevent duplicate presense log entries due to caching delays.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return "1.8.11" }
+def driverVersion() { return "1.8.12" }
 
 @Field static final Map MONITORING_MODE = [ 0: "Unknown", 1: "Significant", 2: "Move" ]
 @Field static final Map BATTERY_STATUS = [ 0: "Unknown", 1: "Unplugged", 2: "Charging", 3: "Full" ]
@@ -263,6 +264,7 @@ def installed() {
     state.homeName = ""
     state.pendingTransitionUpdateData = ""
     state.transitionDeadband = 0
+    state.presence = ""
     updated()
 }
 
@@ -465,8 +467,9 @@ def createTransitionEvent(dataRegion, dataEvent, dataTst) {
 
 def createPresenceEvent(presenceState, dataTst) {
     // skip duplicate presence events
-    if (device.currentValue("presence") != presenceState) {
+    if (state.presence != presenceState) {
         descriptionText = device.displayName + " is " + presenceState
+        state.presence = presenceState
         sendEvent (name: "presence", value: presenceState, descriptionText: descriptionText )
         logDescriptionText("$descriptionText")
         updateSinceTime(dataTst)
@@ -496,6 +499,10 @@ Boolean generateLocationEvent(member, homeName, data) {
         state.homeName = homeName
     }
     if (state.transitionDeadband == null) state.transitionDeadband = 0
+    // allow for a clean migration
+    if (!state.presence) {
+        state.presence = device.currentValue("presence") ?: "" 
+    }
 
     // update the attributes
     updateAttributes(data)
@@ -550,10 +557,10 @@ Boolean generateLocationEvent(member, homeName, data) {
     }
 
     // if we missed a presence change and we don't have a hysteresis event pending
-    if ((device.currentValue("presence") != updateData.memberPresence) && (data.tst > state.transitionDeadband)) {
+    if ((state.presence != updateData.memberPresence) && (data.tst > state.transitionDeadband)) {
+        logDebug("Correcting presence of '${state.memberName}' to '${updateData.memberPresence}'.")
         createTransitionEvent(state.homeName, (updateData.memberPresence == "present" ? "enter" : "leave"), data.tst)
         createPresenceEvent(updateData.memberPresence, updateData.tst)
-        logDescriptionText("Correcting presence of '${state.memberName}' to '${updateData.memberPresence}'.")
     }
 
     return true
@@ -593,7 +600,8 @@ void processLocationEvent(data) {
         createPresenceEvent(data.memberPresence, data.tst)
     }
     sendEvent( name: "location", value: data.currentLocation )
-    generateMemberTile()
+    // schedule an update to ensure all attributes have been cached
+    runIn(1, generateMemberTile)
 }
 
 def generateTiles() {
