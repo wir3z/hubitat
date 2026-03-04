@@ -31,11 +31,12 @@
  *  1.8.1      2025-04-13      - Removed presence capability.
  *  1.8.2      2025-11-25      - Changed to dynamic tile URL.
  *  1.8.3      2026-02-22      - Cleanup and lint.
+ *  1.9.0      2026-03-04      - Increase revision to match new app APIs.
  **/
 
 import groovy.transform.Field
 
-def driverVersion() { return '1.8.3' }
+def driverVersion() { return '1.9.0' }
 
 @Field static Boolean DEFAULT_displayFriendsTile = false
 

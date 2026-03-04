@@ -174,13 +174,14 @@
  *  1.8.27     2025-11-25      - Changed to dynamic tile URLs to fix tiles not working when web links were disabled.
  *  1.8.28     2025-11-26      - Fixed local Google maps links not working.
  *  1.8.29     2026-02-22      - Cleanup and lint.
+ *  1.9.0      2026-03-04      - Fixed recorder not receiving messages.
 */
 
 import groovy.transform.Field
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return '1.8.27' }
+def appVersion() { return '1.9.0' }
 
 @Field static final Map BATTERY_STATUS = [ '0': 'Unknown', '1': 'Unplugged', '2': 'Charging', '3': 'Full' ]
 @Field static final Map DATA_CONNECTION = [ 'w': 'WiFi', 'm': 'Mobile', 'o': 'Offline'  ]
@@ -2089,8 +2090,7 @@ def webhookEventHandler() {
     }
 
     // app requires a non-empty JSON response, or it will display HTTP 500
-    payload = new JsonBuilder(result)
-    return render(contentType: 'text/html', data: payload, status: 200)
+    return render(contentType: 'text/html', data: (new JsonBuilder(result)), status: 200)
 }
 
 def parseMessage(headers, data, member) {
@@ -2122,7 +2122,7 @@ def parseMessage(headers, data, member) {
             data.cc = data.cc ?: location.getTimeZone().getID().substring(0, 2).toUpperCase()
             // if we have the OwnTracks recorder configured, and the timestamp is valid, and the user is not marked as private, pass the location data to it
             if (recorderURL && enableRecorder && !data.private && memberInGlobalMemberGroup(member)) {
-                def postParams = [ uri: recorderURL + RECORDER_PUBLISH_FOLDER, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(headers), body : (new JsonBuilder(data)) ]
+                def postParams = [ uri: recorderURL + RECORDER_PUBLISH_FOLDER, requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(headers), body : (new JsonBuilder(data)).toPrettyString() ]
                 asynchttpPost('httpCallbackMethod', postParams)
             }
             break
@@ -2845,7 +2845,7 @@ def logMemberCardJSON() {
         if (card) {
             // for recorder, this debug must be captured and saved to: <STORAGEDIR>/cards/<user>/<user>.json
             // or use: https://avanc.github.io/owntracks-cards/ to create and save the JSON
-            log.trace("For recorder cards, copy the bold JSON text between |  |, and save this file to 'STORAGEDIR/cards/${member.name}/${member.name}.json': |<b>${(new JsonBuilder(card))}</b>|")
+            log.trace("For recorder cards, copy the bold JSON text between |  |, and save this file to 'STORAGEDIR/cards/${member.name}/${member.name}.json': |<b>${(new JsonBuilder(card)).toPrettyString()}</b>|")
         }
     }
 }
