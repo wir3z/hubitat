@@ -1,17 +1,18 @@
 package org.owntracks.android.ui.preferences
 
 import android.os.Bundle
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.databinding.DataBindingUtil
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.replace
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import org.owntracks.android.R
 import org.owntracks.android.databinding.UiPreferencesBinding
-import org.owntracks.android.support.DrawerProvider
+import org.owntracks.android.ui.DrawerProvider
+import org.owntracks.android.ui.mixins.AppBarInsetHandler
 import org.owntracks.android.ui.mixins.ServiceStarter
 import org.owntracks.android.ui.mixins.WorkManagerInitExceptionNotifier
 
@@ -20,7 +21,8 @@ open class PreferencesActivity :
     AppCompatActivity(),
     PreferenceFragmentCompat.OnPreferenceStartFragmentCallback,
     WorkManagerInitExceptionNotifier by WorkManagerInitExceptionNotifier.Impl(),
-    ServiceStarter by ServiceStarter.Impl() {
+    ServiceStarter by ServiceStarter.Impl(),
+    AppBarInsetHandler by AppBarInsetHandler.Impl() {
   private lateinit var binding: UiPreferencesBinding
 
   @Inject lateinit var drawerProvider: DrawerProvider
@@ -29,14 +31,17 @@ open class PreferencesActivity :
     get() = PreferencesFragment()
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     setContentView(R.layout.ui_preferences)
     binding =
         DataBindingUtil.setContentView<UiPreferencesBinding>(this, R.layout.ui_preferences).apply {
           appbar.toolbar.run {
             setSupportActionBar(this)
-            drawerProvider.attach(this)
+            drawerProvider.attach(this, drawerLayout, navigationView)
           }
+
+          applyAppBarEdgeToEdgeInsets(drawerLayout, appbar.root, navigationView)
         }
 
     supportFragmentManager.run {
@@ -83,6 +88,11 @@ open class PreferencesActivity :
         .commit()
 
     return true
+  }
+
+  override fun onResume() {
+    super.onResume()
+    drawerProvider.updateHighlight()
   }
 
   companion object {

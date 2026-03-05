@@ -8,7 +8,6 @@ import android.os.IBinder
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.security.KeyStore
-import java.util.concurrent.BlockingDeque
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -23,11 +22,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.owntracks.android.data.EndpointState
 import org.owntracks.android.data.repos.ContactsRepo
 import org.owntracks.android.data.repos.EndpointStateRepo
+import org.owntracks.android.data.repos.RoomBackedMessageQueue
 import org.owntracks.android.data.waypoints.WaypointsRepo
 import org.owntracks.android.di.ApplicationScope
 import org.owntracks.android.di.CoroutineScopes.IoDispatcher
@@ -77,12 +78,17 @@ constructor(
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val scope: CoroutineScope,
     @Named("mqttConnectionIdlingResource")
-    private val mqttConnectionIdlingResource: SimpleIdlingResource
+    private val mqttConnectionIdlingResource: SimpleIdlingResource,
+    private val outgoingQueue: RoomBackedMessageQueue
 ) : Preferences.OnPreferenceChangeListener {
   private var endpoint: MessageProcessorEndpoint? = null
-  private val outgoingQueue: BlockingDeque<MessageBase> =
-      BlockingDequeThatAlsoSometimesPersistsThingsToDiskMaybe(
-          100_000, applicationContext.filesDir, parser)
+  private val queueInitJob: Job =
+      scope.launch(ioDispatcher) {
+        outgoingQueue.initialize(applicationContext.filesDir)
+        val initialSize = outgoingQueue.size()
+        repeat(initialSize) { outgoingQueueIdlingResource.increment() }
+        Timber.d("Initialized outgoingQueue with size: $initialSize")
+      }
   private var dequeueAndSenderJob: Job? = null
   private var retryDelayJob: Job? = null
   private var initialized = false
@@ -102,13 +108,11 @@ constructor(
       }
 
   init {
-    synchronized(outgoingQueue) {
-      for (i in outgoingQueue.indices) {
-        outgoingQueueIdlingResource.increment()
-      }
-      Timber.d("Initializing the outgoingQueueIdlingResource at ${outgoingQueue.size})")
-    }
     preferences.registerOnPreferenceChangedListener(this)
+    // Collect queue size changes and propagate to endpoint state repo
+    scope.launch(ioDispatcher) {
+      outgoingQueue.queueSize.collect { size -> endpointStateRepo.setQueueLength(size) }
+    }
   }
 
   /**
@@ -124,6 +128,7 @@ constructor(
             serviceConnection,
             Context.BIND_AUTO_CREATE)
         endpointStateRepo.setState(EndpointState.INITIAL)
+        queueInitJob.join()
         reconnect()
         initialized = true
       }
@@ -165,9 +170,9 @@ constructor(
     }
 
   private fun loadOutgoingMessageProcessor() {
+    runBlocking { queueInitJob.join() }
     Timber.d("Reloading outgoing message processor")
     endpoint?.deactivate().also { Timber.d("Destroying previous endpoint") }
-    scope.launch { endpointStateRepo.setQueueLength(outgoingQueue.size) }
     endpoint = getEndpoint(preferences.mode)
 
     dequeueAndSenderJob =
@@ -207,16 +212,16 @@ constructor(
 
   fun queueMessageForSending(message: MessageBase) {
     outgoingQueueIdlingResource.increment()
-    Timber.d("Queueing message=$message, current queueLength:${outgoingQueue.size}")
-    synchronized(outgoingQueue) {
-      if (!outgoingQueue.offer(message)) {
-        val droppedMessage = outgoingQueue.poll()
+    scope.launch(ioDispatcher) {
+      val currentSize = outgoingQueue.size()
+      Timber.d("Queueing message=$message, current queueLength:$currentSize")
+      if (!outgoingQueue.enqueue(message)) {
+        val droppedMessage = outgoingQueue.dequeue()
         Timber.e("Outgoing queue full. Dropping oldest message: $droppedMessage")
-        if (!outgoingQueue.offer(message)) {
-          Timber.e("Still can't put message onto the queue. Dropping: $message}")
+        if (!outgoingQueue.enqueue(message)) {
+          Timber.e("Still can't put message onto the queue. Dropping: $message")
         }
       }
-      scope.launch { endpointStateRepo.setQueueLength(outgoingQueue.size) }
     }
   }
 
@@ -250,9 +255,9 @@ constructor(
         var retryWait: Duration
         while (true) {
           try {
-            val message: MessageBase = outgoingQueue.take() // <--- blocks
+            // Suspends efficiently until a message is available - no polling
+            val message: MessageBase = outgoingQueue.awaitMessage()
             Timber.d("Taken message off queue: $message")
-            endpointStateRepo.setQueueLength(outgoingQueue.size + 1)
             // reset the retry logic if the last message succeeded
             if (lastMessageStatus is LastMessageStatus.Success ||
                 lastMessageStatus is LastMessageStatus.PermanentFailure) {
@@ -265,7 +270,7 @@ constructor(
             try {
               endpoint.let {
                 if (it == null) {
-                  Timber.i("Endpoint not ready yet. Re-queueing")
+                  Timber.d("Endpoint not ready yet. Re-queueing")
                   reQueueMessage(message)
                   resendDelayWait(SEND_FAILURE_NOT_READY_WAIT)
                   lastMessageStatus =
@@ -275,7 +280,7 @@ constructor(
                   it.sendMessage(message).exceptionOrNull()?.run {
                     when (this) {
                       is MessageProcessorEndpoint.NotReadyException -> {
-                        Timber.i("Endpoint not ready yet. Re-queueing")
+                        Timber.d("Endpoint not ready yet. Re-queueing")
                         reQueueMessage(message)
                         resendDelayWait(SEND_FAILURE_NOT_READY_WAIT)
                         lastMessageStatus =
@@ -290,7 +295,7 @@ constructor(
                           is MessageProcessorEndpoint.OutgoingMessageSendingException ->
                               Timber.w(this, "Error sending message $message. Re-queueing")
                           is ConfigurationIncompleteException ->
-                              Timber.w("Configuration incomplete for message $message. Re-queueing")
+                              Timber.e("Configuration incomplete for message $message. Re-queueing")
                           is MQTTMessageProcessorEndpoint.NotConnectedException ->
                               Timber.w("MQTT not connected for message $message. Re-queueing")
                         }
@@ -299,7 +304,7 @@ constructor(
 
                         lastMessageStatus =
                             if (retriesToGo <= 0) {
-                              Timber.w("Ran out of retries for sending. Dropping message")
+                              Timber.e("Ran out of retries for sending. Dropping message")
                               LastMessageStatus.PermanentFailure
                             } else {
                               LastMessageStatus.RetryableFailure(
@@ -342,11 +347,9 @@ constructor(
                 Timber.w(e, "outgoingQueueIdlingResource is invalid")
               }
             }
-          } catch (e: InterruptedException) {
-            Timber.w(e, "Outgoing message loop interrupted")
+          } catch (e: CancellationException) {
+            Timber.w(e, "Outgoing message loop cancelled")
             break
-          } finally {
-            endpointStateRepo.setQueueLength(outgoingQueue.size)
           }
         }
       } catch (e: Exception) {
@@ -366,7 +369,7 @@ constructor(
   private suspend fun resendDelayWait(waitFor: Duration): Boolean =
       scope
           .launch {
-            Timber.i("Waiting for $waitFor before retrying send")
+            Timber.d("Waiting for $waitFor before retrying send")
             delay(waitFor)
           }
           .run {
@@ -378,19 +381,17 @@ constructor(
           }
 
   // Takes a message and sticks it on the head of the queue
-  private fun reQueueMessage(message: MessageBase) {
-    synchronized(outgoingQueue) {
-      if (!outgoingQueue.offerFirst(message)) {
-        val tailMessage = outgoingQueue.removeLast()
-        Timber.w(
-            "Queue full when trying to re-queue failed message. " +
-                "Dropping last message: $tailMessage",
+  private suspend fun reQueueMessage(message: MessageBase) {
+    if (!outgoingQueue.requeue(message)) {
+      val tailMessage = outgoingQueue.dequeue()
+      Timber.w(
+          "Queue full when trying to re-queue failed message. " +
+              "Dropping oldest message: $tailMessage",
+      )
+      if (!outgoingQueue.requeue(message)) {
+        Timber.e(
+            "Couldn't restore failed message $message back onto the queue, dropping: ",
         )
-        if (!outgoingQueue.offerFirst(message)) {
-          Timber.e(
-              "Couldn't restore failed message $message back onto the queue, dropping: ",
-          )
-        }
       }
     }
   }
@@ -404,19 +405,18 @@ constructor(
       cancel(CancellationException("Connectivity changed"))
       Timber.d("Resetting message send loop wait.")
     }
+    // Wake up any suspended awaitMessage() call to retry immediately
+    outgoingQueue.signalMessageAvailable()
   }
 
   fun onMessageDeliveryFailedFinal(message: MessageBase) {
-    scope.launch {
-      Timber.e("Message delivery failed, not retryable. $message")
-      endpointStateRepo.setQueueLength(outgoingQueue.size)
-    }
+    scope.launch { Timber.e("Message delivery failed, not retryable. $message") }
   }
 
   fun onMessageDeliveryFailed(message: MessageBase) {
     scope.launch {
-      Timber.e("Message delivery failed. queueLength: ${outgoingQueue.size + 1}, message=$message")
-      endpointStateRepo.setQueueLength(outgoingQueue.size)
+      Timber.e(
+          "Message delivery failed. queueLength: ${outgoingQueue.size() + 1}, message=$message")
     }
   }
 
@@ -448,7 +448,7 @@ constructor(
 
   private fun processIncomingMessage(message: MessageClear) {
     scope.launch {
-      Timber.i("Received clear message for ${message.getContactId()}")
+      Timber.d("Received clear message for ${message.getContactId()}")
       contactsRepo.remove(message.getContactId())
       messageReceivedIdlingResource.remove(message)
     }
@@ -467,7 +467,7 @@ constructor(
           Timber.d(
               "Received our own location update ${message.latitude},${message.longitude} at ${message.timestamp}")
         } else {
-          Timber.i(
+          Timber.d(
               "Contact ${message.getContactId()} moved to ${message.latitude},${message.longitude} at ${message.timestamp}")
         }
         contactsRepo.update(message.getContactId(), message)
@@ -490,7 +490,7 @@ constructor(
       messageReceivedIdlingResource.remove(message)
     } else {
       scope.launch {
-        Timber.i(
+        Timber.d(
             "Contact ${message.getContactId()} transitioned waypoint ${message.description} (${message.event}) at ${message.timestamp}")
         contactsRepo.update(message.getContactId(), message)
         service?.sendEventNotification(message)
@@ -501,7 +501,7 @@ constructor(
 
   private fun processIncomingMessage(message: MessageCard) {
     scope.launch {
-      Timber.i("Received card message from ${message.topic}")
+      Timber.d("Received card message from ${message.topic}")
       contactsRepo.update(message.getContactId(), message)
       messageReceivedIdlingResource.remove(message)
     }
@@ -572,7 +572,11 @@ constructor(
   override fun onPreferenceChanged(properties: Set<String>) {
     if (properties.intersect(PREFERENCES_THAT_WIPE_QUEUE_AND_CONTACTS).isNotEmpty()) {
       Timber.v("Preferences changed: [${properties.joinToString(",")}] triggering queue wipe")
-      outgoingQueue.also { Timber.i("Clearing outgoing message queue length=${it.size}") }.clear()
+      runBlocking {
+        queueInitJob.join()
+        outgoingQueue.clear()
+        Timber.i("Cleared outgoing message queue")
+      }
       while (!outgoingQueueIdlingResource.isIdleNow) {
         Timber.v("Decrementing outgoingQueueIdlingResource")
         try {

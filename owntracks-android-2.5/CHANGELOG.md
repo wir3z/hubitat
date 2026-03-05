@@ -1,5 +1,45 @@
 # Changelog
 
+## Version 2.5.7
+
+### New features
+
+- Belgian and Estonian translations added
+
+### Bug fixes
+
+None
+
+## Version 2.5.6
+
+### New features
+
+- Migrated message queue to use Room database instead of tape2 for better async performance and reliability
+- Updated map min zoom levels to allow viewing most of the world (#2176)
+
+
+### Bug fixes
+
+- Fix slow starts by avoiding blocking the main thread on startup with the disk-backed queue.
+- Significantly reduced battery drain and improved responsiveness in MQTT mode during poor network conditions by changing reconnection retry strategy from linear to exponential backoff
+- Don't show the directions toolbar on Google Maps when the user selects a region
+- Fix race condition on network change events (#2201 & #2202)
+- Fix MQTT reconnect task being silently ignored if another reconnect was already queued (#2203)
+
+## Version 2.5.5
+
+### New features
+
+- Visible reconnection feedback on Connection preferences page (#2156)
+
+### Bug fixes
+
+- "Request Location" button on contact now sends the command message to the right topic in MQTT mode (#2101)
+- Fixed MQTT not automatically reconnecting after network loss by preventing reconnect tasks from being cancelled prematurely (#2132)
+- Fixed crash when location provider returns null location on Android 16 (#2110)
+- Significantly reduced memory usage in logging infrastructure by reducing in-memory log buffer from 10,000 to 500 entries and eliminating redundant SimpleDateFormat instances (~98% memory reduction)
+- Improved side navigation drawer layout handling for better compatibility with system bars (#2102)
+
 ## Version 2.5.4
 
 ### New features

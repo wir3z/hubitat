@@ -1,10 +1,8 @@
-import kotlin.io.path.isRegularFile
 import org.gradle.api.tasks.testing.logging.TestLogEvent
 
 plugins {
   id("com.android.application")
   id("com.google.dagger.hilt.android")
-  id("com.github.triplet.play")
   kotlin("android")
   kotlin("kapt")
   alias(libs.plugins.ktfmt)
@@ -20,7 +18,24 @@ val googleMapsAPIKey =
 
 val gmsImplementation: Configuration by configurations.creating
 
-val packageVersionCode: Int = System.getenv("VERSION_CODE")?.toInt() ?: 420509000
+val versionNameValue = "2.5.10"
+
+fun generateVersionCode(versionName: String): Int {
+  val parts = versionName.split(".")
+  val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
+  val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+  val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
+  return 400000000 + major * 10000000 + minor * 100000 + patch * 1000
+}
+
+val generatedVersionCode = generateVersionCode(versionNameValue)
+val envVersionCode = System.getenv("VERSION_CODE")?.toInt()
+val packageVersionCode: Int =
+    if (envVersionCode != null && envVersionCode > generatedVersionCode) {
+      envVersionCode
+    } else {
+      generatedVersionCode
+    }
 val manuallySetVersion: Boolean = System.getenv("VERSION_CODE") != null
 val enablePlayPublishing: Boolean = !System.getenv("ANDROID_PUBLISHER_CREDENTIALS").isNullOrBlank()
 
@@ -34,12 +49,10 @@ android {
     targetSdk = 36
 
     versionCode = packageVersionCode
-    versionName = "2.5.9"
+    versionName = versionNameValue
 
-    val localeCount =
-        fileTree("src/main/res/")
-            .map { it.toPath() }
-            .count { it.isRegularFile() && it.fileName.toString() == "strings.xml" }
+    val localeCount = fileTree("src/main/res/").matching { include("**/strings.xml") }.files.size
+
     buildConfigField(
         "int",
         "TRANSLATION_COUNT",
@@ -185,17 +198,6 @@ android {
     }
     create("oss") { dimension = "locationProvider" }
   }
-  playConfigs {
-    register("gms") {
-      enabled.set(enablePlayPublishing)
-      track.set("internal")
-      if (manuallySetVersion) {
-        resolutionStrategy.set(com.github.triplet.gradle.androidpublisher.ResolutionStrategy.IGNORE)
-      } else {
-        resolutionStrategy.set(com.github.triplet.gradle.androidpublisher.ResolutionStrategy.AUTO)
-      }
-    }
-  }
 }
 
 kapt {
@@ -247,7 +249,6 @@ dependencies {
   implementation(libs.bouncycastle)
 
   // Widget libraries
-  implementation(libs.widgets.materialdrawer) { artifact { type = "aar" } }
   implementation(libs.widgets.materialize) { artifact { type = "aar" } }
 
   // These Java EE libs are no longer included in JDKs, so we include explicitly
@@ -278,7 +279,3 @@ dependencies {
 
   coreLibraryDesugaring(libs.desugar)
 }
-
-// Publishing
-// Handled now in the android / playConfigs block
-play { enabled.set(false) }

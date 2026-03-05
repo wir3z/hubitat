@@ -64,3 +64,5 @@ project/localscripts
 
 jacoco.exec
 .env
+fastlane/report.xml
+.idea/

@@ -1,0 +1,79 @@
+---
+name: Push to default publish to internal track
+"on":
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/trunk-build.yaml"
+      - ".github/workflows/build-test-lint.yaml"
+      - ".github/workflows/release.yaml"
+      - "project/app/src/**"
+      - "project/app/*.pro"
+      - "project/buildSrc/src/**"
+      - "project/*.gradle.kts"
+      - "project/app/*.gradle.kts"
+      - "project/gradle.properties"
+      - "project/gradle/wrapper/gradle-wrapper.properties"
+      - "project/gradle/libs.versions.toml"
+
+concurrency:
+  group: ${{ github.workflow }}-default
+
+env:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=true -Dorg.gradle.configuration-cache=true -Dorg.gradle.parallel=true -Dorg.gradle.caching=true -Dorg.gradle.jvmargs='-Xmx3096M -Dkotlin.daemon.jvm.options=-Xmx2048M -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8 -XX:+UseParallelGC'"
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      - name: Build
+        uses: ./.github/actions/gradle-task
+        with:
+          task: assembleDebug ktfmtCheck assembleRelease
+          gradle-cache-encryption-key: ${{ secrets.GradleEncryptionKey }}
+  publish-to-play-store:
+    name: "Publish to Play Store"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    needs: build
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      - name: Setup Ruby and Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+      - name: Get next version code
+        id: version_code
+        run: |
+          LATEST_VERSION_CODE="$(bundle exec fastlane get_version_code track:internal | sed -n "s/.*Found '\([0-9]*\)'.*/\1/p")"
+          echo "Latest version code is: $LATEST_VERSION_CODE"
+          NEXT_VERSION_CODE="$((LATEST_VERSION_CODE + 1))"
+          echo "version_code=$NEXT_VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "Next version code will be: $NEXT_VERSION_CODE"
+        env:
+          ANDROID_PUBLISHER_CREDENTIALS: ${{ secrets.GOOGLE_CLOUD_SERVICE_ACCOUNT_CREDENTIALS }}
+      - name: Create keystore
+        run: |
+          echo -n "${KEYSTORE_BASE64}" | base64 -d > project/owntracks.release.keystore.jks
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      - name: Build Release Bundle
+        uses: ./.github/actions/gradle-task
+        with:
+          task: bundleGmsRelease
+          gradle-cache-encryption-key: ${{ secrets.GradleEncryptionKey }}
+        env:
+          KEYSTORE_PASSPHRASE: ${{ secrets.KEYSTORE_PASSPHRASE }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          VERSION_CODE: ${{ steps.version_code.outputs.version_code }}
+      - name: Upload to Internal Track
+        run: bundle exec fastlane upload_to_internal aab:project/app/build/outputs/bundle/gmsRelease/app-gms-release.aab
+        env:
+          ANDROID_PUBLISHER_CREDENTIALS: ${{ secrets.GOOGLE_CLOUD_SERVICE_ACCOUNT_CREDENTIALS }}

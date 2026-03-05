@@ -1,13 +1,14 @@
 package org.owntracks.android.ui.status
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.net.toUri
 import androidx.core.view.isVisible
 import androidx.databinding.BindingAdapter
 import androidx.databinding.DataBindingUtil
@@ -18,12 +19,16 @@ import org.owntracks.android.R
 import org.owntracks.android.data.EndpointState
 import org.owntracks.android.databinding.UiStatusBinding
 import org.owntracks.android.preferences.Preferences
-import org.owntracks.android.support.DrawerProvider
+import org.owntracks.android.ui.DrawerProvider
+import org.owntracks.android.ui.mixins.AppBarInsetHandler
 import org.owntracks.android.ui.mixins.ServiceStarter
 import org.owntracks.android.ui.status.logs.LogViewerActivity
 
 @AndroidEntryPoint
-class StatusActivity : AppCompatActivity(), ServiceStarter by ServiceStarter.Impl() {
+class StatusActivity :
+    AppCompatActivity(),
+    ServiceStarter by ServiceStarter.Impl(),
+    AppBarInsetHandler by AppBarInsetHandler.Impl() {
   @Inject lateinit var drawerProvider: DrawerProvider
 
   @Inject lateinit var preferences: Preferences
@@ -33,6 +38,7 @@ class StatusActivity : AppCompatActivity(), ServiceStarter by ServiceStarter.Imp
   private lateinit var binding: UiStatusBinding
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     binding =
         DataBindingUtil.setContentView<UiStatusBinding>(this, R.layout.ui_status).apply {
@@ -40,7 +46,7 @@ class StatusActivity : AppCompatActivity(), ServiceStarter by ServiceStarter.Imp
           lifecycleOwner = this@StatusActivity
           appbar.toolbar.apply {
             setSupportActionBar(this)
-            drawerProvider.attach(this)
+            drawerProvider.attach(this, drawerLayout, navigationView)
           }
           dozeWhiteListed.setOnClickListener {
             MaterialAlertDialogBuilder(this@StatusActivity)
@@ -49,26 +55,29 @@ class StatusActivity : AppCompatActivity(), ServiceStarter by ServiceStarter.Imp
                 .setMessage(getString(R.string.batteryOptimizationWhitelistDialogMessage))
                 .setCancelable(true)
                 .setPositiveButton(
-                    getString(R.string.batteryOptimizationWhitelistDialogButtonLabel)) { _, _ ->
-                      if (viewModel.dozeWhitelisted.value == true) {
-                        startActivity(batteryOptimizationIntents.settingsIntent)
-                      } else {
-                        startActivity(batteryOptimizationIntents.directPackageIntent)
-                      }
-                    }
+                    getString(R.string.batteryOptimizationWhitelistDialogButtonLabel),
+                ) { _, _ ->
+                  if (viewModel.dozeWhitelisted.value == true) {
+                    startActivity(batteryOptimizationIntents.settingsIntent)
+                  } else {
+                    startActivity(batteryOptimizationIntents.directPackageIntent)
+                  }
+                }
                 .show()
           }
           viewLogsButton.setOnClickListener {
             startActivity(
                 Intent(this@StatusActivity, LogViewerActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
           }
           locationPermissions.setOnClickListener {
             val showLocationPermissionsStarter = {
               startActivity(
                   Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                    data = Uri.parse("package:$packageName")
-                  })
+                    data = "package:$packageName".toUri()
+                  },
+              )
             }
             if (viewModel.locationPermissions.value !=
                 R.string.statusLocationPermissionsFineBackground) {
@@ -90,6 +99,8 @@ class StatusActivity : AppCompatActivity(), ServiceStarter by ServiceStarter.Imp
               showLocationPermissionsStarter()
             }
           }
+
+          applyAppBarEdgeToEdgeInsets(drawerLayout, appbar.root, navigationView)
         }
     supportActionBar?.apply {
       setDisplayShowHomeEnabled(true)
@@ -100,6 +111,7 @@ class StatusActivity : AppCompatActivity(), ServiceStarter by ServiceStarter.Imp
 
   override fun onResume() {
     super.onResume()
+    drawerProvider.updateHighlight()
     viewModel.refreshDozeModeWhitelisted()
     viewModel.refreshLocationPermissions()
   }

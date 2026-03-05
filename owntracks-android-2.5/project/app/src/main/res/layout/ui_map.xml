@@ -12,6 +12,11 @@
         <import type="android.view.View" />
     </data>
 
+    <androidx.drawerlayout.widget.DrawerLayout
+        android:id="@+id/drawerLayout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
     <androidx.coordinatorlayout.widget.CoordinatorLayout
         android:id="@+id/mapCoordinatorLayout"
         android:layout_width="match_parent"
@@ -30,8 +35,8 @@
             android:contentDescription="@string/mapLayerDialogTitle"
             android:src="@drawable/ic_baseline_layers_24"
             app:fabSize="normal"
-            app:layout_anchor="@+id/mapFragment"
-            app:layout_anchorGravity="top|end"
+            app:layout_anchor="@+id/appbar"
+            app:layout_anchorGravity="bottom|end"
             app:useCompatPadding="true"
             tools:targetApi="o" />
 
@@ -202,7 +207,7 @@
                         <androidx.constraintlayout.helper.widget.Flow
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            app:constraint_referenced_ids="requestLocationReportButton,contactNavigateButton,contactClearButton"
+                            app:constraint_referenced_ids="requestLocationReportButton,contactOpenInAnotherAppButton,contactClearButton"
                             app:flow_horizontalBias="0"
                             app:flow_horizontalGap="10dp"
                             app:flow_horizontalStyle="packed"
@@ -221,13 +226,13 @@
                             app:icon="@drawable/ic_baseline_my_location_24" />
 
                         <com.google.android.material.button.MaterialButton
-                            android:id="@+id/contactNavigateButton"
+                            android:id="@+id/contactOpenInAnotherAppButton"
                             style="?attr/materialButtonOutlinedStyle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="@string/menuContactNavigate"
+                            android:text="@string/openInAnotherApp"
                             android:visibility="@{vm.currentContact.latLng!=null ?  View.VISIBLE : View.GONE}"
-                            app:icon="@drawable/baseline_navigation_24" />
+                            app:icon="@drawable/ic_baseline_open_in_new_24" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/contactClearButton"
@@ -237,7 +242,6 @@
                             android:text="@string/menuClear"
                             app:icon="@drawable/baseline_clear_24" />
 
-
                     </androidx.constraintlayout.widget.ConstraintLayout>
 
                     <com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -246,6 +250,7 @@
                         android:layout_height="wrap_content"
                         android:layout_alignParentEnd="true"
                         android:layout_alignParentBottom="true"
+                        android:layout_marginEnd="8dp"
                         android:src="@drawable/ic_baseline_share_24"
                         android:visibility="@{vm.currentContact.latLng!=null ?  View.VISIBLE : View.GONE}"
                         app:fabSize="mini" />
@@ -253,4 +258,14 @@
             </androidx.appcompat.widget.LinearLayoutCompat>
         </androidx.appcompat.widget.LinearLayoutCompat>
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
+
+        <!-- Navigation drawer -->
+        <com.google.android.material.navigation.NavigationView
+            android:id="@+id/navigationView"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_gravity="start"
+            app:menu="@menu/drawer_navigation" />
+
+    </androidx.drawerlayout.widget.DrawerLayout>
 </layout>

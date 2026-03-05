@@ -21,8 +21,10 @@ import android.util.TypedValue
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.view.ViewGroup
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.addCallback
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.annotation.RequiresPermission
@@ -31,7 +33,11 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.LinearLayoutCompat
 import androidx.appcompat.widget.TooltipCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.net.toUri
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.setPadding
+import androidx.core.view.updateLayoutParams
 import androidx.core.widget.ImageViewCompat
 import androidx.databinding.BindingAdapter
 import androidx.databinding.DataBindingUtil
@@ -39,7 +45,6 @@ import androidx.fragment.app.commit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -51,6 +56,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Named
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import org.owntracks.android.R
 import org.owntracks.android.databinding.UiMapBinding
@@ -61,11 +67,12 @@ import org.owntracks.android.preferences.types.MonitoringMode
 import org.owntracks.android.services.BackgroundService
 import org.owntracks.android.services.BackgroundService.Companion.BACKGROUND_LOCATION_RESTRICTION_NOTIFICATION_TAG
 import org.owntracks.android.support.ContactImageBindingAdapter
-import org.owntracks.android.support.DrawerProvider
 import org.owntracks.android.support.RequirementsChecker
 import org.owntracks.android.test.SimpleIdlingResource
 import org.owntracks.android.test.ThresholdIdlingResourceInterface
+import org.owntracks.android.ui.DrawerProvider
 import org.owntracks.android.ui.NotificationsStash
+import org.owntracks.android.ui.mixins.AppBarInsetHandler
 import org.owntracks.android.ui.mixins.BackgroundLocationPermissionRequester
 import org.owntracks.android.ui.mixins.LocationPermissionRequester
 import org.owntracks.android.ui.mixins.NotificationPermissionRequester
@@ -80,16 +87,24 @@ class MapActivity :
     View.OnClickListener,
     View.OnLongClickListener,
     WorkManagerInitExceptionNotifier by WorkManagerInitExceptionNotifier.Impl(),
-    ServiceStarter by ServiceStarter.Impl() {
+    ServiceStarter by ServiceStarter.Impl(),
+    AppBarInsetHandler by AppBarInsetHandler.Impl() {
+  private var bottom: Int = 0
   private val viewModel: MapViewModel by viewModels()
   private val notificationPermissionRequester =
       NotificationPermissionRequester(
-          this, ::notificationPermissionGranted, ::notificationPermissionDenied)
+          this,
+          ::notificationPermissionGranted,
+          ::notificationPermissionDenied,
+      )
   private val locationPermissionRequester =
       LocationPermissionRequester(this, ::locationPermissionGranted, ::locationPermissionDenied)
   private val backgroundLocationPermissionRequester =
       BackgroundLocationPermissionRequester(
-          this, ::backgroundLocationPermissionGranted, ::backgroundLocationPermissionDenied)
+          this,
+          ::backgroundLocationPermissionGranted,
+          ::backgroundLocationPermissionDenied,
+      )
   private var service: BackgroundService? = null
   private var bottomSheetBehavior: BottomSheetBehavior<LinearLayoutCompat>? = null
   private var menu: Menu? = null
@@ -138,6 +153,7 @@ class MapActivity :
       }
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    enableEdgeToEdge()
     EntryPointAccessors.fromActivity(this, MapActivityEntryPoint::class.java).let {
       supportFragmentManager.fragmentFactory = it.fragmentFactory
     }
@@ -156,16 +172,50 @@ class MapActivity :
           lifecycleOwner = this@MapActivity
           appbar.toolbar.run {
             setSupportActionBar(this)
-            drawerProvider.attach(this)
+            drawerProvider.attach(this, drawerLayout, navigationView)
           }
+
           supportActionBar?.setDisplayShowTitleEnabled(false)
-          bottomSheetBehavior = BottomSheetBehavior.from(bottomSheetLayout)
+
+          bottomSheetBehavior =
+              BottomSheetBehavior.from(bottomSheetLayout).apply {
+                addBottomSheetCallback(
+                    object : BottomSheetBehavior.BottomSheetCallback() {
+                      override fun onStateChanged(bottomSheet: View, newState: Int) {
+                        updateFabMyLocationPosition(newState)
+                        updateMapPaddingForBottomSheet(newState)
+
+                        ViewCompat.getRootWindowInsets(bottomSheetLayout)?.run {
+                          val insets =
+                              getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())
+                          val topPadding =
+                              when (newState) {
+                                BottomSheetBehavior.STATE_EXPANDED,
+                                BottomSheetBehavior.STATE_SETTLING -> insets.top
+                                else -> 0
+                              }
+                          bottomSheetLayout.setPadding(
+                              bottomSheetLayout.paddingLeft,
+                              topPadding,
+                              bottomSheetLayout.paddingRight,
+                              bottomSheetLayout.paddingBottom,
+                          )
+                        }
+                      }
+
+                      override fun onSlide(bottomSheet: View, slideOffset: Float) {
+                        // No-op
+                      }
+                    },
+                )
+              }
           contactPeek.contactRow.setOnClickListener(this@MapActivity)
           contactPeek.contactRow.setOnLongClickListener(this@MapActivity)
           contactClearButton.setOnClickListener { viewModel.onClearContactClicked() }
           requestLocationReportButton.setOnClickListener {
             viewModel.sendLocationRequestToCurrentContact()
           }
+
           contactShareButton.setOnClickListener {
             startActivity(
                 Intent.createChooser(
@@ -182,25 +232,21 @@ class MapActivity :
                                 this.latLng?.toDisplayString() ?: "",
                                 DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
                                     .withZone(ZoneId.systemDefault())
-                                    .format(Instant.ofEpochSecond(this.locationTimestamp)))
-                          } ?: R.string.na)
+                                    .format(Instant.ofEpochSecond(this.locationTimestamp)),
+                            )
+                          } ?: R.string.na,
+                      )
                     },
-                    "Share Location"))
+                    "Share Location",
+                ),
+            )
           }
 
-          contactNavigateButton.setOnClickListener { navigateToCurrentContact() }
-
-          // Need to set the appbar layout behaviour to be non-drag, so that we can drag the map
-          AppBarLayout.Behavior()
-              .setDragCallback(
-                  object : AppBarLayout.Behavior.DragCallback() {
-                    override fun canDrag(appBarLayout: AppBarLayout): Boolean {
-                      return false
-                    }
-                  })
+          contactOpenInAnotherAppButton.setOnClickListener { openContactCoordsInApp() }
 
           fabMyLocation.apply {
             TooltipCompat.setTooltipText(this, getString(R.string.currentLocationButtonLabel))
+
             setOnClickListener {
               if (checkAndRequestLocationPermissions(true) ==
                   CheckPermissionsResult.HAS_PERMISSIONS) {
@@ -226,7 +272,8 @@ class MapActivity :
                       R.id.contactDetailsBattery,
                       R.id.contactDetailsBearing,
                       R.id.contactDetailsSpeed,
-                      R.id.contactDetailsDistance)
+                      R.id.contactDetailsDistance,
+                  )
                   .map { bottomSheetLayout.findViewById<View>(it) }
                   .map { it.findViewById<AutoResizingTextViewWithListener>(R.id.label) }
 
@@ -238,12 +285,27 @@ class MapActivity :
                       .filter { it.textSize > newSize || it.configurationChangedFlag }
                       .forEach {
                         it.setAutoSizeTextTypeUniformWithPresetSizes(
-                            intArrayOf(newSize.toInt()), TypedValue.COMPLEX_UNIT_PX)
+                            intArrayOf(newSize.toInt()),
+                            TypedValue.COMPLEX_UNIT_PX,
+                        )
                         it.configurationChangedFlag = false
                       }
                 }
               }
               .also { listener -> labels.forEach { it.withListener(listener) } }
+
+          applyAppBarEdgeToEdgeInsets(drawerLayout, appbar.root, navigationView)
+
+          // Apply bottom insets to FABs to avoid navigation bar
+          ViewCompat.setOnApplyWindowInsetsListener(mapCoordinatorLayout) { _, windowInsets ->
+            val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+
+            fabMapLayers.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+              bottomMargin = insets.bottom + resources.getDimensionPixelSize(R.dimen.fab_margin)
+            }
+
+            windowInsets
+          }
         }
 
     backPressedCallback =
@@ -273,7 +335,10 @@ class MapActivity :
           launch {
             locationRequestContactCommandFlow.collect { contact ->
               Snackbar.make(
-                      binding.root, getString(R.string.requestLocationSent), Snackbar.LENGTH_SHORT)
+                      binding.root,
+                      getString(R.string.requestLocationSent, contact.displayName),
+                      Snackbar.LENGTH_SHORT,
+                  )
                   .show()
             }
           }
@@ -315,21 +380,31 @@ class MapActivity :
     notifyOnWorkManagerInitFailure(this)
   }
 
-  private fun navigateToCurrentContact() {
+  private fun openContactCoordsInApp() {
     viewModel.currentContact.value?.latLng?.apply {
       try {
+        val builder =
+            Uri.Builder()
+                .scheme("geo")
+                .authority("")
+                .appendPath(
+                    "${latitude.value.roundForDisplay()},${longitude.value.roundForDisplay()}")
+        viewModel.zoomLevel?.let { builder.appendQueryParameter("z", it.roundToInt().toString()) }
+        builder.appendQueryParameter(
+            "q", "${latitude.value.roundForDisplay()},${longitude.value.roundForDisplay()}")
         val intent =
             Intent(
                 Intent.ACTION_VIEW,
-                Uri.parse(
-                    "google.navigation:q=${latitude.value.roundForDisplay()},${longitude.value.roundForDisplay()}"))
+                builder.build(),
+            )
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(intent)
-      } catch (e: ActivityNotFoundException) {
+      } catch (_: ActivityNotFoundException) {
         Snackbar.make(
                 binding.mapCoordinatorLayout,
                 getString(R.string.noNavigationApp),
-                Snackbar.LENGTH_SHORT)
+                Snackbar.LENGTH_SHORT,
+            )
             .show()
       }
     }
@@ -337,7 +412,8 @@ class MapActivity :
           Snackbar.make(
                   binding.mapCoordinatorLayout,
                   getString(R.string.contactLocationUnknown),
-                  Snackbar.LENGTH_SHORT)
+                  Snackbar.LENGTH_SHORT,
+              )
               .show()
         }
   }
@@ -379,9 +455,10 @@ class MapActivity :
             .setTitle(getString(R.string.deviceLocationDisabledDialogTitle))
             .setMessage(getString(R.string.deviceLocationDisabledDialogMessage))
             .setPositiveButton(
-                getString(R.string.deviceLocationDisabledDialogPositiveButtonLabel)) { _, _ ->
-                  locationServicesLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-                }
+                getString(R.string.deviceLocationDisabledDialogPositiveButtonLabel),
+            ) { _, _ ->
+              locationServicesLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            }
             .setNegativeButton(android.R.string.cancel) { _, _ ->
               preferences.userDeclinedEnableLocationServices = true
             }
@@ -389,7 +466,8 @@ class MapActivity :
       } else {
         Timber.d(
             "Not requesting location services. " +
-                "Explicit=false, previously declined=${preferences.userDeclinedEnableLocationServices}")
+                "Explicit=false, previously declined=${preferences.userDeclinedEnableLocationServices}",
+        )
       }
       false
     } else {
@@ -441,12 +519,14 @@ class MapActivity :
     Snackbar.make(
             binding.mapCoordinatorLayout,
             getString(R.string.locationPermissionNotGrantedNotification),
-            Snackbar.LENGTH_LONG)
+            Snackbar.LENGTH_LONG,
+        )
         .setAction(getString(R.string.fixProblemLabel)) {
           startActivity(
               Intent(ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:$packageName")
-              })
+                data = "package:$packageName".toUri()
+              },
+          )
         }
         .show()
   }
@@ -492,7 +572,8 @@ class MapActivity :
       } else {
         Timber.d(
             "Not request location permissions. " +
-                "previouslyDeclined=${preferences.userDeclinedEnableNotificationPermissions}")
+                "previouslyDeclined=${preferences.userDeclinedEnableNotificationPermissions}",
+        )
         CheckPermissionsResult.NO_PERMISSIONS_NOT_LAUNCHED_REQUEST
       }
     } else {
@@ -530,14 +611,16 @@ class MapActivity :
             } else {
               IMPLICIT_LOCATION_PERMISSION_REQUEST
             },
-            this) {
-              shouldShowRequestPermissionRationale(it)
-            }
+            this,
+        ) {
+          shouldShowRequestPermissionRationale(it)
+        }
         CheckPermissionsResult.NO_PERMISSIONS_LAUNCHED_REQUEST
       } else {
         Timber.d(
             "Not request location permissions. " +
-                "Explicit action=false, previouslyDeclined=${preferences.userDeclinedEnableLocationPermissions}")
+                "Explicit action=false, previouslyDeclined=${preferences.userDeclinedEnableLocationPermissions}",
+        )
         CheckPermissionsResult.NO_PERMISSIONS_NOT_LAUNCHED_REQUEST
       }
     } else {
@@ -567,7 +650,9 @@ class MapActivity :
   override fun onResume() {
     val mapFragment =
         supportFragmentManager.fragmentFactory.instantiate(
-            this.classLoader, MapFragment::class.java.name)
+            this.classLoader,
+            MapFragment::class.java.name,
+        )
     supportFragmentManager.commit(true) { replace(R.id.mapFragment, mapFragment, "map") }
     sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
     sensorManager?.let {
@@ -577,6 +662,7 @@ class MapActivity :
     super.onResume()
     updateMonitoringModeMenu()
     viewModel.updateMyLocationStatus()
+    drawerProvider.updateHighlight()
 
     if (checkAndRequestNotificationPermissions() ==
         CheckPermissionsResult.NO_PERMISSIONS_LAUNCHED_REQUEST) {
@@ -699,7 +785,7 @@ class MapActivity :
 
   private fun setBottomSheetCollapsed() {
     bottomSheetBehavior!!.state = BottomSheetBehavior.STATE_COLLAPSED
-    binding.mapFragment.setPadding(0)
+    binding.mapFragment.setPaddingRelative(0, 0, 0, bottomSheetBehavior?.peekHeight ?: 0)
     sensorManager?.unregisterListener(viewModel.orientationSensorEventListener)
     backPressedCallback.isEnabled = true
   }
@@ -712,10 +798,39 @@ class MapActivity :
     backPressedCallback.isEnabled = false
   }
 
+  private fun updateFabMyLocationPosition(bottomSheetState: Int) {
+    binding.fabMyLocation.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+      bottomMargin =
+          when (bottomSheetState) {
+            BottomSheetBehavior.STATE_COLLAPSED -> {
+              bottomSheetBehavior?.peekHeight ?: bottom
+            }
+            else -> bottom
+          }
+    }
+  }
+
+  private fun updateMapPaddingForBottomSheet(bottomSheetState: Int) {
+    when (bottomSheetState) {
+      BottomSheetBehavior.STATE_EXPANDED -> {
+        binding.mapFragment.setPaddingRelative(0, 0, 0, binding.bottomSheetLayout.height)
+      }
+      BottomSheetBehavior.STATE_COLLAPSED -> {
+        binding.mapFragment.setPaddingRelative(0, 0, 0, bottomSheetBehavior?.peekHeight ?: 0)
+      }
+      else -> {
+        binding.mapFragment.setPadding(0)
+      }
+    }
+  }
+
   override fun onStart() {
     super.onStart()
     bindService(
-        Intent(this, BackgroundService::class.java), serviceConnection, Context.BIND_AUTO_CREATE)
+        Intent(this, BackgroundService::class.java),
+        serviceConnection,
+        Context.BIND_AUTO_CREATE,
+    )
   }
 
   override fun onStop() {

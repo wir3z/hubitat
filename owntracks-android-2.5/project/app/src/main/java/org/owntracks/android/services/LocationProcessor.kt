@@ -57,7 +57,7 @@ constructor(
           .run { preferences.ignoreInaccurateLocations == 0 || l.accuracy < this }
           .also {
             if (!it) {
-              Timber.v(
+              Timber.d(
                   "Location accuracy ${l.accuracy} is outside accuracy threshold of ${preferences.ignoreInaccurateLocations}")
             }
           }
@@ -93,7 +93,7 @@ constructor(
     Timber.d("publishLocationMessage for $location triggered by $trigger")
 
     // Check if publish would trigger a region if fusedRegionDetection is enabled
-    Timber.v(
+    Timber.d(
         "Checking if location triggers waypoint transitions. waypoints: $loadedWaypoints, trigger=$trigger, fusedRegionDetection: ${preferences.fusedRegionDetection}")
     if (loadedWaypoints.isNotEmpty() &&
         preferences.fusedRegionDetection &&
@@ -114,13 +114,13 @@ constructor(
     }
     if (preferences.monitoring === MonitoringMode.Quiet &&
         MessageLocation.ReportType.USER != trigger) {
-      Timber.v("message suppressed by monitoring settings: quiet")
+      Timber.d("message suppressed by monitoring settings: quiet")
       return Result.failure(Exception("message suppressed by monitoring settings: quiet"))
     }
     if (preferences.monitoring === MonitoringMode.Manual &&
         MessageLocation.ReportType.USER != trigger &&
         MessageLocation.ReportType.CIRCULAR != trigger) {
-      Timber.v("message suppressed by monitoring settings: manual")
+      Timber.d("message suppressed by monitoring settings: manual")
       return Result.failure(Exception("message suppressed by monitoring settings: manual"))
     }
 
@@ -132,6 +132,7 @@ constructor(
                 conn = deviceMetricsProvider.connectionType
                 monitoringMode = preferences.monitoring
                 source = location.provider
+                address = lastAddress
               }
             } else {
               fromLocation(location, Build.VERSION.SDK_INT)
@@ -140,7 +141,6 @@ constructor(
               this.trigger = trigger
               trackerId = preferences.tid.toString()
               inregions = calculateInRegions(loadedWaypoints)
-              address = lastAddress
             }
     Timber.v("Actually publishing location $location triggered by $trigger as message=$message")
     messageProcessor.queueMessageForSending(message)
@@ -211,7 +211,7 @@ constructor(
         waypointModel.lastTriggered = Instant.now()
         waypointsRepo.update(waypointModel, false)
         if (preferences.monitoring === MonitoringMode.Quiet) {
-          Timber.v("message suppressed by monitoring settings: ${preferences.monitoring}")
+          Timber.d("message suppressed by monitoring settings: ${preferences.monitoring}")
         } else {
           publishTransitionMessage(waypointModel, location, transition, trigger)
           if (trigger == MessageTransition.TRIGGER_CIRCULAR) {

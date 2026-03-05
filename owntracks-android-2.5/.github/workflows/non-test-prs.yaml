@@ -1,0 +1,25 @@
+---
+name: PR Opened (No Tests)
+
+"on":
+  pull_request:
+    types: [opened, synchronize]
+    branches:
+      - master
+    paths-ignore:
+      - ".github/workflows/**"
+      - "project/app/src/**"
+      - "project/app/*.pro"
+      - "project/buildSrc/src/**"
+      - "project/*.gradle.kts"
+      - "project/app/*.gradle.kts"
+      - "project/gradle.properties"
+      - "project/gradle/wrapper/gradle-wrapper.properties"
+      - "project/gradle/libs.versions.toml"
+jobs:
+  pr-checkpoint-status:
+    name: "PR Checkpoint Status"
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "PR Checkpoint Status. Noop"

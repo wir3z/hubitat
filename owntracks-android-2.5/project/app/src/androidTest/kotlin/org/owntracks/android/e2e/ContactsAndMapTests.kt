@@ -20,6 +20,7 @@ import org.owntracks.android.testutils.di.setLocation
 import org.owntracks.android.testutils.grantMapActivityPermissions
 import org.owntracks.android.testutils.setNotFirstStartPreferences
 import org.owntracks.android.testutils.use
+import org.owntracks.android.testutils.waitUntilViewNotDisplayed
 import org.owntracks.android.ui.map.MapActivity
 
 @LargeTest
@@ -30,8 +31,8 @@ class ContactsAndMapTests :
 
   private val locationResponse =
       """
-        {"_type":"location","acc":20,"al":0,"batt":100,"bs":0,"conn":"w","created_at":1610748273,"lat":51.2,"lon":-4,"tid":"aa","tst":1610799026,"vac":40,"vel":7}
-    """
+      {"_type":"location","acc":20,"al":0,"batt":100,"bs":0,"conn":"w","created_at":1610748273,"lat":51.2,"lon":-4,"tid":"aa","tst":1610799026,"vac":40,"vel":7}
+      """
           .trimIndent()
 
   @Test
@@ -63,7 +64,7 @@ class ContactsAndMapTests :
 
     clickBack()
 
-    assertNotDisplayed(R.id.bottomSheetLayout)
+    waitUntilViewNotDisplayed(R.id.bottomSheetLayout)
     assertNotDisplayed(R.id.contactPeek)
   }
 }
