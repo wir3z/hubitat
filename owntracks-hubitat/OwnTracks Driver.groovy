@@ -150,12 +150,13 @@
  *  1.8.12     2026-01-17      - Prevent duplicate presense log entries due to caching delays.
  *  1.8.14     2026-02-22      - Cleanup and lint.
  *  1.9.0      2026-03-04      - Increase revision to match new app APIs.
+ *  1.9.1      2026-03-15      - Trigger missed transition events if the locations events do not match.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return '1.9.0' }
+def driverVersion() { return '1.9.1' }
 
 @Field static final Map MONITORING_MODE = [ 0: 'Unknown', 1: 'Significant', 2: 'Move' ]
 @Field static final Map BATTERY_STATUS = [ 0: 'Unknown', 1: 'Unplugged', 2: 'Charging', 3: 'Full' ]
@@ -299,7 +300,7 @@ def newMemberTile() {
 }
 
 def updatePresenceEvent(dataEvent, presenceState, dataTst) {
-    newTransitionEvent(state.homeName, dataEvent, dataTst)
+    newTransitionEvent(state.homeName, dataEvent, dataTst, false)
     newPresenceEvent(presenceState, dataTst)
     generateTiles()
 }
@@ -446,22 +447,28 @@ def getCurrentLocation(data) {
     return (currentLocation)
 }
 
-def newTransitionEvent(dataRegion, dataEvent, dataTst) {
+def newTransitionEvent(dataRegion, dataEvent, dataTst, dataMemberWiFiHome) {
     // set the deadband to a future time
     state.transitionDeadband = dataTst + (notificationHysteresisSeconds == null ? DEFAULT_notificationHysteresisSeconds : notificationHysteresisSeconds)
-    // skip duplicate transition events
-    if ((TRANSITION_DIRECTION[dataEvent] != device.currentValue('transitionDirection')) || (dataRegion != device.currentValue('transitionRegion'))) {
-        dataTime = new SimpleDateFormat('E h:mm a yyyy-MM-dd').format(new Date((long)dataTst * 1000))
-        descriptionText = device.displayName +  " has ${TRANSITION_PHRASES[dataEvent]} " + dataRegion
-        logDescriptionText("$descriptionText")
 
-        sendEvent( name: 'transitionRegion', value: dataRegion )
-        sendEvent( name: 'transitionTime', value: dataTime )
-        sendEvent( name: 'transitionDirection', value: TRANSITION_DIRECTION[dataEvent] )
-        sendEvent( name: 'sinceTime', value: dataTst )
-        parent.generateTransitionNotification(state.memberName, TRANSITION_PHRASES[dataEvent], dataRegion, dataTime)
+    // prevent a leave event if we are still connected to wifi
+    if ((dataEvent == 'enter') || (dataMemberWiFiHome == false)) {
+        // skip duplicate transition events
+        if ((TRANSITION_DIRECTION[dataEvent] != device.currentValue('transitionDirection')) || (dataRegion != device.currentValue('transitionRegion'))) {
+            dataTime = new SimpleDateFormat('E h:mm a yyyy-MM-dd').format(new Date((long)dataTst * 1000))
+            descriptionText = device.displayName +  " has ${TRANSITION_PHRASES[dataEvent]} " + dataRegion
+            logDescriptionText("$descriptionText")
+
+            sendEvent( name: 'transitionRegion', value: dataRegion )
+            sendEvent( name: 'transitionTime', value: dataTime )
+            sendEvent( name: 'transitionDirection', value: TRANSITION_DIRECTION[dataEvent] )
+            sendEvent( name: 'sinceTime', value: dataTst )
+            parent.generateTransitionNotification(state.memberName, TRANSITION_PHRASES[dataEvent], dataRegion, dataTime)
+        } else {
+            logDebug("Skipping duplicate transition event '${dataEvent} ${dataRegion} at ${new SimpleDateFormat('E h:mm:ss a yyyy-MM-dd').format(new Date((long)dataTst * 1000))}'.")
+        }
     } else {
-        logDebug("Skipping duplicate transition event '${dataEvent} ${dataRegion} at ${new SimpleDateFormat('E h:mm:ss a yyyy-MM-dd').format(new Date((long)dataTst * 1000))}'.")
+        logDescriptionText("Preventing transition event '${dataEvent} ${dataRegion} at ${new SimpleDateFormat('E h:mm:ss a yyyy-MM-dd').format(new Date((long)dataTst * 1000))}' due to WiFi connection.")
     }
 }
 
@@ -531,6 +538,8 @@ Boolean generateLocationEvent(member, homeName, data) {
         tst: data.tst,
         memberPresence: (data.memberAtHome ? 'present' : 'not present'),
         memberAtHome: data.memberAtHome,
+        memberWiFiHome: data.memberWiFiHome,
+        inregions: (data.inregions ? data.inregions : []),
         currentLocation: getCurrentLocation(data),
         private: data.private,
     ]
@@ -554,11 +563,27 @@ Boolean generateLocationEvent(member, homeName, data) {
         processLocationEvent(updateData)
     }
 
-    // if we missed a presence change and we don't have a hysteresis event pending
-    if ((state.presence != updateData.memberPresence) && (data.tst > state.transitionDeadband)) {
-        logDebug("Correcting presence of '${state.memberName}' to '${updateData.memberPresence}'.")
-        newTransitionEvent(state.homeName, (updateData.memberPresence == 'present' ? 'enter' : 'leave'), data.tst)
-        newPresenceEvent(updateData.memberPresence, updateData.tst)
+    // If we don't have a hysteresis event pending
+    if (data.tst > state.transitionDeadband) {
+        // check we missed a presence change
+        if (state.presence != updateData.memberPresence) {
+            logDebug("Correcting presence of '${state.memberName}' to '${updateData.memberPresence}'.")
+            newTransitionEvent(state.homeName, (updateData.memberPresence == 'present' ? 'enter' : 'leave'), data.tst, data.memberWiFiHome)
+            newPresenceEvent(updateData.memberPresence, updateData.tst)
+        } else {
+            // check if we missed a 'leave' transition
+            String lastRegion = device.currentValue('transitionRegion')
+            if ((updateData.inregions.size() == 0) && (device.currentValue('transitionDirection') != 'departed')) {
+                logDebug("Correcting transition: ${state.memberName} has ${TRANSITION_PHRASES['leave']} ${lastRegion}")
+                newTransitionEvent(lastRegion, 'leave', data.tst, data.memberWiFiHome)
+            }
+
+            // check if we missed an 'enter' transition
+            if ((updateData.inregions.size() == 1) && (updateData.inregions[0] != device.currentValue('transitionRegion'))) {
+                logDebug("Correcting transition: ${state.memberName} has ${TRANSITION_PHRASES['enter']} ${updateData.inregions[0]}")
+                newTransitionEvent(updateData.inregions[0], 'enter', data.tst, data.memberWiFiHome)
+            }
+        }
     }
 
     return true
@@ -578,10 +603,7 @@ void processLocationEvent(data) {
         // if we have a transition event
         if (data._type == 'transition') {
             // create the notification event, update the transition and log the message
-            // prevent a leave event if we are still connected to wifi
-            if ((data.event == 'enter') || !data.memberWiFiHome) {
-                newTransitionEvent(data.desc, data.event, data.tst)
-            }
+            newTransitionEvent(data.desc, data.event, data.tst, data.memberWiFiHome)
         } else {
             // only log if there was a location change
             if (device.currentValue('location') != data.currentLocation) {
