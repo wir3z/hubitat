@@ -175,13 +175,14 @@
  *  1.8.28     2025-11-26      - Fixed local Google maps links not working.
  *  1.8.29     2026-02-22      - Cleanup and lint.
  *  1.9.0      2026-03-04      - Fixed recorder not receiving messages.
+ *  1.9.1      2026-03-21      - Fixed JSON for secondary hubs.
 */
 
 import groovy.transform.Field
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return '1.9.0' }
+def appVersion() { return '1.9.1' }
 
 @Field static final Map BATTERY_STATUS = [ '0': 'Unknown', '1': 'Unplugged', '2': 'Charging', '3': 'Full' ]
 @Field static final Map DATA_CONNECTION = [ 'w': 'WiFi', 'm': 'Mobile', 'o': 'Offline'  ]
@@ -2063,7 +2064,7 @@ def webhookEventHandler() {
             if ((settings?.enabledMembers.find { it == sourceName }) || (sourceName == COMMON_CHILDNAME)) {
                 // Pass the location to a secondary hub if configured
                 if (secondaryHubURL && enableSecondaryHub) {
-                    def postParams = [ uri: secondaryHubURL?.trim(), requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data)) ]
+                    def postParams = [ uri: secondaryHubURL?.trim(), requestContentType: 'application/json', contentType: 'application/json', headers: parsePostHeaders(request.headers), body : (new JsonBuilder(data).toPrettyString()) ]
                     asynchttpPost('httpCallbackMethod', postParams)
                 }
                 // update the device ID should it have changed
