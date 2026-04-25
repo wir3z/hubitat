@@ -177,13 +177,14 @@
  *  1.9.0      2026-03-04      - Fixed recorder not receiving messages.
  *  1.9.1      2026-03-21      - Fixed JSON for secondary hubs.
  *  1.9.2      2026-04-21      - Fixed drawer layout when long location addresses are displayed.
+ *  1.9.3      2026-04-25      - Adjusted drawer layout when long location addresses are displayed.
 */
 
 import groovy.transform.Field
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return '1.9.2' }
+def appVersion() { return '1.9.3' }
 
 @Field static final Map BATTERY_STATUS = [ '0': 'Unknown', '1': 'Unplugged', '2': 'Charging', '3': 'Full' ]
 @Field static final Map DATA_CONNECTION = [ 'w': 'WiFi', 'm': 'Mobile', 'o': 'Offline'  ]
@@ -4863,9 +4864,9 @@ def generateGoogleFriendsMap() {
                                 thumbnailSize = 50 * scaleText;
                                 membersContent +=
                                     "<div class='member-block-wrapper' data-member='" + member + "'>" +
-                                        "<table style='width:100%;table-layout:fixed;word-break:break-word;font-size:" + scaleText + "em'>" +
+                                        "<table style='width:100%;font-size:" + scaleText + "em'>" +
                                             "<tr>" +
-                                                "<td align='center' rowspan='5' style='width:70px; min-width:70px; white-space:nowrap;'><img src='" + src + "' width='" + thumbnailSize + "' height='" + thumbnailSize + "' data-member='" + member + "'></td>" +
+                                                "<td align='center' rowspan='5' style='width:" + (thumbnailSize + 20) + "px;'><img src='" + src + "' width='" + thumbnailSize + "' height='" + thumbnailSize + "' data-member='" + member + "'></td>" +
                                                 "<td align='left'" + (((locations[member].wifi == "0") || (locations[member].hib != "0") || (locations[member].bo != "0") || (locations[member].per != "0")) ? " style='color:red'>" : ">") + ((locations[member].data == "m") ? "&#128246;" + (locations[member].wifi != "null" ? (locations[member].wifi == "0" ? "<s>&#128732;</s>" : "") : "") : (locations[member].data == "w" ? "&#128732;" : "")) + "</td>" +
                                                 "<td align='right'" + (locations[member].ps ? " style='color:red'>" : ">") + (locations[member].bs == "2" ? "&#9889;" : "&#128267;") + (locations[member].bat != "null" ? locations[member].bat + "%" : "") + "</td>" +
                                             "</tr>" +
