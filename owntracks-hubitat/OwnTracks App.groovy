@@ -178,13 +178,14 @@
  *  1.9.1      2026-03-21      - Fixed JSON for secondary hubs.
  *  1.9.2      2026-04-21      - Fixed drawer layout when long location addresses are displayed.
  *  1.9.3      2026-04-25      - Adjusted drawer layout when long location addresses are displayed.
+ *  1.9.4      2026-05-03      - Fixed map exception if members pin images were not used.
 */
 
 import groovy.transform.Field
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return '1.9.3' }
+def appVersion() { return '1.9.4' }
 
 @Field static final Map BATTERY_STATUS = [ '0': 'Unknown', '1': 'Unplugged', '2': 'Charging', '3': 'Full' ]
 @Field static final Map DATA_CONNECTION = [ 'w': 'WiFi', 'm': 'Mobile', 'o': 'Offline'  ]
@@ -4192,7 +4193,7 @@ def generateGoogleFriendsMap() {
                             minMapBoundsZoomLevel = 17;
                         } else {
                             minMapBoundsZoomLevel = 14;
-                    }
+                        }
                         addDrawerListener();
                         // get the member data with thumbnail images
                         retrieveMemberLocations("img");
@@ -4372,15 +4373,18 @@ def generateGoogleFriendsMap() {
                                 currentMember = getMember("${retrieveGoogleFriendsMapMember()}");
                             } else {
                                 currentMember = getMember("${DEFAULT_googleMapsMember}");
-                        }
+                            }
                             // place the members on the map
                             for (let member=0; member<locations.length; member++) {
-                                const pin = new google.maps.marker.PinElement({
+                                const pinConfig = {
                                     scale: 2.5,
                                     background: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
                                     borderColor: "${(memberPinColor == null ? DEFAULT_MEMBER_PIN_COLOR : memberPinColor)}",
-                                    glyphSrc: locations[member].img
-                                });
+                                };
+                                if (locations[member].img) {
+                                    pinConfig.glyphSrc = locations[member].img;
+                                }
+                                const pin = new google.maps.marker.PinElement(pinConfig);
 
                                 const marker = new google.maps.marker.AdvancedMarkerElement({
                                     map,
@@ -4611,7 +4615,7 @@ def generateGoogleFriendsMap() {
                                 } else {
                                     setMapBounds(allBounds);
                                 }
-                        }
+                            }
                         };
 
                         function fitBoundsToHistory() {
@@ -4719,7 +4723,7 @@ def generateGoogleFriendsMap() {
                                                 markers[loc].history[past].radius.setVisible(false);
                                                 markers[loc].history[past].bearingLine.setVisible(false);
                                             }
-                                    }
+                                        }
                                         // change the radius stroke based on the trip markers
                                         // middle markers and the current begin marker use the default colors
                                         if ((locations[loc].history[past]?.mkr == "${memberMiddleMarker}") || (locations[loc].history[past+1]?.tst == null)) {
@@ -4755,9 +4759,9 @@ def generateGoogleFriendsMap() {
                                     } else {
                                         markers[loc].history[past].radius.setVisible(false);
                                         markers[loc].history[past].bearingLine.setVisible(false);
+                                    }
                                 }
                             }
-                        }
                         };
 
                         function updateHistoryZoom(zoomLevel) {
