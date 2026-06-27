@@ -179,13 +179,14 @@
  *  1.9.2      2026-04-21      - Fixed drawer layout when long location addresses are displayed.
  *  1.9.3      2026-04-25      - Adjusted drawer layout when long location addresses are displayed.
  *  1.9.4      2026-05-03      - Fixed map exception if members pin images were not used.
+ *  1.9.5      2026-06-27      - Moved the app to the integrations menu.
 */
 
 import groovy.transform.Field
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return '1.9.4' }
+def appVersion() { return '1.9.5' }
 
 @Field static final Map BATTERY_STATUS = [ '0': 'Unknown', '1': 'Unplugged', '2': 'Charging', '3': 'Full' ]
 @Field static final Map DATA_CONNECTION = [ 'w': 'WiFi', 'm': 'Mobile', 'o': 'Offline'  ]
@@ -312,6 +313,7 @@ definition(
     oauth: [displayName: 'OwnTracks', displayLink: 'https://owntracks.org/'],
     singleInstance: true,
     singleThreaded: true,
+    menu: 'Integrations',
 )
 
 preferences {
@@ -371,6 +373,9 @@ def mainPage() {
                 displayRegionsPendingDelete()
             }
             section {
+                // Hubitat copies the button's 'style' onto its wrapping mdl-cell div as well, producing a box-in-a-box.
+                // Strip the box styling from the wrapper cell (the one containing a submitOnChange button) so only the button itself shows the box.
+                paragraph('<style>.mdl-cell:has(> button.submitOnChange){background:transparent !important;border:none !important;box-shadow:none !important;padding:0 !important;margin:0 !important;}</style>')
                 input name: 'sectionInstall', type: 'button', title: sectionTitle(state.show.install, 'Installation and Configuration'), submitOnChange: true, style: sectionStyle()
                 if (state.show.install) {
                     href(title: 'Mobile App Installation Instructions', description: '', style: 'page', page: 'installationInstructions')
@@ -1811,7 +1816,7 @@ def pruneMemberHistory(member) {
                 memberHistory['tp'] = tripNumber
             }
         } catch (e) {
-            // do nothing -- once we have configured and received enough history points, this will succeed
+        // do nothing -- once we have configured and received enough history points, this will succeed
         }
     }
 }
@@ -2408,7 +2413,7 @@ def updateMemberAttributes(headers, data, member) {
                 }
             }
         } catch (e) {
-            // do nothing -- once we have configured and received enough history points, this will succeed
+        // do nothing -- once we have configured and received enough history points, this will succeed
         }
         // add to the end of the list
         member.history << memberLocation
@@ -4604,8 +4609,8 @@ def generateGoogleFriendsMap() {
                                         if (!mapBounds.contains(markers[loc].marker.position)) {
                                             outsideMapBounds = true;
                                         }
+                                    }
                                 }
-                            }
 
                                 if (withinDistanceBounds) {
                                     // only fit if a member is off the map but within range

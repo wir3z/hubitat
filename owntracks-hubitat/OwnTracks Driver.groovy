@@ -756,7 +756,7 @@ def generatePastLocations() {
             } else {
                 linesRadio.checked;
                 pointsRadio.checked = !linesRadio.checked;
-    }
+            }
             // Add event listeners to toggle state
             pointsRadio.addEventListener('click', () => {
                 linesRadio.checked = !pointsRadio.checked;
@@ -777,7 +777,7 @@ def generatePastLocations() {
             // trigger the update to the start URL
             window.onload = updateUrl;
         </script>"""
-}
+    }
 
     return (htmlData)
 }
