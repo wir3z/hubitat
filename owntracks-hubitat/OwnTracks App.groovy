@@ -180,13 +180,14 @@
  *  1.9.3      2026-04-25      - Adjusted drawer layout when long location addresses are displayed.
  *  1.9.4      2026-05-03      - Fixed map exception if members pin images were not used.
  *  1.9.5      2026-06-27      - Moved the app to the integrations menu.
+ *  1.9.6      2026-07-28      - Fixed exception when debug logging was enabled.
 */
 
 import groovy.transform.Field
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return '1.9.5' }
+def appVersion() { return '1.9.6' }
 
 @Field static final Map BATTERY_STATUS = [ '0': 'Unknown', '1': 'Unplugged', '2': 'Charging', '3': 'Full' ]
 @Field static final Map DATA_CONNECTION = [ 'w': 'WiFi', 'm': 'Mobile', 'o': 'Offline'  ]
@@ -5366,6 +5367,12 @@ def isCloudLinkEnabled(requestURL) {
     }
 }
 
+def resetLogging() {
+    // clear the logging
+    app.updateSetting('debugOutput', [value: false, type: 'bool'])
+    logWarn('Debug logging disabled.')
+}
+
 mappings {
     path('/webhook') {
         action: [
@@ -5502,12 +5509,6 @@ private displayHeader(title, data) {
         }
         paragraph "${bMes}"
     }
-}
-
-private resetLogging() {
-    // clear the logging
-    app.updateSetting('debugOutput', [value: false, type: 'bool'])
-    logWarn('Debug logging disabled.')
 }
 
 private logDebug(msg) {
