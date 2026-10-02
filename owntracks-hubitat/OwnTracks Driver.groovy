@@ -151,12 +151,13 @@
  *  1.8.14     2026-02-22      - Cleanup and lint.
  *  1.9.0      2026-03-04      - Increase revision to match new app APIs.
  *  1.9.1      2026-03-15      - Trigger missed transition events if the locations events do not match.
+ *  1.9.2      2026-10-02      - Formatting cleanup.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return '1.9.1' }
+def driverVersion() { return '1.9.2' }
 
 @Field static final Map MONITORING_MODE = [ 0: 'Unknown', 1: 'Significant', 2: 'Move' ]
 @Field static final Map BATTERY_STATUS = [ 0: 'Unknown', 1: 'Unplugged', 2: 'Charging', 3: 'Full' ]
@@ -183,11 +184,11 @@ def driverVersion() { return '1.9.1' }
 
 metadata {
     definition(
-      name:        'OwnTracks Driver',
-      namespace:   'lpakula',
-      author:      'Lyle Pakula',
-      importUrl:   'https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20Driver.groovy'
-  ) {
+        name:        'OwnTracks Driver',
+        namespace:   'lpakula',
+        author:      'Lyle Pakula',
+        importUrl:   'https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20Driver.groovy'
+    ) {
         capability 'Actuator'
         capability 'Presence Sensor'
         capability 'Battery'
@@ -238,7 +239,7 @@ metadata {
         attribute  'batteryStatus', 'enum', [ 'Unknown', 'Unplugged', 'Charging', 'Full' ]
         attribute  'triggerSource', 'enum', [ 'Ping', 'Region', 'Report Location', 'Manual', 'Beacon', 'Timer', 'Monitoring', 'Location' ]
         attribute  'monitoringMode', 'enum', [ 'Unknown', 'Significant', 'Move' ]
-  }
+    }
 }
 
 preferences {
@@ -668,11 +669,11 @@ def generateMember(urlSource) {
                             ${parent.insertThumbnailObject(state.memberName, 35, true)}
                         </td>
                         <td align="center" width=79%>
-                            ${device.currentValue('location')}</br>
-                            ${tileDate}</br>
+                            ${device.currentValue('location')}<br>
+                            ${tileDate}<br>
                         </td>
                         <td align="right" width=20%>
-                            ${(colorMemberTile ? '' : ((device.currentValue('presence') == 'present') ? '&#10004</br>Present' : '&#10008</br>Not Present'))}
+                            ${(colorMemberTile ? '' : ((device.currentValue('presence') == 'present') ? '&#10004<br>Present' : '&#10008<br>Not Present'))}
                         </td>
                     </tr>
                 </table>
@@ -697,7 +698,7 @@ def generateMember(urlSource) {
                 <tr align="center">
                     <td width=25%>${parent.displayKmMiVal(device.currentValue('distanceFromHome'))} ${parent.largeUnits()}</td>
                     ${(device.currentValue('lastSpeed') != null) ? "<td width=25%>${parent.displayKmMiVal(device.currentValue('lastSpeed'))} ${parent.velocityUnits()}</td>" : ''}
-                    ${(device.currentValue('battery') != null) ? "<td width=25%>${device.currentValue('battery')} % ${(device.currentValue('batteryStatus') ? "</br>${device.currentValue('batteryStatus')}" : '')}</td>" : ''}
+                    ${(device.currentValue('battery') != null) ? "<td width=25%>${device.currentValue('battery')} % ${(device.currentValue('batteryStatus') ? "<br>${device.currentValue('batteryStatus')}" : '')}</td>" : ''}
                     ${(device.currentValue('dataConnection') != null) ? "<td width=25%>${device.currentValue('dataConnection')}</td>" : ''}
                 </tr>
             </table>
@@ -722,11 +723,11 @@ def generatePastLocations() {
                         ${parent.insertThumbnailObject(state.memberName, 35, true)}
                     </td>
                     <td align="right" width=21%">
-                        Points <input type="radio" id="id-points" value="" onchange="updateUrl()"></br>
-                        Lines <input type="radio" id="id-lines" value="" onchange="updateUrl()"></br>
+                        Points <input type="radio" id="id-points" value="" onchange="updateUrl()"><br>
+                        Lines <input type="radio" id="id-lines" value="" onchange="updateUrl()"><br>
                     </td>
                     <td align="right" width=68%">
-                        Start <input type="datetime-local" id="id-startDate" value="" onchange="updateUrl()"></br>
+                        Start <input type="datetime-local" id="id-startDate" value="" onchange="updateUrl()"><br>
                         End <input type="datetime-local" id="id-endDate" value="" onchange="updateUrl()">
                     </td>
                 </tr>

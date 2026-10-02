@@ -183,13 +183,14 @@
  *  1.9.6      2026-07-28      - Fixed exception when debug logging was enabled.
  *  1.9.7      2026-08-12      - Added disable SSL checks for recorder and secondary hub.
  *  1.9.8      2026-08-18      - Stopped clearing the URL of a device that reports with a blank Username or Device ID which was blanking new installs.
+ *  1.9.9      2026-10-02      - Added toggle to display cloud vs local URLs for links.  Fixed street address parsing that stopped separating places from the street address in 1.8.29.  Trim whitespace around the mobile Username and Device ID.
 */
 
 import groovy.transform.Field
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return '1.9.8' }
+def appVersion() { return '1.9.9' }
 
 @Field static final Map BATTERY_STATUS = [ '0': 'Unknown', '1': 'Unplugged', '2': 'Charging', '3': 'Full' ]
 @Field static final Map DATA_CONNECTION = [ 'w': 'WiFi', 'm': 'Mobile', 'o': 'Offline'  ]
@@ -216,6 +217,7 @@ def appVersion() { return '1.9.8' }
 
 // Main defaults
 @Field String  HUBITAT_CLOUD_URL = 'cloud.hubitat.com'
+@Field Boolean DEFAULT_use_local_urls = false
 @Field String  DEFAULT_APP_THEME_COLOR = '#191970'
 @Field String  DEFAULT_MEMBER_PIN_COLOR = 'MidnightBlue'         // "#191970" - "MidnightBlue"
 @Field String  DEFAULT_MEMBER_GLYPH_COLOR = 'Purple'             // "#800080" - "Brown"
@@ -400,40 +402,43 @@ def mainPage() {
                 if (state.show.links) {
                     paragraph('<b>Direct dashboard links for use in a web browser.</b>')
                     input name: 'disableCloudLinks', type: 'bool', title: 'Disable cloud links', defaultValue: DEFAULT_disableCloudLinks, submitOnChange: true
-                    URL_SOURCE.each { source ->
-                        if ((source != URL_SOURCE[0]) || (disableCloudLinks != true)) {
-                            paragraph((source == URL_SOURCE[0] ? '<h2>Cloud Links</h2>' : '<h2>Local Links</h2>'))
-                            if (googleMapsAPIKey) {
-                                paragraph("<b>Google family map:</b></br>&emsp;<a href='${attributeURL(source, 'googlemap')}&member='>${attributeURL(source, 'googlemap')}&member=</a></br>")
-                                paragraph("<b>Region configuration map:</b></br>&emsp;<a href='${attributeURL(source, 'configmap')}'>${attributeURL(source, 'configmap')}</a></br>")
-                            }
-                            if (state.members) {
-                                urlList = ''
-                                state.members.each { member ->
-                                    urlList += "${member.name}:</br>&emsp;<a href='${attributeURL(source, "membermap/${member.name.toLowerCase()}")}'>${attributeURL(source, "membermap/${member.name.toLowerCase()}")}</a></br>"
-                                }
-                                paragraph("<b>Member location map:</b></br>${urlList}")
-                            }
-                            if (state.members) {
-                                urlList = ''
-                                state.members.each { member ->
-                                    urlList += "${member.name}:</br>&emsp;<a href='${attributeURL(source, "memberpresence/${member.name.toLowerCase()}")}'>${attributeURL(source, "memberpresence/${member.name.toLowerCase()}")}</a></br>"
-                                }
-                                paragraph("<b>Member Presence:</b></br>${urlList}")
-                            }
-                            if (recorderURL) {
-                                // only display the recorder links if it's a local URL or if it's https (required for the cloud link)
-                                if ((source != URL_SOURCE[0]) || isHTTPsURL(getRecorderURL())) {
-                                    paragraph("<b>OwnTracks Recorder family map:</b></br>&emsp;<a href='${attributeURL(source, 'recordermap')}'>${attributeURL(source, 'recordermap')}</a>")
+                    if (disableCloudLinks) {
+                        app.updateSetting('localLinkUrlSource', [value: true, type: 'bool'])
+                    } else {
+                        input name: 'localLinkUrlSource', type: 'bool', title: 'Use local network links (off = cloud links)', defaultValue: DEFAULT_use_local_urls, submitOnChange: true
+                    }
+                    def useLocal = disableCloudLinks || localLinkUrlSource
+                    def source = URL_SOURCE[useLocal ? 1 : 0]
+                    paragraph(useLocal ? '<h2>Local Links</h2>' : '<h2>Cloud Links</h2>')
+                    if (googleMapsAPIKey) {
+                        paragraph("<b>Google family map:</b><br>&emsp;<a href='${attributeURL(source, 'googlemap')}&member='>${attributeURL(source, 'googlemap')}&member=</a><br>")
+                        paragraph("<b>Region configuration map:</b><br>&emsp;<a href='${attributeURL(source, 'configmap')}'>${attributeURL(source, 'configmap')}</a><br>")
+                    }
+                    if (state.members) {
+                        urlList = ''
+                        state.members.each { member ->
+                            urlList += "${member.name}:<br>&emsp;<a href='${attributeURL(source, "membermap/${member.name.toLowerCase()}")}'>${attributeURL(source, "membermap/${member.name.toLowerCase()}")}</a><br>"
+                        }
+                        paragraph("<b>Member location map:</b><br>${urlList}")
+                    }
+                    if (state.members) {
+                        urlList = ''
+                        state.members.each { member ->
+                            urlList += "${member.name}:<br>&emsp;<a href='${attributeURL(source, "memberpresence/${member.name.toLowerCase()}")}'>${attributeURL(source, "memberpresence/${member.name.toLowerCase()}")}</a><br>"
+                        }
+                        paragraph("<b>Member Presence:</b><br>${urlList}")
+                    }
+                    if (recorderURL) {
+                        // only display the recorder links if it's a local URL or if it's https (required for the cloud link)
+                        if ((source != URL_SOURCE[0]) || isHTTPsURL(getRecorderURL())) {
+                            paragraph("<b>OwnTracks Recorder family map:</b><br>&emsp;<a href='${attributeURL(source, 'recordermap')}'>${attributeURL(source, 'recordermap')}</a>")
 
-                                    if (state.members) {
-                                        urlList = ''
-                                        state.members.each { member ->
-                                            urlList += "${member.name}:</br>&emsp;<a href='${attributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}'>${attributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}</a></br>"
-                                        }
-                                        paragraph("<b>OwnTracks Recorder member past locations:</b></br>${urlList}")
-                                    }
+                            if (state.members) {
+                                urlList = ''
+                                state.members.each { member ->
+                                    urlList += "${member.name}:<br>&emsp;<a href='${attributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}'>${attributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}</a><br>"
                                 }
+                                paragraph("<b>OwnTracks Recorder member past locations:</b><br>${urlList}")
                             }
                         }
                     }
@@ -446,13 +451,13 @@ def mainPage() {
                         if (state.members) {
                             urlList = ''
                             state.members.each { member ->
-                                urlList += "${member.name}</br>"
-                                urlList += "&emsp;'On':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/on")}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/on")}</a></br>"
-                                urlList += "&emsp;'Off':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/off")}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/off")}</a></br>"
-                                urlList += "&emsp;'Arrived':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/arrived")}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/arrived")}</a></br>"
-                                urlList += "&emsp;'Departed':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/departed")}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/departed")}</a></br>"
+                                urlList += "${member.name}<br>"
+                                urlList += "&emsp;'On':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/on")}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/on")}</a><br>"
+                                urlList += "&emsp;'Off':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/off")}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/off")}</a><br>"
+                                urlList += "&emsp;'Arrived':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/arrived")}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/arrived")}</a><br>"
+                                urlList += "&emsp;'Departed':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/departed")}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/departed")}</a><br>"
                             }
-                            paragraph("<b>Member On/Off/Arrived/Departed:</b></br>${urlList}")
+                            paragraph("<b>Member On/Off/Arrived/Departed:</b><br>${urlList}")
                         }
                     }
                 }
@@ -599,8 +604,9 @@ def configureHubApp() {
 
 def installationInstructions() {
     return dynamicPage(name: 'installationInstructions', title: '', nextPage: 'mainPage') {
-        def extUri = fullApiServerUrl().replaceAll('null', "webhook?access_token=${state.accessToken}")
         section(styleFormat('box', 'Mobile App Installation Instructions')) {
+            input name: 'mobileLocalUrlSource', type: 'bool', title: 'Use local URLs for mobile (off = cloud URLs).  Enable if the mobile device reaches your network over VPN.', defaultValue: DEFAULT_use_local_urls, submitOnChange: true
+            def mobileUri = attributeURL(URL_SOURCE[mobileLocalUrlSource ? 1 : 0], 'webhook')
             paragraph("""This integration requires the <a href='https://owntracks.org/' target='_blank'>OwnTracks</a> app to be installed on your mobile device.\r
             |<b>NOTE:</b> If you reinstall the OwnTracks app on Hubitat, the host URL below will change, and the mobile devices will need to be updated.\r
             |            This integration currently only supports one device per user for presence detection.  Linking more than one device will cause unreliable presence detection.\r\r
@@ -609,7 +615,7 @@ def installationInstructions() {
             |     <b>Android</b>\r
             |     <i>Preferences -> Connection\r
             |            Mode -> HTTP\r
-            |            Host -> <a href='${extUri}' target='_blank'>${extUri}</a>\r
+            |            Host -> <a href='${mobileUri}' target='_blank'>${mobileUri}</a>\r
             |            Identification ->\r
             |                   Username -> Name of the user's phone (IE: 'Kevin') \r
             |                   Device ID -> Optional extra descriptor (IE: 'Phone').  If using OwnTracks recorder, it would be desirable\r
@@ -622,7 +628,7 @@ def installationInstructions() {
             |            Mode -> HTTP\r
             |            DeviceID -> 2-character user initials that will be displayed on your map (IE: 'KT').  If using OwnTracks recorder, it would be desirable to keep this device ID common across device changes, since it logs 'username/deviceID'.\r
             |            UserID -> Name of the user's phone (IE: 'Kevin')\r
-            |            URL -> <a href='${extUri}' target='_blank'>${extUri}</a>\r
+            |            URL -> <a href='${mobileUri}' target='_blank'>${mobileUri}</a>\r
             |            cmd -> Selected</i>\r\r
             |2. Click the up arrow button in the top right of the map to trigger a 'Send Location Now' to register the device with the Hubitat App.
             """.stripMargin())
@@ -2060,9 +2066,9 @@ def webhookEventHandler() {
         // A missing username or device ID is our own app before it has been configured, not a rogue device
         logError("Username: '${sourceName}' / Device ID: '${sourceDeviceID}' not configured in the OwnTracks app - ignoring this report.  Ensure the 'Username' and 'Device ID' are set on the OwnTracks mobile app.")
     } else {
-        // strip the [] around these values
-        sourceName = sourceName.substring(1, (sourceName.length() - 1))
-        sourceDeviceID = sourceDeviceID.substring(1, (sourceDeviceID.length() - 1))
+        // strip the [] around these values, and any whitespace the user typed around them in the mobile app
+        sourceName = sourceName.substring(1, (sourceName.length() - 1)).trim()
+        sourceDeviceID = sourceDeviceID.substring(1, (sourceDeviceID.length() - 1)).trim()
         // check if this a message from the service device.  If not, check for a matching member
         if (sourceName == COMMON_CHILDNAME) {
             findMember = [ name:COMMON_CHILDNAME, deviceID:COMMON_CHILDNAME, id:commonChildDNI() ]
@@ -2200,10 +2206,10 @@ def parseMessage(headers, data, member) {
 def parsePostHeaders(postHeaders) {
     def newHeaders = [:]
 
-    // loop through each header and remove the surrounding [], and recreate a new header map
+    // loop through each header and remove the surrounding [] and whitespace, and recreate a new header map
     postHeaders.each { entry ->
         String parsedValue = entry.getValue()
-        newHeaders.put("${entry.getKey()}", "${parsedValue.substring(1, (parsedValue.length() - 1))}")
+        newHeaders.put("${entry.getKey()}", "${parsedValue.substring(1, (parsedValue.length() - 1)).trim()}")
     }
 
     return (newHeaders)
@@ -2490,7 +2496,7 @@ def addStreetAddressAndRegions(data) {
         // street address, city
         // lat, lon
         // if the first digit of the first entry is not a number, but the second is, then we were returned a place, street adress
-        if (!((addressList[0])[0])?.isNumber && (((addressList[1])[0])?.isNumber || (addressList.size() > 4))) {
+        if (!((addressList[0])[0])?.isNumber() && (((addressList[1])[0])?.isNumber() || (addressList.size() > 4))) {
             // save the place to the region list if we don't already have a region defined
             if (!data.inregions) { addRegionToInregions(addressList[0], data) }
             data.streetAddress = addressList[1]
@@ -3418,7 +3424,7 @@ def generateRegionMap() {
                         }
                     );
                 }
-             </script>
+            </script>
             <script src="https://maps.googleapis.com/maps/api/js?key=${APIKey}&loading=async&libraries=marker,maps&callback=initMap"></script>
         </div>"""
     }
@@ -5314,7 +5320,7 @@ def displayTile(recorderUrl, tileSource) {
 def checkAttributeLimit(tiledata) {
     // deal with the 1024 byte attribute limit
     if ((tiledata.length() + 11) > 1024) {
-        return ('Too much data to display.</br></br>Exceeds maximum tile length by ' + ((tiledata.length() + 11) - 1024) + ' characters.')
+        return ('Too much data to display.<br><br>Exceeds maximum tile length by ' + ((tiledata.length() + 11) - 1024) + ' characters.')
     } else {
         return (tiledata)
     }

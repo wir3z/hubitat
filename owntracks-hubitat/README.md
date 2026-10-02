@@ -52,11 +52,14 @@ This integration requires the Owntracks app to be installed on your mobile devic
 NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will change, and the mobile devices will need to be updated.
 	   This integration currently only supports one device per user for presence detection.  Linking more than one device will cause unreliable presence detection.
 
+- 'Use local URLs for mobile (off = cloud URLs)' - selects which host URL is displayed in the 'Mobile App Installation Instructions'.
+	- When disabled (the default), the Hubitat cloud URL is displayed.  This works from anywhere the mobile device has an internet connection.
+	- Enable to display the local hub URL instead.  Only use this if the mobile device reaches your home network over a VPN when away from home, otherwise location updates will stop when the device leaves the home network.
 - Open the OwnTracks app on the mobile device, and configure the following fields.  Only the settings below need to be changed; leave the rest as defaults.
 	### Android
 	- Preferences -> Connection
 		- Mode -> HTTP
-		- Host -> Hubitat Cloud API link - click the 'Mobile App Installation Instructions' box in the Hubitat Owntracks App to get the link
+		- Host -> Hubitat API link - click the 'Mobile App Installation Instructions' box in the Hubitat Owntracks App to get the link
 		- Identification ->
 			- Username -> Name of the user's phone that you would like to see on the maps (IE: 'Kevin')
 			- Device ID -> Optional extra descriptor (IE: 'Phone').  If using OwnTracks recorder, it would be desirable to keep this device ID common across device changes, since it logs 'username/deviceID'.
@@ -68,7 +71,7 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 		- Mode -> HTTP
 		- DeviceID -> 2-character user initials that will be displayed on your map (IE: 'KT').  If using OwnTracks recorder, it would be desirable to keep this device ID common across device changes, since it logs 'username/deviceID'.			
 		- UserID -> Name of the user's phone that you would like to see on the maps (IE: 'Kevin')
-		- URL -> Hubitat Cloud API link - click the 'Mobile App Installation Instructions' box in the Hubitat Owntracks App to get the link
+		- URL -> Hubitat API link - click the 'Mobile App Installation Instructions' box in the Hubitat Owntracks App to get the link
 		- cmd -> Selected
 		
 - Click the up arrow button in the top right of the map to trigger a 'Send Location Now' to register the device with the Hubitat App.  
@@ -283,8 +286,12 @@ NOTE: A region named '+follow' is automatically created to allow iOS phones to h
 		
 
 ## Dashboard Web Links
-- Displays direct cloud and local web links for the family, member and recorder maps.
-- Selecting 'Disable cloud links' will prevent access to the web URL endpoints via the cloud links.
+- Displays direct cloud or local web links for the family, member and recorder maps.
+- Selecting 'Disable cloud links' will prevent access to the web URL endpoints via the cloud links.  Only the local links will be displayed.
+- 'Use local network links (off = cloud links)' - selects which set of links is displayed.  This option is hidden when 'Disable cloud links' is selected.
+	- When disabled (the default), the cloud links are displayed.  These work from anywhere with an internet connection.
+	- Enable to display the local links.  These only work on the home network, or over a VPN to it.
+	- The Recorder links are only displayed as cloud links if the Recorder has a secure (https) URL.
 - If the member name is appended to the end of the Google Family Map URL, that member will be used for the auto-zoom distance check.
 
 

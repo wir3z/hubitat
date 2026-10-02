@@ -32,28 +32,29 @@
  *  1.8.2      2025-11-25      - Changed to dynamic tile URL.
  *  1.8.3      2026-02-22      - Cleanup and lint.
  *  1.9.0      2026-03-04      - Increase revision to match new app APIs.
+ *  1.9.1      2026-10-02      - Formatting cleanup.
  **/
 
 import groovy.transform.Field
 
-def driverVersion() { return '1.9.0' }
+def driverVersion() { return '1.9.1' }
 
 @Field static Boolean DEFAULT_displayFriendsTile = false
 
 metadata {
     definition(
-      name:        'OwnTracks Common Driver',
-      namespace:   'lpakula',
-      author:      'Lyle Pakula',
-      importUrl:   'https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20Common%20Driver.groovy'
-  ) {
+        name:        'OwnTracks Common Driver',
+        namespace:   'lpakula',
+        author:      'Lyle Pakula',
+        importUrl:   'https://raw.githubusercontent.com/wir3z/hubitat/main/owntracks-hubitat/OwnTracks%20Common%20Driver.groovy'
+    ) {
         capability 'Actuator'
         capability 'Momentary'
 
         attribute  'RecorderFriendsLocation', 'string'
         attribute  'GoogleFriendsLocation', 'string'
         attribute  'ConfigurationMap', 'string'
-  }
+    }
 }
 
 preferences {
