@@ -184,13 +184,14 @@
  *  1.9.7      2026-08-12      - Added disable SSL checks for recorder and secondary hub.
  *  1.9.8      2026-08-18      - Stopped clearing the URL of a device that reports with a blank Username or Device ID which was blanking new installs.
  *  1.9.9      2026-10-02      - Added toggle to display cloud vs local URLs for links.  Fixed street address parsing that stopped separating places from the street address in 1.8.29.  Trim whitespace around the mobile Username and Device ID.
+ *  1.9.10     2026-10-25      - Forward only the OwnTracks and User-Agent headers to the recorder and secondary hub.
 */
 
 import groovy.transform.Field
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return '1.9.9' }
+def appVersion() { return '1.9.10' }
 
 @Field static final Map BATTERY_STATUS = [ '0': 'Unknown', '1': 'Unplugged', '2': 'Charging', '3': 'Full' ]
 @Field static final Map DATA_CONNECTION = [ 'w': 'WiFi', 'm': 'Mobile', 'o': 'Offline'  ]
@@ -2206,10 +2207,15 @@ def parseMessage(headers, data, member) {
 def parsePostHeaders(postHeaders) {
     def newHeaders = [:]
 
-    // loop through each header and remove the surrounding [] and whitespace, and recreate a new header map
+    // forward only the OwnTracks identity headers and the User-Agent (parsed for the mobile app version by a secondary hub).
+    // Transport headers (Content-Length, Host, X-Forwarded-*) describe the inbound request, and the HTTP client rejects a second Content-Length
     postHeaders.each { entry ->
-        String parsedValue = entry.getValue()
-        newHeaders.put("${entry.getKey()}", "${parsedValue.substring(1, (parsedValue.length() - 1)).trim()}")
+        String key = entry.getKey().toString().toLowerCase()
+        if (key.startsWith('x-limit-') || (key == 'user-agent')) {
+            // remove the surrounding [] and whitespace, and recreate a new header map
+            String parsedValue = entry.getValue()
+            newHeaders.put("${entry.getKey()}", "${parsedValue.substring(1, (parsedValue.length() - 1)).trim()}")
+        }
     }
 
     return (newHeaders)
