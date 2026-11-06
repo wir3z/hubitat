@@ -1,0 +1,142 @@
+# This flow is designed to be used to update the production and beta tracks on the Play store. It does this by promoting the beta track build to production, triggered by the creation of a release tag.
+# As per the beta build, this does not actually do a build / upload, it simply promotes whatever's in beta to production. Best to create the
+name: Tag Triggered Release
+
+on:
+  push:
+    tags:
+      - v[0-9]+.[0-9]+.[0-9]+
+      - v[0-9]+.[0-9]+.[0-9]+-beta[0-9]+
+      - release-test-tag
+
+env:
+  # Config cache can be enabled now that we're not using Triplet
+  GRADLE_OPTS: "-Dorg.gradle.daemon=true -Dorg.gradle.configuration-cache=true -Dorg.gradle.parallel=true -Dorg.gradle.caching=true -Dorg.gradle.jvmargs='-Xmx3096M -Dkotlin.daemon.jvm.options=-Xmx2048M -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8 -XX:+UseParallelGC'"
+
+jobs:
+  release:
+    name: Create GH release and promote Play store release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      # We need to find out if there's been a previous beta release for this tag, as it'll affect which google play track we promote from
+      - uses: octokit/request-action@v2.x
+        name: Find beta tags if this is a prod release
+        id: get_beta_tags
+        with:
+          route: GET /repos/owntracks/android/git/matching-refs/tags/${{ github.ref_name }}-beta
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Get number of matching tags
+        id: tagCount
+        env:
+          labels: ${{ steps.get_beta_tags.outputs.data }}
+        run: |
+          echo "${labels}"
+          LENGTH=$(echo "${labels}" | jq '. | length')
+          echo "beta_tag_count=${LENGTH}"
+          echo "beta_tag_count=$LENGTH" >> "${GITHUB_OUTPUT}"
+
+      - name: Setup Ruby and Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: Get internal track current version code
+        if: ${{ contains(github.ref_name, 'beta') || fromJSON(steps.tagCount.outputs.beta_tag_count) == 0 }}
+        env:
+          ANDROID_PUBLISHER_CREDENTIALS: ${{ secrets.GOOGLE_CLOUD_SERVICE_ACCOUNT_CREDENTIALS }}
+        run: |
+          VERSION_CODE="$(bundle exec fastlane get_version_code track:internal | sed -n "s/.*Found '\([0-9]*\)'.*/\1/p")"
+          echo "Latest version code is: $VERSION_CODE"
+          echo VERSION_CODE="${VERSION_CODE}" >> "${GITHUB_ENV}"
+
+      - name: Get current version code from beta track
+        if: ${{ !contains(github.ref_name, 'beta') && fromJSON(steps.tagCount.outputs.beta_tag_count) > 0 }}
+        env:
+          ANDROID_PUBLISHER_CREDENTIALS: ${{ secrets.GOOGLE_CLOUD_SERVICE_ACCOUNT_CREDENTIALS }}
+        run: |
+          VERSION_CODE="$(bundle exec fastlane get_version_code track:beta | sed -n "s/.*Found '\([0-9]*\)'.*/\1/p")"
+          echo "Latest version code is: $VERSION_CODE"
+          echo VERSION_CODE="${VERSION_CODE}" >> "${GITHUB_ENV}"
+
+      - name: Create keystore
+        run: |
+          echo -n "${KEYSTORE_BASE64}" | base64 -d > project/owntracks.release.keystore.jks
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+
+      - name: Assert that version code is valid
+        run: |
+          if ! [[ "${VERSION_CODE}" =~ ^[0-9]+$ ]]; then
+            echo "VERSION_CODE is not a valid integer: ${VERSION_CODE}"
+            exit 1
+          fi
+
+      # F-Droid and IzzyOnDroid read this file at the tag to reproduce the build. It describes the
+      # latest stable release, so betas don't touch it. `just release` keeps it right.
+      - name: Assert that latest-version.yaml matches this release
+        if: ${{ github.ref_name != 'release-test-tag' && !contains(github.ref_name, 'beta') }}
+        run: |
+          EXPECTED_NAME="${GITHUB_REF_NAME#v}"
+          FILE_NAME="$(sed -n 's/^versionName: //p' latest-version.yaml)"
+          FILE_CODE="$(sed -n 's/^versionCode: //p' latest-version.yaml)"
+          if [[ "${FILE_NAME}" != "${EXPECTED_NAME}" || "${FILE_CODE}" != "${VERSION_CODE}" ]]; then
+            echo "::error::latest-version.yaml has ${FILE_NAME}/${FILE_CODE}, expected ${EXPECTED_NAME}/${VERSION_CODE}. Fix it and move the tag."
+            exit 1
+          fi
+
+      - name: Build release APKs
+        uses: ./.github/actions/gradle-task
+        with:
+          task: assembleRelease
+          gradle-cache-encryption-key: ${{ secrets.GradleEncryptionKey }}
+        env:
+          KEYSTORE_PASSPHRASE: ${{ secrets.KEYSTORE_PASSPHRASE }}
+          ANDROID_PUBLISHER_CREDENTIALS: ${{ secrets.GOOGLE_CLOUD_SERVICE_ACCOUNT_CREDENTIALS }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+
+      - name: Extract changelog
+        run: awk '/^## / { if (p) {exit}; { p=1; next} } p' CHANGELOG.md > fastlane/metadata/android/en-US/changelogs/${{ env.VERSION_CODE}}.txt
+
+      - name: Move APKs to project root
+        run: |
+          mv project/app/build/outputs/apk/gms/release/app-gms-release.apk owntracks-release-gms-${{ env.VERSION_CODE }}.apk
+          mv project/app/build/outputs/apk/oss/release/app-oss-release.apk owntracks-release-oss-${{ env.VERSION_CODE }}.apk
+
+      - name: Create release
+        id: create_release
+        uses: softprops/action-gh-release@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          body_path: ./fastlane/metadata/android/en-US/changelogs/${{ env.VERSION_CODE}}.txt
+          name: ${{ github.ref_name }}
+          draft: true
+          prerelease: ${{ contains(github.ref_name, 'beta') }}
+          files: |
+            ./owntracks-release-*.apk
+
+      - name: Promote play store beta from internal
+        run: bundle exec fastlane promote_internal_to_beta
+        working-directory: fastlane
+        if: ${{ contains(github.ref_name, 'beta') }}
+        env:
+          ANDROID_PUBLISHER_CREDENTIALS: ${{ secrets.GOOGLE_CLOUD_SERVICE_ACCOUNT_CREDENTIALS }}
+
+      - name: Promote play store production from beta
+        run: bundle exec fastlane promote_beta_to_production rollout:0.1
+        working-directory: fastlane
+        if: ${{ !contains(github.ref_name, 'beta') && steps.tagCount.outputs.beta_tag_count > 0 }}
+        env:
+          ANDROID_PUBLISHER_CREDENTIALS: ${{ secrets.GOOGLE_CLOUD_SERVICE_ACCOUNT_CREDENTIALS }}
+
+      - name: Promote play store production from internal
+        run: bundle exec fastlane promote_internal_to_production rollout:0.1
+        working-directory: fastlane
+        if: ${{ !contains(github.ref_name, 'beta') && steps.tagCount.outputs.beta_tag_count == 0 }}
+        env:
+          ANDROID_PUBLISHER_CREDENTIALS: ${{ secrets.GOOGLE_CLOUD_SERVICE_ACCOUNT_CREDENTIALS }}

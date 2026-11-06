@@ -1,0 +1,500 @@
+package org.owntracks.android.ui.map
+
+import android.app.Application
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.location.Location
+import androidx.annotation.MainThread
+import androidx.databinding.Observable
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlin.math.asin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import org.owntracks.android.BR
+import org.owntracks.android.data.repos.ContactsRepo
+import org.owntracks.android.data.repos.ContactsRepoChange
+import org.owntracks.android.data.repos.LocationRepo
+import org.owntracks.android.data.waypoints.WaypointModel
+import org.owntracks.android.data.waypoints.WaypointsRepo
+import org.owntracks.android.geocoding.GeocoderProvider
+import org.owntracks.android.location.LatLng
+import org.owntracks.android.location.toLatLng
+import org.owntracks.android.model.CommandAction
+import org.owntracks.android.model.Contact
+import org.owntracks.android.model.messages.MessageClear
+import org.owntracks.android.model.messages.MessageCmd
+import org.owntracks.android.model.messages.MessageLocation
+import org.owntracks.android.preferences.Preferences
+import org.owntracks.android.preferences.types.MonitoringMode
+import org.owntracks.android.services.LocationProcessor
+import org.owntracks.android.services.MessageProcessor
+import org.owntracks.android.support.RequirementsChecker
+import timber.log.Timber
+
+@HiltViewModel
+class MapViewModel
+@Inject
+constructor(
+    private val contactsRepo: ContactsRepo,
+    private val locationProcessor: LocationProcessor,
+    private val messageProcessor: MessageProcessor,
+    private val geocoderProvider: GeocoderProvider,
+    private val preferences: Preferences,
+    private val locationRepo: LocationRepo,
+    private val waypointsRepo: WaypointsRepo,
+    application: Application,
+    private val requirementsChecker: RequirementsChecker,
+) : AndroidViewModel(application) {
+  // Reused buffers for Location.distanceBetween() calls. Two separate instances are required
+  // because the two call-sites run on different threads (main thread vs sensor callback thread).
+  private val locationDistanceResult = FloatArray(2)
+  private val sensorDistanceResult = FloatArray(2)
+
+  // controls who the currently selected contact is
+  private val mutableCurrentContact = MutableStateFlow<Contact?>(null)
+  val currentContact: StateFlow<Contact?>
+    get() = mutableCurrentContact
+
+  // controls the state of the bottom sheet on the map
+  private val mutableBottomSheetHidden = MutableStateFlow(true)
+  val bottomSheetHidden: StateFlow<Boolean>
+    get() = mutableBottomSheetHidden
+
+  // Controls where the map should set the camera to (fire-and-forget event)
+  private val mutableMapCenter = MutableSharedFlow<LatLng>(extraBufferCapacity = 1)
+  val mapCenter: SharedFlow<LatLng>
+    get() = mutableMapCenter
+
+  // Shows the current distance to the selected contact
+  private val mutableContactDistance = MutableStateFlow(0f)
+  val contactDistance: StateFlow<Float>
+    get() = mutableContactDistance
+
+  // Shows the bearing to the selected contact
+  private val mutableContactBearing = MutableStateFlow(0f)
+  val contactBearing: StateFlow<Float>
+    get() = mutableContactBearing
+
+  // Shows the relative bearing from this device orientation to the contact
+  private val mutableRelativeContactBearing = MutableStateFlow(0f)
+  val relativeContactBearing: StateFlow<Float>
+    get() = mutableRelativeContactBearing
+
+  // Controls the current map layer style
+  private val mutableMapLayerStyle = MutableStateFlow(preferences.mapLayerStyle)
+  val mapLayerStyle: StateFlow<MapLayerStyle>
+    get() = mutableMapLayerStyle
+
+  // Controls the status of the MyLocation FAB on the map
+  private val mutableMyLocationStatus = MutableStateFlow(MyLocationStatus.DISABLED)
+  val myLocationStatus: StateFlow<MyLocationStatus>
+    get() = mutableMyLocationStatus
+
+  private val locationUpdatesRequested = MutableStateFlow(false)
+
+  @Suppress("MissingPermission") // Permission is checked in requestLocationUpdatesForBlueDot
+  @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+  val currentLocation: StateFlow<Location?> =
+      locationUpdatesRequested
+          .flatMapLatest { if (it) locationCallbackFlow(application) else emptyFlow() }
+          .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+  val waypointUpdatedEvent = waypointsRepo.repoChangedEvent
+
+  suspend fun getAllWaypoints(): List<WaypointModel> {
+    return waypointsRepo.getAll()
+  }
+
+  val allContacts = contactsRepo.all
+  val contactUpdatedEvent: Flow<ContactsRepoChange> = contactsRepo.repoChangedEvent
+
+  val scope: CoroutineScope
+    get() = viewModelScope
+
+  private val mutableCurrentMonitoringMode = MutableStateFlow(preferences.monitoring)
+
+  val currentMonitoringMode: StateFlow<MonitoringMode>
+    get() = mutableCurrentMonitoringMode
+
+  val viewMode: ViewMode by locationRepo::viewMode
+
+  val zoomLevel: Double?
+    get() = locationRepo.mapViewWindowLocationAndZoom?.zoom
+
+  /**
+   * Sets the status of the "My Location" button based on whether the location permissions are
+   * granted and what the current viewmode is. Whenever these things change, we should call this to
+   * update
+   */
+  fun updateMyLocationStatus() {
+    mutableMyLocationStatus.value =
+        if (
+            requirementsChecker.hasLocationPermissions() &&
+                requirementsChecker.isLocationServiceEnabled()
+        ) {
+          if (viewMode == ViewMode.Device) {
+            MyLocationStatus.FOLLOWING
+          } else {
+            MyLocationStatus.AVAILABLE
+          }
+        } else {
+          MyLocationStatus.DISABLED
+        }
+  }
+
+  fun hasLocationPermission() = requirementsChecker.hasLocationPermissions()
+
+  private val preferenceChangeListener =
+      object : Preferences.OnPreferenceChangeListener {
+        override fun onPreferenceChanged(properties: Set<String>) {
+          if (properties.contains("monitoring")) {
+            mutableCurrentMonitoringMode.value = preferences.monitoring
+          }
+          if (properties.contains("mode")) {
+            clearActiveContact()
+          }
+        }
+      }
+
+  init {
+    preferences.registerOnPreferenceChangedListener(preferenceChangeListener)
+  }
+
+  override fun onCleared() {
+    super.onCleared()
+    preferences.unregisterOnPreferenceChangedListener(preferenceChangeListener)
+  }
+
+  fun onMapReady() {
+    when (viewMode) {
+      is ViewMode.Contact -> {
+        mutableCurrentContact.value?.run { setViewModeContact(this, true) }
+      }
+      is ViewMode.Free -> {
+        setViewModeFree()
+      }
+      is ViewMode.Device -> {
+        setViewModeDevice()
+      }
+    }
+  }
+
+  fun refreshGeocodeForContact(contact: Contact) {
+    contact.geocodeLocation(geocoderProvider, viewModelScope)
+  }
+
+  fun sendLocation() {
+    viewModelScope.launch {
+      currentLocation.value?.run {
+        Timber.d("Sending current location from user request: $this")
+        locationProcessor.onLocationChanged(this, MessageLocation.ReportType.USER)
+        locationProcessor.publishStatusMessage()
+      }
+    }
+  }
+
+  /** User has clicked on the MyLocation FAB, so we should set the viewMode to be device. */
+  fun onMyLocationClicked() {
+    setViewModeDevice()
+  }
+
+  private fun setViewModeContact(contactId: String, center: Boolean) {
+    val c = contactsRepo.getById(contactId)
+    if (c != null) {
+      setViewModeContact(c, center)
+    } else {
+      Timber.e("contact not found %s, ", contactId)
+    }
+  }
+
+  /**
+   * We need a way of updating other bits in the viewmodel when the current contact's properties
+   * change.
+   *
+   * @constructor Create empty Fused contact property changed callback
+   */
+  inner class ContactPropertyChangedCallback : Observable.OnPropertyChangedCallback() {
+    override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
+      sender?.run {
+        if (this is Contact) {
+          when (propertyId) {
+            BR.latLng -> {
+              updateActiveContactDistanceAndBearing(this)
+            }
+            BR.trackerId -> {
+              mutableCurrentContact.value = this
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private val contactPropertyChangedCallback = ContactPropertyChangedCallback()
+
+  private fun setViewModeContact(contact: Contact, center: Boolean) {
+    Timber.d("setting view mode: VIEW_CONTACT for $contact, center=$center")
+    locationRepo.viewMode = ViewMode.Contact(center)
+    mutableCurrentContact.value = contact
+    contact.addOnPropertyChangedCallback(contactPropertyChangedCallback)
+    mutableBottomSheetHidden.value = false
+    refreshGeocodeForContact(contact)
+    updateActiveContactDistanceAndBearing(contact)
+    if (center) contact.latLng?.let { mutableMapCenter.tryEmit(it) }
+    updateMyLocationStatus()
+  }
+
+  private fun setViewModeFree() {
+    Timber.d("setting view mode: VIEW_FREE")
+    locationRepo.viewMode = ViewMode.Free
+    clearActiveContact()
+    updateMyLocationStatus()
+  }
+
+  // Tracks the wait for a first location below, so a repeat call (e.g. tapping the MyLocation
+  // FAB again) doesn't leave a stale wait racing a fresh one.
+  private var awaitFirstLocationJob: Job? = null
+
+  private fun setViewModeDevice() {
+    Timber.d("setting view mode: VIEW_DEVICE")
+    locationRepo.viewMode = ViewMode.Device
+    clearActiveContact()
+    awaitFirstLocationJob?.cancel()
+    val location = currentLocation.value
+    if (location != null) {
+      mutableMapCenter.tryEmit(location.toLatLng())
+    } else {
+      // currentLocation is a snapshot: at this point in startup the location flow has often not
+      // even been armed yet (that happens once requestLocationUpdatesForBlueDot runs, later in
+      // the same startup sequence), so there is nothing to fall back to here yet. Wait for
+      // whatever the flow eventually produces and center then instead, unless the user has since
+      // moved on to a different view mode.
+      Timber.w("no location available yet, will center once one arrives")
+      awaitFirstLocationJob = viewModelScope.launch {
+        val firstLocation = currentLocation.filterNotNull().first()
+        if (locationRepo.viewMode is ViewMode.Device) {
+          mutableMapCenter.tryEmit(firstLocation.toLatLng())
+        }
+      }
+    }
+    updateMyLocationStatus()
+  }
+
+  @MainThread
+  fun setLiveContact(contactId: String?) {
+    contactId?.let { setViewModeContact(it, true) }
+  }
+
+  private fun clearActiveContact() {
+    mutableCurrentContact.value?.removeOnPropertyChangedCallback(contactPropertyChangedCallback)
+    mutableCurrentContact.value = null
+    mutableBottomSheetHidden.value = true
+  }
+
+  fun onClearContactClicked() {
+    mutableCurrentContact.value?.also {
+      messageProcessor.queueMessageForSending(MessageClear().apply { topic = it.id })
+      viewModelScope.launch { contactsRepo.remove(it.id) }
+    }
+    clearActiveContact()
+  }
+
+  private val mutableLocationRequestContactCommandFlow =
+      MutableSharedFlow<Contact>(extraBufferCapacity = 1)
+
+  val locationRequestContactCommandFlow: Flow<Contact> = mutableLocationRequestContactCommandFlow
+
+  fun sendLocationRequestToCurrentContact() {
+    mutableCurrentContact.value?.also {
+      messageProcessor.queueMessageForSending(
+          MessageCmd().apply {
+            topic = it.id + preferences.commandTopicSuffix
+            action = CommandAction.REPORT_LOCATION
+          }
+      )
+      mutableLocationRequestContactCommandFlow.tryEmit(it)
+    }
+  }
+
+  private fun updateActiveContactDistanceAndBearing(contact: Contact) {
+    currentLocation.value?.run { updateActiveContactDistanceAndBearing(this, contact) }
+  }
+
+  fun updateActiveContactDistanceAndBearing(currentLocation: Location) {
+    mutableCurrentContact.value?.run {
+      updateActiveContactDistanceAndBearing(currentLocation, this)
+    }
+  }
+
+  private fun updateActiveContactDistanceAndBearing(currentLocation: Location, contact: Contact) {
+    contact.latLng?.run {
+      Location.distanceBetween(
+          currentLocation.latitude,
+          currentLocation.longitude,
+          latitude.value,
+          longitude.value,
+          locationDistanceResult,
+      )
+      mutableContactDistance.value = locationDistanceResult[0]
+      mutableContactBearing.value = locationDistanceResult[1]
+      mutableRelativeContactBearing.value = locationDistanceResult[1]
+    }
+  }
+
+  fun onMapClick() {
+    setViewModeFree()
+  }
+
+  /**
+   * User has clicked on a marker on the map. Should set the view mode to contact, but not center
+   * the map
+   *
+   * @param id identifier of the marker that was clicked on
+   */
+  fun onMarkerClick(id: String) {
+    setViewModeContact(id, false)
+  }
+
+  /**
+   * User has long clicked on the bottom contact sheet. This should trigger centering the map on the
+   * currently active contact
+   */
+  fun onBottomSheetLongClick() {
+    mutableCurrentContact.value?.run { setViewModeContact(id, true) }
+  }
+
+  /** Start requesting location updates for the blue dot */
+  fun requestLocationUpdatesForBlueDot() {
+    if (requirementsChecker.hasLocationPermissions()) {
+      locationUpdatesRequested.value = true
+    }
+  }
+
+  /**
+   * Moves the blue dot on the map to the given location
+   *
+   * @param latLng location to move the blue dot to
+   */
+  fun setCurrentBlueDotLocation(latLng: LatLng) {
+    locationRepo.currentBlueDotOnMapLocation = latLng
+  }
+
+  /**
+   * Updates the stored mapView to the given location zoom and rotation. Triggered when the map is
+   * moved from the [MapFragment]
+   *
+   * @param mapLocationZoomLevelAndRotation the current map location, zoom and rotation values
+   */
+  fun setMapLocationFromMapMoveEvent(
+      mapLocationZoomLevelAndRotation: MapLocationZoomLevelAndRotation
+  ) {
+    locationRepo.mapViewWindowLocationAndZoom = mapLocationZoomLevelAndRotation
+  }
+
+  fun initMapStartingLocation(): MapLocationZoomLevelAndRotation =
+      if (viewMode == ViewMode.Contact(true) && currentContact.value?.latLng != null) {
+        MapLocationZoomLevelAndRotation(
+            currentContact.value!!.latLng!!,
+            locationRepo.mapViewWindowLocationAndZoom?.zoom ?: STARTING_ZOOM,
+        )
+      } else {
+        locationRepo.mapViewWindowLocationAndZoom
+            ?: locationRepo.currentBlueDotOnMapLocation?.let {
+              MapLocationZoomLevelAndRotation(it, STARTING_ZOOM)
+            }
+            ?: locationRepo.currentPublishedLocation.value?.let {
+              MapLocationZoomLevelAndRotation(it.toLatLng(), STARTING_ZOOM)
+            }
+            ?: MapLocationZoomLevelAndRotation(
+                LatLng(STARTING_LATITUDE, STARTING_LONGITUDE),
+                STARTING_ZOOM,
+            )
+      }
+
+  /**
+   * Returns a sensible map starting location for when the map is resumed, but only when in Device
+   * view mode. In Device mode, prefers the current blue dot location, then the most recently
+   * published location, then falls back to the Paris default. Returns null for other view modes so
+   * that the camera is left where the user last positioned it.
+   */
+  fun mapStartingLocationOnResume(): MapLocationZoomLevelAndRotation? {
+    if (viewMode != ViewMode.Device) return null
+    val currentZoom = locationRepo.mapViewWindowLocationAndZoom?.zoom ?: STARTING_ZOOM
+    return locationRepo.currentBlueDotOnMapLocation?.let {
+      MapLocationZoomLevelAndRotation(it, currentZoom)
+    }
+        ?: locationRepo.currentPublishedLocation.value?.let {
+          MapLocationZoomLevelAndRotation(it.toLatLng(), currentZoom)
+        }
+        ?: MapLocationZoomLevelAndRotation(
+            LatLng(STARTING_LATITUDE, STARTING_LONGITUDE),
+            currentZoom,
+        )
+  }
+
+  val orientationSensorEventListener =
+      object : SensorEventListener {
+        override fun onSensorChanged(maybeEvent: SensorEvent?) {
+          maybeEvent?.let { event ->
+            currentContact.value?.latLng?.let { contactLatLng ->
+              currentLocation.value?.let { currentLocation ->
+                // Orientation is angle around the Z axis
+                val azimuth = (180 / Math.PI) * 2 * asin(event.values[2])
+                Location.distanceBetween(
+                    currentLocation.latitude,
+                    currentLocation.longitude,
+                    contactLatLng.latitude.value,
+                    contactLatLng.longitude.value,
+                    sensorDistanceResult,
+                )
+                mutableRelativeContactBearing.value = sensorDistanceResult[1] + azimuth.toFloat()
+              }
+            }
+          }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+          // noop
+        }
+      }
+
+  fun setMonitoringMode(mode: MonitoringMode) {
+    preferences.monitoring = mode
+  }
+
+  fun setMapLayerStyle(mapLayerStyle: MapLayerStyle) {
+    preferences.mapLayerStyle = mapLayerStyle
+    mutableMapLayerStyle.value = mapLayerStyle
+  }
+
+  companion object {
+    // Paris
+    private const val STARTING_LATITUDE = 48.856826
+    private const val STARTING_LONGITUDE = 2.292713
+    private const val STARTING_ZOOM = 15.0
+  }
+
+  sealed class ViewMode {
+    object Free : ViewMode()
+
+    object Device : ViewMode()
+
+    data class Contact(val follow: Boolean) : ViewMode()
+  }
+}

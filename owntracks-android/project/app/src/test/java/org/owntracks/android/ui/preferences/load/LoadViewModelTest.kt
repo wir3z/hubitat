@@ -1,0 +1,322 @@
+package org.owntracks.android.ui.preferences.load
+
+import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.double
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.mockito.kotlin.doReturn
+import org.mockito.kotlin.mock
+import org.owntracks.android.R
+import org.owntracks.android.data.waypoints.InMemoryWaypointsRepo
+import org.owntracks.android.model.Parser
+import org.owntracks.android.preferences.InMemoryPreferencesStore
+import org.owntracks.android.preferences.Preferences
+import org.owntracks.android.preferences.PreferencesStore
+import org.owntracks.android.test.SimpleIdlingResource
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class LoadViewModelTest {
+  private lateinit var mockContext: Context
+  private lateinit var preferencesStore: PreferencesStore
+  private val mockIdlingResource = SimpleIdlingResource("mock", true)
+
+  @Before
+  fun createMocks() {
+    Dispatchers.setMain(UnconfinedTestDispatcher())
+    mockContext = mock {
+      on { packageName } doReturn javaClass.canonicalName
+      on { getString(R.string.loadActivityErrorExternalConfigDisabled) } doReturn
+          "External configuration loading is disabled"
+      on { getString(R.string.loadActivityErrorInvalidConfigMessage) } doReturn
+          "Message is not a valid configuration message"
+      on { getString(R.string.loadActivityErrorInvalidConfigUrl) } doReturn "Invalid config URL"
+      on { getString(R.string.loadActivityErrorFetchFailed) } doReturn
+          "Failure fetching config from remote URL"
+    }
+    preferencesStore = InMemoryPreferencesStore()
+  }
+
+  @After
+  fun tearDown() {
+    Dispatchers.resetMain()
+  }
+
+  private fun TestScope.makeVm(preferences: Preferences) =
+      LoadViewModel(
+          preferences,
+          Parser(null),
+          InMemoryWaypointsRepo(this, mockContext, StandardTestDispatcher()),
+          UnconfinedTestDispatcher(),
+          SimpleIdlingResource("", true),
+          mockContext,
+      )
+
+  @Test
+  fun `Given allowConfigurationByURIAndConfigFile is false, when loading an owntracks scheme URI, then the import fails`() =
+      runTest {
+        val preferences = Preferences(preferencesStore, mockIdlingResource)
+        // allowConfigurationByURIAndConfigFile defaults to false
+        val vm = makeVm(preferences)
+        vm.extractPreferencesFromUri(
+            "owntracks:///config?inline=eyJfdHlwZSI6ImNvbmZpZ3VyYXRpb24ifQ=="
+        )
+        assertEquals(ImportStatus.FAILED, vm.configurationImportStatus.value)
+        assertEquals("External configuration loading is disabled", vm.importError.value)
+      }
+
+  @Test
+  fun `Given allowConfigurationByURIAndConfigFile is false, when loading a file URI, then the import fails`() =
+      runTest {
+        val preferences = Preferences(preferencesStore, mockIdlingResource)
+        val vm = makeVm(preferences)
+        vm.extractPreferencesFromUri("file:///some/config.json")
+        assertEquals(ImportStatus.FAILED, vm.configurationImportStatus.value)
+        assertEquals("External configuration loading is disabled", vm.importError.value)
+      }
+
+  @Test
+  fun `Given an invalid URL, when loading it into the LoadViewModel, then the error is correctly set`() =
+      runTest {
+        val preferences = Preferences(preferencesStore, mockIdlingResource)
+        preferences.allowConfigurationByURIAndConfigFile = true
+        val vm = makeVm(preferences)
+        vm.extractPreferencesFromUri("owntracks:///config?{}")
+        assertEquals(ImportStatus.FAILED, vm.configurationImportStatus.value)
+        assertEquals(
+            "Illegal character in query at index 20: owntracks:///config?{}",
+            vm.importError.value,
+        )
+      }
+
+  @Test
+  fun `Given an inline OwnTracks config URL with invalid JSON, when loading it into the LoadViewModel, then the error is correctly set`() =
+      runTest {
+        val preferences = Preferences(preferencesStore, mockIdlingResource)
+        preferences.allowConfigurationByURIAndConfigFile = true
+        val vm = makeVm(preferences)
+        vm.extractPreferencesFromUri("owntracks:///config?inline=e30=")
+        assertEquals(ImportStatus.FAILED, vm.configurationImportStatus.value)
+        assertEquals("Message is not a valid configuration message", vm.importError.value)
+      }
+
+  @Test
+  fun `Given an inline OwnTracks config URL with a simple MessageConfiguration JSON, when loading it into the LoadViewModel, then the correct config is displayed`() =
+      runTest {
+        val preferences = Preferences(preferencesStore, mockIdlingResource)
+        preferences.allowConfigurationByURIAndConfigFile = true
+        val vm = makeVm(preferences)
+        // {"_type":"configuration"} — no keys, no waypoints
+        vm.extractPreferencesFromUri(
+            "owntracks:///config?inline=eyJfdHlwZSI6ImNvbmZpZ3VyYXRpb24ifQ=="
+        )
+        advanceUntilIdle()
+        assertEquals(ImportStatus.SUCCESS, vm.configurationImportStatus.value)
+        val json = Json.parseToJsonElement(vm.displayedConfiguration.value).jsonObject
+        assertTrue(json.isNotEmpty())
+        assertTrue(json.containsKey("_type"))
+        assertEquals("configuration", json["_type"]?.jsonPrimitive?.content)
+        assertTrue(json.containsKey("waypoints"))
+        assertTrue(json["waypoints"]?.jsonArray?.isEmpty() == true)
+      }
+
+  @Test
+  fun `Given an inline OwnTracks config URL with a simple MessageWaypoints JSON, when loading it into the LoadViewModel, then the correct waypoints are displayed`() =
+      runTest {
+        val preferences = Preferences(preferencesStore, mockIdlingResource)
+        preferences.allowConfigurationByURIAndConfigFile = true
+        val vm = makeVm(preferences)
+        // {"_type":"waypoints","waypoints":[{"_type":"waypoint","desc":"Test
+        // Waypoint","lat":51,"lon":0,"rad":450,"tst":1598451372}]}
+        vm.extractPreferencesFromUri(
+            "owntracks:///config?inline=eyJfdHlwZSI6IndheXBvaW50cyIsIndheXBvaW50cyI6W3siX3R5cGUiOiJ3YXlwb2ludCIsImRlc2MiOiJUZXN0IFdheXBvaW50IiwibGF0Ijo1MSwibG9uIjowLCJyYWQiOjQ1MCwidHN0IjoxNTk4NDUxMzcyfV19"
+        )
+        val displayedConfig = vm.displayedConfiguration.value
+        val json = Json.parseToJsonElement(displayedConfig).jsonObject
+        assertTrue(json.isNotEmpty())
+        assertTrue(json.containsKey("_type"))
+        assertEquals("waypoints", json["_type"]?.jsonPrimitive?.content)
+        assertTrue(json.containsKey("_id"))
+        assertTrue(json["_id"]?.jsonPrimitive?.isString == true)
+        assertTrue(json.containsKey("waypoints"))
+        assertTrue(json["waypoints"]?.jsonArray?.isNotEmpty() == true)
+        assertEquals(1, json["waypoints"]?.jsonArray?.size)
+        assertTrue(json["waypoints"]?.jsonArray?.get(0)?.jsonObject?.isNotEmpty() == true)
+        assertTrue(json["waypoints"]?.jsonArray?.get(0)?.jsonObject?.containsKey("_type") == true)
+        assertEquals(
+            "waypoint",
+            json["waypoints"]?.jsonArray?.get(0)?.jsonObject?.get("_type")?.jsonPrimitive?.content,
+        )
+        assertTrue(json["waypoints"]?.jsonArray?.get(0)?.jsonObject?.containsKey("desc") == true)
+        assertEquals(
+            "Test Waypoint",
+            json["waypoints"]?.jsonArray?.get(0)?.jsonObject?.get("desc")?.jsonPrimitive?.content,
+        )
+        assertTrue(json["waypoints"]?.jsonArray?.get(0)?.jsonObject?.containsKey("lat") == true)
+        assertEquals(
+            51.0,
+            json["waypoints"]?.jsonArray?.get(0)?.jsonObject?.get("lat")?.jsonPrimitive?.double!!,
+            0.000001,
+        )
+        assertTrue(json["waypoints"]?.jsonArray?.get(0)?.jsonObject?.containsKey("lon") == true)
+        assertEquals(
+            0.0,
+            json["waypoints"]?.jsonArray?.get(0)?.jsonObject?.get("lon")?.jsonPrimitive?.double!!,
+            0.000001,
+        )
+        assertTrue(json["waypoints"]?.jsonArray?.get(0)?.jsonObject?.containsKey("rad") == true)
+        assertEquals(
+            450,
+            json["waypoints"]?.jsonArray?.get(0)?.jsonObject?.get("rad")?.jsonPrimitive?.int,
+        )
+        assertTrue(json["waypoints"]?.jsonArray?.get(0)?.jsonObject?.containsKey("tst") == true)
+        assertEquals(
+            1598451372L,
+            json["waypoints"]?.jsonArray?.get(0)?.jsonObject?.get("tst")?.jsonPrimitive?.long,
+        )
+        advanceUntilIdle()
+        assertEquals(ImportStatus.SUCCESS, vm.configurationImportStatus.value)
+      }
+
+  @Test
+  fun `Given a configuration with waypoints, when loading and then saving into the LoadViewModel, then the preferences and waypointsrepo are updated`() =
+      runTest {
+        val parser = Parser(null)
+        val preferences = Preferences(preferencesStore, mockIdlingResource)
+        val waypointsRepo = InMemoryWaypointsRepo(this, mockContext, StandardTestDispatcher())
+        val vm =
+            LoadViewModel(
+                preferences,
+                parser,
+                waypointsRepo,
+                UnconfinedTestDispatcher(),
+                SimpleIdlingResource("", true),
+                mockContext,
+            )
+        val config =
+            """
+            {
+              "_type":"configuration",
+              "waypoints":[
+                {
+                  "_type":"waypoint",
+                  "desc":"Test Waypoint",
+                  "lat":51.0,
+                  "lon":0.0,
+                  "rad":450,
+                  "tst":1598451372
+                }
+              ],
+              "clientId": "testClientId"
+            }
+            """
+                .trimIndent()
+        vm.extractPreferences(config.toByteArray())
+        vm.saveConfiguration()
+        advanceUntilIdle()
+        assertEquals(ImportStatus.SAVED, vm.configurationImportStatus.value)
+        assertEquals(1, waypointsRepo.getAll().size)
+        assertEquals("testClientId", preferences.clientId)
+      }
+
+  @Test
+  fun `Given a configuration with an invalid key, when loading and then saving into the LoadViewModel, then no error is raised`() =
+      runTest {
+        val parser = Parser(null)
+        val preferences = Preferences(preferencesStore, mockIdlingResource)
+        val waypointsRepo = InMemoryWaypointsRepo(this, mockContext, StandardTestDispatcher())
+        val vm =
+            LoadViewModel(
+                preferences,
+                parser,
+                waypointsRepo,
+                UnconfinedTestDispatcher(),
+                SimpleIdlingResource("", true),
+                mockContext,
+            )
+        val config =
+            """
+            {
+              "_type":"configuration",
+              "mode": "http"
+            }
+            """
+                .trimIndent()
+        vm.extractPreferences(config.toByteArray())
+        vm.saveConfiguration()
+        advanceUntilIdle()
+        assertEquals(ImportStatus.SAVED, vm.configurationImportStatus.value)
+      }
+
+  @Test
+  fun `Given a configuration with a tid parameter set, when loading and then saving into the LoadViewModel, then the preferences tid `() =
+      runTest {
+        val parser = Parser(null)
+        val preferences = Preferences(preferencesStore, mockIdlingResource)
+        val waypointsRepo = InMemoryWaypointsRepo(this, mockContext, StandardTestDispatcher())
+        val vm =
+            LoadViewModel(
+                preferences,
+                parser,
+                waypointsRepo,
+                UnconfinedTestDispatcher(),
+                SimpleIdlingResource("", true),
+                mockContext,
+            )
+        val config =
+            """
+            {
+              "_type":"configuration",
+              "waypoints":[ ],
+              "clientId": "testClientId",
+              "tid": "testTid"
+            }
+            """
+                .trimIndent()
+        vm.extractPreferences(config.toByteArray())
+        vm.saveConfiguration()
+        advanceUntilIdle()
+        assertEquals(ImportStatus.SAVED, vm.configurationImportStatus.value)
+        assertEquals("te", preferences.tid.toString())
+      }
+
+  @Test
+  fun `Given a configuration containing non-importable preferences, when loading it into the LoadViewModel, then only importable changes are listed`() =
+      runTest {
+        val preferences = Preferences(preferencesStore, mockIdlingResource)
+        val vm = makeVm(preferences)
+        val config =
+            """
+            {
+              "_type":"configuration",
+              "tid": "zz",
+              "intentAuthKey": "attacker-key",
+              "allowIntentControl": true,
+              "allowConfigurationByURIAndConfigFile": true
+            }
+            """
+                .trimIndent()
+        vm.extractPreferences(config.toByteArray())
+        advanceUntilIdle()
+        assertEquals(ImportStatus.SUCCESS, vm.configurationImportStatus.value)
+        val listedKeys = vm.configItems.value.filterIsInstance<ConfigItem.KeyValue>().map { it.key }
+        assertEquals(listOf("tid"), listedKeys)
+      }
+}

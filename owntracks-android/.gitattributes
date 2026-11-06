@@ -1,0 +1,5 @@
+# The saved customization patches must keep LF endings in the working tree.
+# Checkouts here run with core.autocrlf=true, and a CRLF patch does not apply:
+# `git am` would try to match CR-terminated context lines against LF sources and
+# fail on every hunk. The blob is already LF; this stops the smudge on checkout.
+customizations/*.patch text eol=lf

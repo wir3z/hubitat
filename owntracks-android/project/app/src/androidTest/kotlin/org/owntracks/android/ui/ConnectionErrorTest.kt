@@ -1,0 +1,335 @@
+package org.owntracks.android.ui
+
+import android.content.Intent
+import androidx.core.net.toUri
+import androidx.preference.PreferenceManager
+import androidx.test.espresso.Espresso
+import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.withId
+import androidx.test.filters.MediumTest
+import androidx.test.platform.app.InstrumentationRegistry
+import com.adevinta.android.barista.assertion.BaristaVisibilityAssertions.assertContains
+import com.adevinta.android.barista.interaction.BaristaClickInteractions.clickOn
+import dagger.hilt.android.testing.HiltAndroidTest
+import io.github.davidepianca98.mqtt.broker.Broker
+import io.github.davidepianca98.mqtt.broker.interfaces.Authentication
+import io.github.davidepianca98.socket.tls.TLSSettings
+import java.net.ConnectException
+import java.net.InetSocketAddress
+import java.net.Socket
+import javax.inject.Inject
+import kotlin.concurrent.thread
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
+import kotlin.random.Random
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import org.junit.Test
+import org.owntracks.android.R
+import org.owntracks.android.model.messages.MessageStatus
+import org.owntracks.android.preferences.Preferences
+import org.owntracks.android.preferences.types.ConnectionMode
+import org.owntracks.android.services.MessageProcessor
+import org.owntracks.android.testutils.TestWithAnActivity
+import org.owntracks.android.testutils.idlingresources.ViewIdlingResource
+import org.owntracks.android.testutils.use
+import org.owntracks.android.testutils.waitUntilViewContains
+import org.owntracks.android.ui.preferences.load.LoadActivity
+import org.owntracks.android.ui.status.StatusActivity
+import timber.log.Timber
+
+@OptIn(ExperimentalEncodingApi::class)
+@MediumTest
+@HiltAndroidTest
+class ConnectionErrorTest : TestWithAnActivity<StatusActivity>(startActivity = true) {
+  @Inject lateinit var messageProcessor: MessageProcessor
+
+  @Test
+  fun given_a_config_with_http_mode_and_invalid_url_when_viewing_the_connecting_status_then_a_config_incomplete_message_is_shown() {
+    val username = "user"
+    val password = "password"
+    val port = Random.nextInt(10000, 20000)
+
+    val config =
+        encodeConfig(
+            getConfig(port, username, password).apply {
+              this[Preferences::mode.name] = ConnectionMode.HTTP.value
+              this[Preferences::url.name] = "not a url"
+              remove(Preferences::host.name)
+              remove(Preferences::port.name)
+            }
+        )
+    setupActivity(config)
+    assertContains(
+        R.id.connectedStatusMessage,
+        R.string.statusEndpointStateMessageMalformedHostPort,
+    )
+  }
+
+  @Test
+  fun given_a_config_with_no_host_when_viewing_the_connecting_status_then_a_config_incomplete_message_is_shown() {
+    val username = "user"
+    val password = "password"
+    val port = Random.nextInt(10000, 20000)
+    getBroker(port, username, password).use {
+      val config =
+          encodeConfig(
+              getConfig(port, username, password).apply { this.remove(Preferences::host.name) }
+          )
+      setupActivity(config)
+      assertContains(R.id.connectedStatusMessage, R.string.statusEndpointStateMessageMissingHost)
+    }
+  }
+
+  @Test
+  fun given_a_config_with_http_mode_and_an_unknown_host_when_viewing_the_connecting_status_then_a_DNS_fail_message_is_shown() {
+    val username = "user"
+    val password = "password"
+    val port = Random.nextInt(10000, 20000)
+
+    val config =
+        encodeConfig(
+            getConfig(port, username, password).apply {
+              this[Preferences::mode.name] = ConnectionMode.HTTP.value
+              this[Preferences::url.name] = "https://unknown/"
+              remove(Preferences::host.name)
+              remove(Preferences::port.name)
+            }
+        )
+    setupActivity(config)
+    // HTTP holds no connection: nothing touches the network (or DNS) until there's a message to
+    // send.
+    messageProcessor.queueMessageForSending(MessageStatus())
+    waitUntilViewContains(
+        R.id.connectedStatusMessage,
+        R.string.statusEndpointStateMessageUnknownHost,
+        30.seconds,
+    )
+  }
+
+  @Test
+  fun given_a_config_with_the_wrong_host_when_viewing_the_connecting_status_then_a_DNS_fail_message_is_shown() {
+    val username = "user"
+    val password = "password"
+    val port = Random.nextInt(10000, 20000)
+    getBroker(port, username, password).use {
+      val config =
+          encodeConfig(
+              getConfig(port, username, password).apply { this[Preferences::host.name] = "unknown" }
+          )
+      setupActivity(config)
+      waitUntilViewContains(
+          R.id.connectedStatusMessage,
+          R.string.statusEndpointStateMessageUnknownHost,
+          15.seconds,
+      )
+    }
+  }
+
+  @Test
+  fun given_a_config_with_the_wrong_port_when_viewing_the_connecting_status_then_a_refused_message_is_shown() {
+    val username = "user"
+    val password = "password"
+    val port = Random.nextInt(10000, 20000)
+    getBroker(port, username, password).use {
+      val config =
+          encodeConfig(
+              getConfig(port, username, password).apply { this[Preferences::port.name] = 1234 }
+          )
+      setupActivity(config)
+      mqttConnectionIdlingResource.use { Espresso.onIdle() }
+      assertContains(
+          R.id.connectedStatusMessage,
+          R.string.statusEndpointStateMessageConnectionRefused,
+      )
+    }
+  }
+
+  @Test
+  fun given_a_config_with_tls_disabled_against_a_tls_endpoint_when_viewing_the_connecting_status_then_an_eoferror_is_shown() {
+    val username = "user"
+    val password = "password"
+    val port = Random.nextInt(10000, 20000)
+    val tlsSettings = getTLSSettings(this)
+    getBroker(port, username, password, tlsSettings).use {
+      val config = encodeConfig(getConfig(port, username, password))
+      setupActivity(config)
+      waitUntilViewContains(
+          R.id.connectedStatusMessage,
+          R.string.statusEndpointStateMessageEOFError,
+          15.seconds,
+      )
+    }
+  }
+
+  @Test
+  fun given_a_config_against_a_tls_endpoint_with_self_signed_certs_when_viewing_the_connecting_status_then_a_ca_not_trusted_error_is_shown() {
+    val username = "user"
+    val password = "password"
+    val port = Random(1).nextInt(10000, 20000)
+    val tlsSettings = getTLSSettings(this)
+    getBroker(port, username, password, tlsSettings).use {
+      val config =
+          encodeConfig(
+              getConfig(port, username, password).apply { this[Preferences::tls.name] = true }
+          )
+      setupActivity(config)
+      waitUntilViewContains(
+          R.id.connectedStatusMessage,
+          R.string.statusEndpointStateMessageTLSEndpointCANotTrustedError,
+          15.seconds,
+      )
+    }
+  }
+
+  @Test
+  fun given_a_config_with_websockets_enabled_against_a_tls_endpoint_when_viewing_the_connecting_status_then_an_eoferror_is_showna() {
+    val username = "user"
+    val password = "password"
+    val port = Random.nextInt(10000, 20000)
+    getBroker(port, username, password).use {
+      val config =
+          encodeConfig(
+              getConfig(port, username, password).apply { this[Preferences::ws.name] = true }
+          )
+      setupActivity(config)
+      mqttConnectionIdlingResource.use { Espresso.onIdle() }
+      assertContains(
+          R.id.connectedStatusMessage,
+          R.string.statusEndpointStateMessageEndpointDoesNotSupportWebsockets,
+      )
+    }
+  }
+
+  private fun setupActivity(config: String) {
+    PreferenceManager.getDefaultSharedPreferences(
+            InstrumentationRegistry.getInstrumentation().targetContext
+        )
+        .edit()
+        .putBoolean(Preferences::allowConfigurationByURIAndConfigFile.name, true)
+        .commit()
+    InstrumentationRegistry.getInstrumentation()
+        .targetContext
+        .startActivity(
+            Intent(Intent.ACTION_VIEW).apply {
+              data = "owntracks:///config?inline=$config".toUri()
+              flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+        )
+    waitUntilActivityVisible(LoadActivity::class.java)
+    ViewIdlingResource(withId(R.id.applyButton), isDisplayed()).use { clickOn(R.id.applyButton) }
+    waitUntilActivityVisible()
+  }
+}
+
+@OptIn(ExperimentalUnsignedTypes::class)
+@Suppress("PARAMETER_NAME_CHANGED_ON_OVERRIDE", "SameParameterValue")
+private fun getBroker(
+    mqttPort: Int,
+    username: String,
+    password: String,
+    tlsSettings: TLSSettings? = null,
+) =
+    Broker(
+        host = "127.0.0.1",
+        port = mqttPort,
+        tlsSettings = tlsSettings,
+        authentication =
+            object : Authentication {
+              override fun authenticate(
+                  clientId: String,
+                  givenUsername: String?,
+                  givenPassword: UByteArray?,
+              ): Boolean {
+                return givenUsername == username &&
+                    givenPassword.contentEquals(password.toByteArray().toUByteArray())
+              }
+            },
+    )
+
+@ExperimentalEncodingApi
+private fun encodeConfig(config: Map<String, Any>): String {
+  val jsonObject = buildJsonObject {
+    for ((key, value) in config) {
+      when (value) {
+        is String -> put(key, value)
+        is Number -> put(key, value)
+        is Boolean -> put(key, value)
+        else -> put(key, value.toString()) // Fallback, might not be correct for all cases
+      }
+    }
+  }
+  return Base64.encode(Json.encodeToString(jsonObject).encodeToByteArray())
+}
+
+private fun getTLSSettings(connectionErrorTest: ConnectionErrorTest): TLSSettings {
+  val dataBytes = connectionErrorTest.javaClass.getResource("/rootCA.p12")!!.readBytes()
+  InstrumentationRegistry.getInstrumentation().targetContext.filesDir.run {
+    mkdirs()
+    resolve("rootCA.p12").run { outputStream().use { it.write(dataBytes) } }
+  }
+  val keyStorePath =
+      InstrumentationRegistry.getInstrumentation()
+          .targetContext
+          .filesDir
+          .resolve("rootCA.p12")
+          .absolutePath
+  return TLSSettings(
+      keyStoreFilePath = keyStorePath,
+      keyStorePassword = "aaaa",
+      // Must stay false. Requiring one makes the server list every system CA in its
+      // CertificateRequest, which on API 27 overflows KMQTT's TLS send buffer. KMQTT then loses the
+      // reply, so the handshake hangs instead of failing on the untrusted CA.
+      requireClientCertificate = false,
+  )
+}
+
+@Suppress("SameParameterValue")
+private fun getConfig(mqttPort: Int, username: String, password: String): MutableMap<String, Any> =
+    mutableMapOf(
+        "_type" to "configuration",
+        "host" to "localhost",
+        "password" to password,
+        "port" to mqttPort,
+        "mqttProtocolLevel" to 4,
+        "username" to username,
+        "tls" to false,
+        "keepalive" to 5,
+        "connectionTimeoutSeconds" to 1,
+        "reverseGeocodeProvider" to "None",
+    )
+
+private fun Broker.use(block: () -> Unit) {
+  var shouldBeRunning = true
+  val brokerThread = thread {
+    while (shouldBeRunning) {
+      Timber.i("Calling MQTT Broker listen")
+      listen()
+      Timber.i("MQTT Broker no longer listening")
+    }
+    Timber.i("MQTT Broker Thread ending")
+  }
+  var listening = true
+  while (!listening) {
+    Socket().use {
+      try {
+        it.apply { connect(InetSocketAddress("localhost", this.port)) }
+        listening = true
+        Timber.i("Test MQTT Broker listening on port ${this.port}")
+      } catch (_: ConnectException) {
+        Timber.i("broker not listening on ${this.port} yet")
+        listening = false
+        Thread.sleep(5000)
+      }
+    }
+  }
+  block()
+  @Suppress("AssignedValueIsNeverRead") // Used in the monitor thread
+  shouldBeRunning = false
+  stop()
+  Timber.i("Waiting to join thread")
+  brokerThread.join()
+  Timber.i("MQTT Broker stopped")
+}

@@ -1,0 +1,84 @@
+@file:OptIn(ExperimentalSerializationApi::class)
+
+package org.owntracks.android.model.messages
+
+import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
+import org.owntracks.android.location.geofencing.Geofence
+import org.owntracks.android.preferences.Preferences
+
+@OptIn(ExperimentalTime::class)
+@Serializable
+@SerialName(MessageTransition.TYPE)
+class MessageTransition(
+    @Transient private val messageWithId: MessageWithId = MessageWithRandomId()
+) : MessageBase(), MessageWithId {
+  @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.ALWAYS)
+  @SerialName("_id")
+  override var messageId: MessageId = messageWithId.messageId
+
+  fun getTransition(): Int =
+      when (event) {
+        EVENT_ENTER -> Geofence.GEOFENCE_TRANSITION_ENTER
+        EVENT_LEAVE -> Geofence.GEOFENCE_TRANSITION_EXIT
+        else -> 0
+      }
+
+  fun setTransition(value: Int) {
+    this.event =
+        when (value) {
+          Geofence.GEOFENCE_TRANSITION_ENTER,
+          Geofence.GEOFENCE_TRANSITION_DWELL -> EVENT_ENTER
+          Geofence.GEOFENCE_TRANSITION_EXIT -> EVENT_LEAVE
+          else -> null
+        }
+  }
+
+  @SerialName("event") var event: String? = null
+
+  @SerialName("desc") var description: String? = null
+
+  @SerialName("tid") var trackerId: String? = null
+
+  @SerialName("t") var trigger: String? = null
+
+  @SerialName("tst") var timestamp: Long = 0
+
+  @SerialName("wtst") var waypointTimestamp: Long = 0
+
+  @SerialName("acc") var accuracy = 0
+
+  // Always written out, even at their 0.0 defaults: the equator and prime meridian are real places.
+  @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.ALWAYS)
+  @SerialName("lon")
+  var longitude = 0.0
+
+  @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.ALWAYS)
+  @SerialName("lat")
+  var latitude = 0.0
+
+  override fun annotateFromPreferences(preferences: Preferences) {
+    topic = preferences.pubTopicEvents
+    qos = preferences.pubQosEvents.value
+    retained = preferences.pubRetainEvents
+  }
+
+  override val baseTopicSuffix: String
+    get() = BASETOPIC_SUFFIX
+
+  override fun toString(): String =
+      "[MessageTransition ts=${Instant.fromEpochSeconds(timestamp)},event=$event,desc=$description,lon=$longitude,lat=$latitude,acc=$accuracy,trigger=$trigger,trackerId=$trackerId]"
+
+  companion object {
+    const val TYPE = "transition"
+    const val TRIGGER_CIRCULAR = "c"
+    const val TRIGGER_LOCATION = "l"
+    private const val BASETOPIC_SUFFIX = "/event"
+    private const val EVENT_ENTER = "enter"
+    private const val EVENT_LEAVE = "leave"
+  }
+}

@@ -1,0 +1,36 @@
+---
+# This workflow is triggered on addition of a PR to a merge queue. Essentially we want to run a
+# build-test-lint against the merge queue target to make sure the PR applies cleanly on top of
+# the target.
+name: Merge group checks (build)
+
+"on":
+  merge_group:
+    types: [checks_requested]
+
+jobs:
+  build-test-lint:
+    name: Build, Test, and Lint
+    permissions:
+      contents: read
+      checks: write
+      # The Test job's permissions block requests these unconditionally (the comment step itself
+      # is gated to only fire on pull_request/issue_comment events, but GitHub validates the
+      # permission ceiling statically regardless of whether a step would actually use it).
+      pull-requests: write
+      issues: write
+    uses: ./.github/workflows/build-test-lint.yaml
+    with:
+      ref: ${{ github.event.merge_group.head_sha }}
+    secrets: inherit
+  pr-checkpoint-status:
+    name: "PR Checkpoint Status"
+    runs-on: ubuntu-latest
+    needs: [build-test-lint]
+    if: always()
+    steps:
+      - name: Fail if any required job failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+      - run: |
+          echo "PR Checkpoint Status. Noop"
