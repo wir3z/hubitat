@@ -49,7 +49,7 @@ In **Configure Web Access**, set **Remote access** to how the web pages should b
 
 The links and the dashboard tiles follow this choice, and the local links are always listed too. If you only use the dashboards at home, or over a VPN, choose **None**. Then the web pages aren't reachable from the internet at all.
 
-A reverse proxy is recognised by the `X-Forwarded-For` or `X-Forwarded-Host` header it adds, which Apache and nginx send by default. A proxy configured not to send them looks like a request on the home network.
+A reverse proxy is recognised by the `X-Forwarded-For` or `X-Forwarded-Host` header it adds, which Apache and nginx send by default. A proxy configured not to send them looks like a request on the home network, and so does a port forward straight to the hub. See [Don't port-forward the hub](#dont-port-forward-the-hub).
 
 ## Step 3: Serve the web pages through your own reverse proxy (optional)
 
@@ -121,6 +121,32 @@ The phones can report through your own reverse proxy instead of the Hubitat clou
 
 Give the phones their own path and login, separate from the web pages, so a phone's password can't open the maps.
 
+### Example: Apache for the phones
+
+This accepts location reports at `https://example.com/owntracks`, behind a Basic login per phone. Unlike the web pages, the phone keeps `?access_token=` in its URL, so the proxy doesn't need to know the token.
+
+```apache
+<Location "/owntracks">
+    AuthType Basic
+    AuthName "owntracks"
+    AuthBasicProvider file
+    AuthUserFile /etc/apache2/owntracks.htpasswd
+    <RequireAll>
+        Require valid-user
+        # OwnTracks only ever POSTs location reports
+        Require method POST
+    </RequireAll>
+    # the hub has no use for the phone's password
+    RequestHeader unset Authorization
+    ProxyPass "http://<hub IP>/apps/api/<app id>/webhook" timeout=15
+</Location>
+```
+
+- Create one entry per phone with `htpasswd -B /etc/apache2/owntracks.htpasswd <Username>`, using `-c` for the first only. The name must match the phone's OwnTracks *Username* exactly, including case, because the app also uses it to tell members apart.
+- Put it in the HTTPS virtual host only, because the password is sent with every report.
+- The same `timeout=15` bounds how long a hung hub can tie up the proxy.
+- Rate-limit or ban failed logins here too.
+
 Mobile URL is independent of Remote access. For example, the phones can keep reporting through the Hubitat cloud while Remote access is *None*, which keeps the web pages off the internet.
 
 ## Step 5: Block the Hubitat cloud entirely
@@ -130,6 +156,17 @@ Once **every** phone reports through a local, VPN or reverse proxy URL, turn on 
 Phones still set to the cloud URL stop updating, with no message on the phone. Check that each member is reporting before you turn it on. The hub log shows *Rejected a location report through the Hubitat cloud* for any that aren't.
 
 This only affects this app. Hubitat's own remote access, other apps and dashboards are untouched.
+
+## Don't port-forward the hub
+
+Forwarding a port on your router straight to the hub, instead of using a reverse proxy, looks simpler but is the riskiest option:
+
+- **It exposes the whole hub, not just this app.** That includes the hub's admin pages, every other app's endpoints (such as Maker API) and the file manager. Many hubs have no login on the local admin pages.
+- **Nothing is encrypted.** The hub serves plain `http` on the home network, so the token and every location would cross the internet in clear text. Enabling HTTPS on the hub only gives a self-signed certificate, which the mobile apps reject.
+- **There is no login or rate limiting** in front of the token.
+- **Remote access can't see it.** A port-forwarded request carries no forwarding headers, so the app treats it as a request on the home network, which is always allowed. Remote access *None* will not refuse it.
+
+To reach the hub from outside, use the Hubitat cloud, a VPN to your home network, or a reverse proxy with HTTPS and a login.
 
 ## Recommended setups
 
@@ -163,4 +200,5 @@ Through a proxy that adds the token, view the page source of the family map. It 
 - **The token is shared with the phones.** It's in every phone's settings, so it's only as secret as the phones. Rotating it means updating every phone, and your proxy if it adds the token.
 - **View keys are bearer secrets.** Anyone with a person's link, and the proxy login if there is one, gets that person's access until you revoke the key.
 - **A proxy that adds the token holds it.** Protect that server like anything else that holds a credential.
+- **Remote access only sees the cloud and reverse proxies.** It recognises a proxy by its forwarding headers. A port forward to the hub, or a proxy that strips those headers, looks like the home network and is always allowed.
 - **Hubitat's cloud relay can't be turned off for one app.** Requests for this app will still reach the hub through cloud.hubitat.com. These settings make the app refuse them, which is as close to closed as the app can get.
