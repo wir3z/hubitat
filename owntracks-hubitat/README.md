@@ -8,6 +8,8 @@ The main app page contains a 'Member Status' table that displays location health
 
 The best experience, it is recommended to sign up for a free Google Maps API key to allow for dynamic region configuration and member maps.
 
+**Securing the app:** by default, anyone holding a dashboard link can see every member's location.  See [HARDENING.md](HARDENING.md) for step-by-step guidance on view keys, limiting remote access, using your own reverse proxy and blocking the Hubitat cloud.
+
 ## Hubitat Installation
 ### Automatic Install
 Locate 'OwnTracks' in the Hubitat Package Manager to install the application and driver.
@@ -47,14 +49,19 @@ Open the Hubitat OwnTracks app, and configure the the sections in 'Installation'
 - The columns indicate the current pending requests for each member.  If 'Pending' is displayed, that user will get updated on the next location report.
 - If region(s) are pending deletion, a banner will be displayed at the bottom of the table in red.
 # Installation and Configuration
+## Block all Hubitat cloud requests
+- Refuses every request to this app through cloud.hubitat.com, including the mobile location reports sent to the cloud URL, and hides the Hubitat cloud choices under 'Remote access' and 'Mobile URL'.  It doesn't affect anything else the hub does through the Hubitat cloud.  Only enable this once every mobile device reports through a local, VPN or reverse proxy URL.
+
 ## Mobile App Configuration
 This integration requires the Owntracks app to be installed on your mobile device:  https://owntracks.org/
 NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will change, and the mobile devices will need to be updated.
 	   This integration currently only supports one device per user for presence detection.  Linking more than one device will cause unreliable presence detection.
 
-- 'Use local URLs for mobile (off = cloud URLs)' - selects which host URL is displayed in the 'Mobile App Installation Instructions'.
-	- When disabled (the default), the Hubitat cloud URL is displayed.  This works from anywhere the mobile device has an internet connection.
-	- Enable to display the local hub URL instead.  Only use this if the mobile device reaches your home network over a VPN when away from home, otherwise location updates will stop when the device leaves the home network.
+- 'Mobile URL' - selects which host URL is displayed in the 'Mobile App Installation Instructions'.  It only changes what is displayed; nothing is sent to the mobile devices.
+	- Hubitat cloud (the default): works from anywhere the mobile device has an internet connection.  Not offered while 'Block all Hubitat cloud requests' is on, since those reports would be refused.
+	- Local network or VPN: the local hub URL.  Only use this if the mobile device reaches your home network over a VPN when away from home, otherwise location updates will stop when the device leaves the home network.
+	- External URL (reverse proxy): the full URL your proxy accepts location reports on, which it forwards to the hub's local webhook URL shown in the setting.  A proxy often gives the mobile devices a different path and login from the web pages, so this is separate from the 'Configure Web Access' external URL.  Enable 'Omit the access token' only if the proxy adds the token itself.  The instructions also show where to enter the proxy password on the mobile device.
+	- Independent of 'Remote access': for example, the mobile devices can report through the Hubitat cloud while 'Remote access' is 'None' keeps the web pages off the internet.
 - Open the OwnTracks app on the mobile device, and configure the following fields.  Only the settings below need to be changed; leave the rest as defaults.
 	### Android
 	- Preferences -> Connection
@@ -84,14 +91,14 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	- Once the member exceeds this distance, SSID will no longer be used for 'present' and 'not present' detection.
 	
 - Display Units
-    - Select the slider to display all measurements in the Hubitat app in imperial units (mph, mi, ft) instead of metric units (kph, km, m)
-    - All distances are stored in metric and may have minor rounding errors when converted to imperial for display.
-    NOTE: The OwnTracks mobile app stores and displays all units in metric.
+	- Select the slider to display all measurements in the Hubitat app in imperial units (mph, mi, ft) instead of metric units (kph, km, m)
+	- All distances are stored in metric and may have minor rounding errors when converted to imperial for display.
+	NOTE: The OwnTracks mobile app stores and displays all units in metric.
 		
 - Prefix to be added to each member's device name. 
-    - By default, each member device will be created with a 'OwnTracks - ' prefix.
-    - For example, member 'Bob' will have a device name of 'OwnTracks - Bob'. 
-    - Enter a space to have no prefix in front of the member name.
+	- By default, each member device will be created with a 'OwnTracks - ' prefix.
+	- For example, member 'Bob' will have a device name of 'OwnTracks - Bob'. 
+	- Enter a space to have no prefix in front of the member name.
 	
 ### Geocode API Settings - Converts latitude/longitude to address
 - Select the optional geocode provider for address lookups. Allows location latitude/longitude to be displayed as physical address.	
@@ -118,7 +125,7 @@ NOTE:  If you reinstall the OwnTracks app on Hubitat, the host URL below will ch
 	- If the phone is using mobile data, the cellular signal icon is displayed in the top banner.  If using wifi data, a wifi symbol is displayed.
 	- Distance from home, location accuracy and speed will be displayed if enabled.
 	- The last location time will be displayed in red if it is stale.
-    - NOTE:  Requires member thumbnails to be enabled, otherwise the selected glyph color is displayed.
+	- NOTE:  Requires member thumbnails to be enabled, otherwise the selected glyph color is displayed.
 	- If member history is enabled, the members past history will be displayed as fading dots.  Clicking a dot will give information about that location point.
 - Prevent generating maps once free quota has been exhausted.  Current usage: x/y per month.	
 	- Google maps as a free quota level.  This slider should be selected unless you are on a paid plan.
@@ -178,7 +185,7 @@ NOTE:  If a Google Map API key is entered in the 'Configure Hubitat App -> Googl
 - If no Google Map API key has been entered, or the lookup quota has been exceeded, then the app will change to use the direct approach, below.
 
 - Add Regions:
-    - If a geocode provider has been configured in 'Configure Hubitat App', a text box will be displayed to allow entering street addresses to be converted to latitude/longitude.
+	- If a geocode provider has been configured in 'Configure Hubitat App', a text box will be displayed to allow entering street addresses to be converted to latitude/longitude.
 		- NOTE: Google provides the best lookup accuracy.  If using other providers, confirm the map pin looks correct.
 		- Click 'View larger Map' on the map and then right click on the map to get the correct latitude/longitude.
 	- Enter the name, detection radius and coordinates.
@@ -191,7 +198,7 @@ NOTE:  If a Google Map API key is entered in the 'Configure Hubitat App -> Googl
 	- NOTE: Changing the 'Region Name' will create a new region on iOS devices.  The previous named region will need to be manually delete from each device.
 	- If the map pin is incorrect, click 'View larger Map' on the map and then right click on the map to get the correct latitude/longitude.
 - Delete Regions:
-    - If region(s) are pending deletion, a banner will be displayed at the bottom of the table in red.
+	- If region(s) are pending deletion, a banner will be displayed at the bottom of the table in red.
 	- Select the region to delete. 
 	- NOTE:  The Play Store OwnTracks Android 2.4.12 does not delete regions, and requires them to be manually deleted from the mobile device.
 	- Delete Region from Hub Only - Manually Delete Region from Mobile
@@ -285,13 +292,32 @@ NOTE: A region named '+follow' is automatically created to allow iOS phones to h
 		- TIME: time that member name entered or left region	
 		
 
+## Configure Web Access
+- For a step-by-step guide to these settings and recommended setups, see [HARDENING.md](HARDENING.md).
+- Controls how the 'Dashboard Web Links', the 'Member Command API Links' and the dashboard tiles are built and who can open them.
+- **Anyone with a cloud link can open it.**  The link carries the app's access token, which is the same token the mobile devices use to report locations.
+- 'Remote access' - the one way the web links and dashboard tiles are reached from outside the home network.  The links and tiles follow it, and the local links are always listed too, since home dashboards and command integrations usually use them.  The web pages, map data and member commands are refused when they arrive any other way, and always work directly on the home network.
+	- Hubitat cloud (the default): links and tiles use cloud.hubitat.com, and work from anywhere with an internet connection.  Requests through a reverse proxy are refused.
+	- External URL (reverse proxy): links and tiles are built from the entered base URL, which your reverse proxy forwards to the hub's local app URL shown in the setting.  Requests through the cloud are refused.
+	- None - local network only: links and tiles use the hub's local address, and only work on the home network or over a VPN to it.  Requests through the cloud and through a reverse proxy are refused.
+	- A reverse proxy is recognised by the `X-Forwarded-For` or `X-Forwarded-Host` header it adds, which Apache and nginx proxies send by default.  A proxy configured not to send them looks like a request on the home network.
+	- This replaces the earlier 'Disable cloud links' setting: any choice other than the Hubitat cloud disables the cloud links.  Mobile location reports through the cloud are still accepted.
+	- The maps embedded in this app's own pages always use the local address.
+- External URL settings:
+	- Enable 'Omit the access token from the links' if the proxy adds an `Authorization: Bearer <access token>` header and an `X-OwnTracks-Token-Injected: 1` header to each request.  The token then never appears in the links or the pages, so pair this with authentication on the proxy.  The second header is needed because the hub does not pass `Authorization` through to the app.
+	- Proxy the 'googlemap', 'apidata', `membermap/<member>` and `memberpresence/<member>` paths.  The pages use relative URLs, so the proxy path can differ from the hub's.  Links to any other path - the region configuration map, the member commands and the Recorder pages - only work if your proxy also forwards them.  Leaving them out keeps the admin and command endpoints off the internet.
+- The Recorder links are only displayed as cloud or external links if the Recorder has a secure (https) URL.  A Recorder tile with a non-https Recorder always uses the local link, to avoid mixed content.
+- 'Block all Hubitat cloud requests' is at the top of 'Installation and Configuration', since it covers the mobile devices and the web pages alike.
+- 'Require a view key on web links' - every map, member page, member command and map data request must also carry a view key issued by the app (`&k=<key>`).
+	- Hubitat gives the app a single access token, which the mobile devices also use.  View keys let you share a map link and later revoke it, without changing the token on the mobile devices.
+	- Add a key for each person or device you share links with: set 'Full access for the next key added' if needed, then type the name in 'Add a view key' and press Enter or Tab.  'View' keys open the maps and member pages.  'Full' keys can also edit regions, geocode and send member commands.
+	- 'Show links for view key', in each of 'Dashboard Web Links' and 'Member Command API Links', selects whose key is placed in that section's links, so each person can be sent their own.  It does not change who has access.  The member command section only offers full access keys, since only those can send commands.
+	- Two keys are managed by the app: 'Hub app pages' for the maps embedded in this app, and 'Dashboard tiles' for the tile attributes.  These can be regenerated but not removed.  'Dashboard tiles' has full access, because the region configuration map can be placed on a dashboard.
+	- Select 'Done' after adding, revoking or regenerating a key so the dashboard tiles are rebuilt.
+	- View keys do not apply to mobile location reports, which still use the access token only.  To stop those arriving through the cloud, use 'Block all Hubitat cloud requests'.
+
 ## Dashboard Web Links
-- Displays direct cloud or local web links for the family, member and recorder maps.
-- Selecting 'Disable cloud links' will prevent access to the web URL endpoints via the cloud links.  Only the local links will be displayed.
-- 'Use local network links (off = cloud links)' - selects which set of links is displayed.  This option is hidden when 'Disable cloud links' is selected.
-	- When disabled (the default), the cloud links are displayed.  These work from anywhere with an internet connection.
-	- Enable to display the local links.  These only work on the home network, or over a VPN to it.
-	- The Recorder links are only displayed as cloud links if the Recorder has a secure (https) URL.
+- Displays the family, member and recorder map links for the source and view key chosen in 'Configure Web Access' and the section's own key picker.
 - If the member name is appended to the end of the Google Family Map URL, that member will be used for the auto-zoom distance check.
 
 
@@ -362,8 +388,8 @@ The defaults for the rest of these settings should be sufficient for verifying o
 - Device will send a location interval at this heart beat interval (minutes) (Android Only)
 	- The mobile will report a location on intervals of this many minutes, regardless if it is moving
 - Mobile App Location Performance (Android Only)	
-    - Use GPS for high accuracy locations.  NOTE: This will consume slightly more battery but will offer better performance in areas with poor WiFi/Cell coverage. (Android ONLY)
-    - Request a high accuracy location from members on their next location report after a ping update to keep location fresh. (Android ONLY)
+	- Use GPS for high accuracy locations.  NOTE: This will consume slightly more battery but will offer better performance in areas with poor WiFi/Cell coverage. (Android ONLY)
+	- Request a high accuracy location from members on their next location report after a ping update to keep location fresh. (Android ONLY)
 - Do not send a location if the accuracy is greater than the given distance
 	- Prevents the phone from returning locations if the accuracy is larger than the entered distance
 - Number of days after which location updates from friends are assumed stale and removed
@@ -377,7 +403,7 @@ The defaults for the rest of these settings should be sufficient for verifying o
 - Device will not report location updates faster than this interval (seconds) unless moving
 	- Location updates will be reported on this interval unless the mobile is moving
 - How often should locations be continuously sent from the device while in 'Move' mode (seconds) 
-    - Interval for the mobile to report a location when in 'move' mode.  NOTE:  Faster the updates, the higher the battery consumption.
+	- Interval for the mobile to report a location when in 'move' mode.  NOTE:  Faster the updates, the higher the battery consumption.
 	
 ## Mobile App Display Settings	
 - Restore Defaults

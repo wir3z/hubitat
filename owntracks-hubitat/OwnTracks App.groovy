@@ -185,13 +185,14 @@
  *  1.9.8      2026-08-18      - Stopped clearing the URL of a device that reports with a blank Username or Device ID which was blanking new installs.
  *  1.9.9      2026-10-02      - Added toggle to display cloud vs local URLs for links.  Fixed street address parsing that stopped separating places from the street address in 1.8.29.  Trim whitespace around the mobile Username and Device ID.
  *  1.9.10     2026-10-25      - Forward only the OwnTracks and User-Agent headers to the recorder and secondary hub.
+ *  1.9.11     2026-11-07      - Added a remote access choice (Hubitat cloud, external reverse proxy or local only) that replaces 'Disable cloud links', optional revocable view keys for web links, and a setting to block all cloud requests.  Web pages, map data and member commands are refused through the cloud or a reverse proxy unless it is the chosen remote access.  Map pages use relative URLs.
 */
 
 import groovy.transform.Field
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return '1.9.10' }
+def appVersion() { return '1.9.11' }
 
 @Field static final Map BATTERY_STATUS = [ '0': 'Unknown', '1': 'Unplugged', '2': 'Charging', '3': 'Full' ]
 @Field static final Map DATA_CONNECTION = [ 'w': 'WiFi', 'm': 'Mobile', 'o': 'Offline'  ]
@@ -214,11 +215,20 @@ def appVersion() { return '1.9.10' }
 @Field static final Map GEOCODE_API_KEY_LINK = [ 1: "<a href='https://developers.google.com/maps/documentation/directions/get-api-key/' target='_blank'>Sign up for a Google API Key</a>", 2: "<a href='https://apidocs.geoapify.com/docs/geocoding/reverse-geocoding/#about' target='_blank'>Sign up for a Geoapify API Key</a>", 3: "<a href='https://opencagedata.com/api#quickstart' target='_blank'>Sign up for a Opencage API Key</a>" ]
 @Field static final Map COLLECT_PLACES = [ 'desc': 0, 'desc_tst': 1, 'map' : 2 ]
 @Field static final Map IOS_PLUS_FOLLOW = [ 'rad':50, 'tst':1700000000, '_type':'waypoint', 'lon':0.0, 'lat':0.0, 'desc':'+follow' ]
-@Field static final List URL_SOURCE = [ '[cloud.hubitat.com]', '[local.com]' ]
+@Field static final List URL_SOURCE = [ '[cloud.hubitat.com]', '[local.com]', '[external]' ]
+@Field static final Map MOBILE_URL_OPTIONS = [ 'cloud': 'Hubitat cloud (cloud.hubitat.com)', 'local': 'Local network or VPN', 'external': 'External URL (reverse proxy)' ]
+@Field static final Map REMOTE_ACCESS_OPTIONS = [ 'cloud': 'Hubitat cloud (cloud.hubitat.com)', 'external': 'External URL (reverse proxy)', 'none': 'None - local network only' ]
 
 // Main defaults
 @Field String  HUBITAT_CLOUD_URL = 'cloud.hubitat.com'
-@Field Boolean DEFAULT_use_local_urls = false
+@Field String  PROXY_TOKEN_HEADER = 'X-OwnTracks-Token-Injected'
+@Field String  VIEW_KEY_PARAM = 'k'
+@Field String  VIEW_KEY_BUTTON_PREFIX = 'viewKeyButton_'
+@Field String  HUB_VIEW_KEY = 'hub'
+@Field String  TILE_VIEW_KEY = 'tiles'
+@Field static final List FULL_ACCESS_API_ACTIONS = [ 'save', 'home', 'delete', 'geocode', 'reversegeocode' ]
+@Field String  DEFAULT_mobileUrlSource = 'cloud'
+@Field String  DEFAULT_remoteAccess = 'cloud'
 @Field String  DEFAULT_APP_THEME_COLOR = '#191970'
 @Field String  DEFAULT_MEMBER_PIN_COLOR = 'MidnightBlue'         // "#191970" - "MidnightBlue"
 @Field String  DEFAULT_MEMBER_GLYPH_COLOR = 'Purple'             // "#800080" - "Brown"
@@ -258,7 +268,10 @@ def appVersion() { return '1.9.10' }
 @Field Number  DEFAULT_regionHighAccuracyRadius = 750
 @Field Number  DEFAULT_wifiPresenceKeepRadius = 750
 @Field Boolean DEFAULT_imperialUnits = false
-@Field Boolean DEFAULT_disableCloudLinks = false
+@Field Boolean DEFAULT_blockCloudRequests = false
+@Field Boolean DEFAULT_externalLinkOmitToken = false
+@Field Boolean DEFAULT_mobileExternalOmitToken = false
+@Field Boolean DEFAULT_requireViewKeys = false
 @Field Boolean DEFAULT_regionHighAccuracyRadiusHomeOnly = true
 @Field Boolean DEFAULT_warnOnDisabledMember = true
 @Field Boolean DEFAULT_warnOnMemberSettings = false
@@ -325,6 +338,7 @@ definition(
 preferences {
     page(name: 'mainPage')
     page(name: 'configureHubApp')
+    page(name: 'configureWebAccess')
     page(name: 'installationInstructions')
     page(name: 'thumbnailCreation')
     page(name: 'configureNotifications')
@@ -384,8 +398,14 @@ def mainPage() {
                 paragraph('<style>.mdl-cell:has(> button.submitOnChange){background:transparent !important;border:none !important;box-shadow:none !important;padding:0 !important;margin:0 !important;}</style>')
                 input name: 'sectionInstall', type: 'button', title: sectionTitle(state.show.install, 'Installation and Configuration'), submitOnChange: true, style: sectionStyle()
                 if (state.show.install) {
+                    input name: 'blockCloudRequests', type: 'bool', title: 'Block all Hubitat cloud (cloud.hubitat.com) requests to this app, including mobile location reports sent to the cloud URL.  <b>Only enable once every mobile device reports through a local, VPN or reverse proxy URL - devices still using the cloud URL will stop updating.</b>', defaultValue: DEFAULT_blockCloudRequests, submitOnChange: true
+                    // the web pages can't stay on the cloud once it is blocked
+                    if (blockCloudRequests && (remoteAccess == 'cloud')) {
+                        app.updateSetting('remoteAccess', [value: 'none', type: 'enum'])
+                    }
                     href(title: 'Mobile App Installation Instructions', description: '', style: 'page', page: 'installationInstructions')
                     href(title: 'Configure Hubitat App - WiFi Settings, Units, Location Performance, Device Prefix, Geocode and Google Map API keys', description: '', style: 'page', page: 'configureHubApp')
+                    href(title: 'Configure Web Access - Remote Access and View Keys', description: '', style: 'page', page: 'configureWebAccess')
                     href(title: "Configure Regions - Add, Edit, Delete, Assign 'Home'", description: '', style: 'page', page: 'configureRegions')
                     href(title: 'Configure Groups - Assign Friend Groups', description: '', style: 'page', page: 'configureGroups')
                     input 'enabledMembers', 'enum', multiple: true, title:(enabledMembers ? '<div>' : '<div style="color:#ff0000">') + "Select family member(s) to monitor.  Member device will be created and configured once 'Done' is pressed, below.</div>", options: (state.members ? state.members.name.sort() : []), submitOnChange: true
@@ -401,62 +421,59 @@ def mainPage() {
                 }
                 input name: 'sectionLinks', type: 'button', title: sectionTitle(state.show.links, 'Dashboard Web Links'), submitOnChange: true, style: sectionStyle()
                 if (state.show.links) {
-                    paragraph('<b>Direct dashboard links for use in a web browser.</b>')
-                    input name: 'disableCloudLinks', type: 'bool', title: 'Disable cloud links', defaultValue: DEFAULT_disableCloudLinks, submitOnChange: true
-                    if (disableCloudLinks) {
-                        app.updateSetting('localLinkUrlSource', [value: true, type: 'bool'])
-                    } else {
-                        input name: 'localLinkUrlSource', type: 'bool', title: 'Use local network links (off = cloud links)', defaultValue: DEFAULT_use_local_urls, submitOnChange: true
-                    }
-                    def useLocal = disableCloudLinks || localLinkUrlSource
-                    def source = URL_SOURCE[useLocal ? 1 : 0]
-                    paragraph(useLocal ? '<h2>Local Links</h2>' : '<h2>Cloud Links</h2>')
-                    if (googleMapsAPIKey) {
-                        paragraph("<b>Google family map:</b><br>&emsp;<a href='${attributeURL(source, 'googlemap')}&member='>${attributeURL(source, 'googlemap')}&member=</a><br>")
-                        paragraph("<b>Region configuration map:</b><br>&emsp;<a href='${attributeURL(source, 'configmap')}'>${attributeURL(source, 'configmap')}</a><br>")
-                    }
-                    if (state.members) {
-                        urlList = ''
-                        state.members.each { member ->
-                            urlList += "${member.name}:<br>&emsp;<a href='${attributeURL(source, "membermap/${member.name.toLowerCase()}")}'>${attributeURL(source, "membermap/${member.name.toLowerCase()}")}</a><br>"
+                    paragraph("<b>Direct dashboard links for use in a web browser.</b>  Remote access and view keys are set in 'Configure Web Access'.")
+                    def linkKey = linkViewKeyPicker('linkViewKey', false)
+                    displayLinkSources().each { source ->
+                        paragraph("<h2>${linkSourceTitle(source)}</h2>")
+                        if (googleMapsAPIKey) {
+                            def googleMapURL = appendQuery(attributeURL(source, 'googlemap', linkKey), 'member=')
+                            paragraph("<b>Google family map:</b><br>&emsp;<a href='${googleMapURL}'>${googleMapURL}</a><br>")
+                            paragraph("<b>Region configuration map:</b><br>&emsp;<a href='${attributeURL(source, 'configmap', linkKey)}'>${attributeURL(source, 'configmap', linkKey)}</a><br>")
                         }
-                        paragraph("<b>Member location map:</b><br>${urlList}")
-                    }
-                    if (state.members) {
-                        urlList = ''
-                        state.members.each { member ->
-                            urlList += "${member.name}:<br>&emsp;<a href='${attributeURL(source, "memberpresence/${member.name.toLowerCase()}")}'>${attributeURL(source, "memberpresence/${member.name.toLowerCase()}")}</a><br>"
+                        if (state.members) {
+                            urlList = ''
+                            state.members.each { member ->
+                                urlList += "${member.name}:<br>&emsp;<a href='${attributeURL(source, "membermap/${member.name.toLowerCase()}", linkKey)}'>${attributeURL(source, "membermap/${member.name.toLowerCase()}", linkKey)}</a><br>"
+                            }
+                            paragraph("<b>Member location map:</b><br>${urlList}")
                         }
-                        paragraph("<b>Member Presence:</b><br>${urlList}")
-                    }
-                    if (recorderURL) {
-                        // only display the recorder links if it's a local URL or if it's https (required for the cloud link)
-                        if ((source != URL_SOURCE[0]) || isHTTPsURL(getRecorderURL())) {
-                            paragraph("<b>OwnTracks Recorder family map:</b><br>&emsp;<a href='${attributeURL(source, 'recordermap')}'>${attributeURL(source, 'recordermap')}</a>")
+                        if (state.members) {
+                            urlList = ''
+                            state.members.each { member ->
+                                urlList += "${member.name}:<br>&emsp;<a href='${attributeURL(source, "memberpresence/${member.name.toLowerCase()}", linkKey)}'>${attributeURL(source, "memberpresence/${member.name.toLowerCase()}", linkKey)}</a><br>"
+                            }
+                            paragraph("<b>Member Presence:</b><br>${urlList}")
+                        }
+                        if (recorderURL) {
+                            // only display the recorder links if it's a local URL or if it's https (required for the https cloud and external links)
+                            if ((source == URL_SOURCE[1]) || isHTTPsURL(getRecorderURL())) {
+                                paragraph("<b>OwnTracks Recorder family map:</b><br>&emsp;<a href='${attributeURL(source, 'recordermap', linkKey)}'>${attributeURL(source, 'recordermap', linkKey)}</a>")
 
-                            if (state.members) {
-                                urlList = ''
-                                state.members.each { member ->
-                                    urlList += "${member.name}:<br>&emsp;<a href='${attributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}'>${attributeURL(source, "memberpastlocations/${member.name.toLowerCase()}")}</a><br>"
+                                if (state.members) {
+                                    urlList = ''
+                                    state.members.each { member ->
+                                        urlList += "${member.name}:<br>&emsp;<a href='${attributeURL(source, "memberpastlocations/${member.name.toLowerCase()}", linkKey)}'>${attributeURL(source, "memberpastlocations/${member.name.toLowerCase()}", linkKey)}</a><br>"
+                                    }
+                                    paragraph("<b>OwnTracks Recorder member past locations:</b><br>${urlList}")
                                 }
-                                paragraph("<b>OwnTracks Recorder member past locations:</b><br>${urlList}")
                             }
                         }
                     }
                 }
                 input name: 'sectionCommands', type: 'button', title: sectionTitle(state.show.commands, 'Member Command API Links'), submitOnChange: true, style: sectionStyle()
                 if (state.show.commands) {
-                    paragraph('<b>Member API command links for advanced integrations and virtual switch controls.</b>')
-                    URL_SOURCE.each { source ->
-                        paragraph((source == URL_SOURCE[0] ? '<h2>Cloud Links</h2>' : '<h2>Local Links</h2>'))
+                    paragraph("<b>Member API command links for advanced integrations and virtual switch controls.</b>  Remote access and view keys are set in 'Configure Web Access'.")
+                    def linkKey = linkViewKeyPicker('commandViewKey', true)
+                    displayLinkSources().each { source ->
+                        paragraph("<h2>${linkSourceTitle(source)}</h2>")
                         if (state.members) {
                             urlList = ''
                             state.members.each { member ->
                                 urlList += "${member.name}<br>"
-                                urlList += "&emsp;'On':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/on")}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/on")}</a><br>"
-                                urlList += "&emsp;'Off':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/off")}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/off")}</a><br>"
-                                urlList += "&emsp;'Arrived':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/arrived")}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/arrived")}</a><br>"
-                                urlList += "&emsp;'Departed':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/departed")}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/departed")}</a><br>"
+                                urlList += "&emsp;'On':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/on", linkKey)}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/on", linkKey)}</a><br>"
+                                urlList += "&emsp;'Off':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/off", linkKey)}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/off", linkKey)}</a><br>"
+                                urlList += "&emsp;'Arrived':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/arrived", linkKey)}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/arrived", linkKey)}</a><br>"
+                                urlList += "&emsp;'Departed':&emsp;<a href='${attributeURL(source, "membercmd/${member.name.toLowerCase()}/departed", linkKey)}'>${attributeURL(source, "membercmd/${member.name.toLowerCase()}/departed", linkKey)}</a><br>"
                             }
                             paragraph("<b>Member On/Off/Arrived/Departed:</b><br>${urlList}")
                         }
@@ -497,6 +514,29 @@ def getLocatorPriority(inRegion) {
         return(DYNAMIC_INTERVALS.locatorPriority)
     } else {
         return(DEFAULT_locatorPriority)
+    }
+}
+
+def configureWebAccess() {
+    return dynamicPage(name: 'configureWebAccess', title: '', nextPage: 'mainPage') {
+        section(styleFormat('box', 'Configure Web Access')) {
+            paragraph('<b>Applies to the dashboard web links, the member command links and the dashboard tiles.</b>')
+            input name: 'remoteAccess', type: 'enum', title: 'Remote access - the one way the web links and dashboard tiles are reached from outside the home network.  Web requests through any other way (the Hubitat cloud or a reverse proxy) are refused.  The local links are always listed and always work on the home network.', options: (blockCloudRequests ? REMOTE_ACCESS_OPTIONS.findAll { it.key != 'cloud' } : REMOTE_ACCESS_OPTIONS), defaultValue: DEFAULT_remoteAccess, submitOnChange: true
+            if (blockCloudRequests) {
+                paragraph(styleFormat('redText', "<b>Cloud access is blocked.</b>  The web links can't use the Hubitat cloud.  To use it, turn off 'Block all Hubitat cloud requests' in Installation and Configuration."))
+            }
+            if (remoteAccess == 'external') {
+                input name: 'externalLinkBaseUrl', type: 'string', title: "External base URL that your reverse proxy forwards to <b>${getFullLocalApiServerUrl()}</b>, e.g. https://example.com:8443/owntracks", required: true, submitOnChange: true
+                input name: 'externalLinkOmitToken', type: 'bool', title: "Omit the access token from the links.  Only enable if the reverse proxy adds 'Authorization: Bearer &lt;access token&gt;' and '${PROXY_TOKEN_HEADER}: 1' to every request.", defaultValue: DEFAULT_externalLinkOmitToken, submitOnChange: true
+                if (externalLinkOmitToken) {
+                    paragraph("<b>Access token for the reverse proxy:</b> ${state.accessToken}")
+                }
+            }
+            input name: 'requireViewKeys', type: 'bool', title: 'Require a view key on web links.  Links without a valid key are refused, and a key can be revoked without changing the mobile devices.  Select <b>Done</b> after changing keys to refresh the dashboard tiles.', defaultValue: DEFAULT_requireViewKeys, submitOnChange: true
+            if (requireViewKeys) {
+                displayViewKeys()
+            }
+        }
     }
 }
 
@@ -562,7 +602,7 @@ def configureHubApp() {
                 input name: 'mapFreeOnly', type: 'bool', title: "Prevent generating maps once free quota has been exhausted.  Current usage: <b>${state.mapApiUsage}/${GOOGLE_MAP_API_QUOTA} per month</b>.", defaultValue: DEFAULT_mapFreeOnly
                 paragraph(GOOGLE_MAP_API_KEY_LINK + " -- <i><b>'Maps JavaScript API'</b> must be enabled under <b><a href='https://console.cloud.google.com/apis/dashboard' target='_blank'>API's & Services</a></b>.  Use <b>API restrictions</b> and select <b>Maps JavaScript API</b>.</i>")
                 input name: 'googleMapsAPIKey', type: 'string', title: 'Google Maps API key for combined family location map and region add/edit/delete pages to display with region radius bubbles:', submitOnChange: true
-                paragraph("<a href='${attributeURL('[cloud.hubitat.com]', 'googlemap')}' target='_blank'>Test map API key</a>")
+                paragraph("<a href='${attributeURL(hubUiLinkSource(), 'googlemap', systemViewKey(HUB_VIEW_KEY))}' target='_blank'>Test map API key</a>")
                 input name: 'memberBoundsRadius', type: 'number', title: "Map will only auto-zoom to fit members within this distance from home (${largeUnits()}) (0..${displayKmMiVal(6400).toInteger()}) Recommended=${displayKmMiVal(DEFAULT_memberBoundsRadius).toInteger()}, Show all members=0", range: "0..${displayKmMiVal(6400).toInteger()}", defaultValue: displayKmMiVal(DEFAULT_memberBoundsRadius).toInteger(), submitOnChange: true
                 input name: 'smartDisplayScale', type: 'decimal', title: 'Scale value for casting to 1024x600 or 1280x800 smart displays. (1.0..1.3), recommended: 1.2:', range: '1.0..1.3', defaultValue: DEFAULT_smartDisplayScale
                 input name: 'useZoomWhenMembersAreClose', type: 'bool', title: 'Enable to allow auto-zoom to zoom in closer when all member(s) are in the same area.', defaultValue: DEFAULT_useZoomWhenMembersAreClose
@@ -606,8 +646,26 @@ def configureHubApp() {
 def installationInstructions() {
     return dynamicPage(name: 'installationInstructions', title: '', nextPage: 'mainPage') {
         section(styleFormat('box', 'Mobile App Installation Instructions')) {
-            input name: 'mobileLocalUrlSource', type: 'bool', title: 'Use local URLs for mobile (off = cloud URLs).  Enable if the mobile device reaches your network over VPN.', defaultValue: DEFAULT_use_local_urls, submitOnChange: true
-            def mobileUri = attributeURL(URL_SOURCE[mobileLocalUrlSource ? 1 : 0], 'webhook')
+            // Independent of 'Remote access': the phones can report through the cloud while the web pages stay local, and a proxy
+            // usually gives the phones their own path and login.  This only changes what is displayed; nothing is sent to the phones.
+            // shown whenever cloud is missing from the choices below, not only when the page switches away from it
+            if (blockCloudRequests) {
+                if (mobileUrlSource == 'cloud') {
+                    app.updateSetting('mobileUrlSource', [value: 'local', type: 'enum'])
+                }
+                paragraph(styleFormat('redText', "<b>Cloud reporting is blocked.</b>  Mobile devices set to the Hubitat cloud URL can't report.  To use it, turn off 'Block all Hubitat cloud requests' in Installation and Configuration."))
+            }
+            input name: 'mobileUrlSource', type: 'enum', title: 'Mobile URL - where the mobile devices send their location reports', options: (blockCloudRequests ? MOBILE_URL_OPTIONS.findAll { it.key != 'cloud' } : MOBILE_URL_OPTIONS), defaultValue: DEFAULT_mobileUrlSource, submitOnChange: true
+            if (mobileUrlSource == 'external') {
+                input name: 'mobileExternalUrl', type: 'string', title: "Full URL the mobile devices post to, which your reverse proxy forwards to <b>${getFullLocalApiServerUrl()}/webhook</b>, e.g. https://example.com/owntracks", required: true, submitOnChange: true
+                input name: 'mobileExternalOmitToken', type: 'bool', title: "Omit the access token from the URL.  Only enable if the reverse proxy adds 'Authorization: Bearer &lt;access token&gt;' to the location reports.", defaultValue: DEFAULT_mobileExternalOmitToken, submitOnChange: true
+            }
+            def mobileUri = mobileWebhookURL()
+            def proxyLogin = ((mobileUrlSource == 'external') ? '\r\n            |                   Password -> the reverse proxy password for this user, if it requires one' : '')
+            def proxyLoginIos = ((mobileUrlSource == 'external') ? '\r\n            |            Authentication -> On, with the reverse proxy password for this user, if it requires one' : '')
+            if (!mobileUri) {
+                paragraph(styleFormat('redText', 'Enter the external URL to display the mobile device settings.'))
+            }
             paragraph("""This integration requires the <a href='https://owntracks.org/' target='_blank'>OwnTracks</a> app to be installed on your mobile device.\r
             |<b>NOTE:</b> If you reinstall the OwnTracks app on Hubitat, the host URL below will change, and the mobile devices will need to be updated.\r
             |            This integration currently only supports one device per user for presence detection.  Linking more than one device will cause unreliable presence detection.\r\r
@@ -620,7 +678,7 @@ def installationInstructions() {
             |            Identification ->\r
             |                   Username -> Name of the user's phone (IE: 'Kevin') \r
             |                   Device ID -> Optional extra descriptor (IE: 'Phone').  If using OwnTracks recorder, it would be desirable\r
-            |                                to keep this device ID common across device changes, since it logs 'username/deviceID'.\r
+            |                                to keep this device ID common across device changes, since it logs 'username/deviceID'.${proxyLogin}\r
             |        Preferences -> Advanced\r
             |            Remote commands -> Selected\r
             |            Remote configuration -> Selected</i>\r\r
@@ -629,7 +687,7 @@ def installationInstructions() {
             |            Mode -> HTTP\r
             |            DeviceID -> 2-character user initials that will be displayed on your map (IE: 'KT').  If using OwnTracks recorder, it would be desirable to keep this device ID common across device changes, since it logs 'username/deviceID'.\r
             |            UserID -> Name of the user's phone (IE: 'Kevin')\r
-            |            URL -> <a href='${mobileUri}' target='_blank'>${mobileUri}</a>\r
+            |            URL -> <a href='${mobileUri}' target='_blank'>${mobileUri}</a>${proxyLoginIos}\r
             |            cmd -> Selected</i>\r\r
             |2. Click the up arrow button in the top right of the map to trigger a 'Send Location Now' to register the device with the Hubitat App.
             """.stripMargin())
@@ -895,7 +953,7 @@ def configureRegions() {
         }
         section {
             if (isMapAllowed(false)) {
-                configMapURL = "${attributeURL(URL_SOURCE[0], 'configmap')}"
+                configMapURL = "${attributeURL(hubUiLinkSource(), 'configmap', systemViewKey(HUB_VIEW_KEY))}"
                 paragraph("<iframe src='${configMapURL}' style='height: 650px; width: 100%; border: none;'></iframe>")
             } else {
                 clearSettingFields()
@@ -1084,16 +1142,212 @@ def homeRegion() {
     return ((homePlace ? state.places.find { it.tst == homePlace.toInteger() } : []))
 }
 
-def attributeURL(urlSource, path) {
-    // remove the []
-    cleanUrlSource = urlSource.substring(1, (urlSource.length() - 1))
-
-    // get the cloud or local URL
-    if (fullApiServerUrl().indexOf(cleanUrlSource, 0) >= 0) {
-        return(fullApiServerUrl().replaceAll('null', "${path}?access_token=${state.accessToken}"))
+def attributeURL(urlSource, path, viewKey = null) {
+    def url
+    if (urlSource == URL_SOURCE[2]) {
+        url = externalLinkBaseUrl.trim().replaceAll('/+$', '') + "/${path}" + (externalLinkOmitToken ? '' : "?access_token=${state.accessToken}")
     } else {
-        return(getFullLocalApiServerUrl() + "/${path}" + "?access_token=${state.accessToken}")
+        // remove the []
+        cleanUrlSource = urlSource.substring(1, (urlSource.length() - 1))
+
+        // get the cloud or local URL
+        if (fullApiServerUrl().indexOf(cleanUrlSource, 0) >= 0) {
+            url = fullApiServerUrl().replaceAll('null', "${path}?access_token=${state.accessToken}")
+        } else {
+            url = getFullLocalApiServerUrl() + "/${path}" + "?access_token=${state.accessToken}"
+        }
     }
+
+    return(viewKey ? appendQuery(url, "${VIEW_KEY_PARAM}=${viewKey}") : url)
+}
+
+// the URL shown in the mobile app installation instructions, or '' until an external URL is entered
+def mobileWebhookURL() {
+    if (mobileUrlSource == 'external') {
+        def url = mobileExternalUrl?.trim()
+        return(url ? (mobileExternalOmitToken ? url : appendQuery(url, "access_token=${state.accessToken}")) : '')
+    }
+    return(attributeURL(URL_SOURCE[(mobileUrlSource == 'local') ? 1 : 0], 'webhook'))
+}
+
+def appendQuery(url, query) {
+    return(url + (url.contains('?') ? '&' : '?') + query)
+}
+
+// Links served inside our own pages are relative, so they resolve against wherever the page was loaded from: the cloud,
+// the local IP or a reverse proxy.  The hub strips the Authorization header before the app sees it, so a proxy that
+// injects the token as a Bearer header says so with its own header, and the token is kept out of the page.  Anyone
+// can send that header, but it only ever removes the token from the response.
+def pageApiURL(path, requestHeaders, requestViewKey) {
+    def query = []
+    if (requestHeaderValue(requestHeaders, PROXY_TOKEN_HEADER) != '1') {
+        query << "access_token=${state.accessToken}"
+    }
+    // only a key that matched one we issued is echoed into the page, never arbitrary request input
+    if (requireViewKeys && findViewKey(requestViewKey)) {
+        query << "${VIEW_KEY_PARAM}=${requestViewKey}"
+    }
+    return(path + (query ? ('?' + query.join('&')) : ''))
+}
+
+// View keys are issued by this app and checked on top of the hub's single OAuth token, which the mobile devices
+// also carry.  They let a shared map link be revoked without re-keying the phones, and limit it to viewing.
+def initializeViewKeys() {
+    def viewKeys = state.viewKeys ?: [:]
+    viewKeys[HUB_VIEW_KEY] = viewKeys[HUB_VIEW_KEY] ?: [ name: 'Hub app pages', key: generateViewKey(), full: true, system: true ]
+    // full access, since the region configuration map can be placed on a dashboard
+    viewKeys[TILE_VIEW_KEY] = viewKeys[TILE_VIEW_KEY] ?: [ name: 'Dashboard tiles', key: generateViewKey(), full: true, system: true ]
+    state.viewKeys = viewKeys
+}
+
+def generateViewKey() {
+    return(UUID.randomUUID().toString().replaceAll('-', ''))
+}
+
+def findViewKey(key) {
+    return(key ? state.viewKeys?.values()?.find { it.key == key.toString() } : null)
+}
+
+def isViewKeyValid(key, needFull) {
+    if (!requireViewKeys) {
+        return(true)
+    }
+    def viewKey = findViewKey(key)
+    return((viewKey != null) && (!needFull || viewKey.full))
+}
+
+def viewKeyRefused() {
+    return render(contentType: 'text/html', data: 'A valid view key is required for this link.', status: 403)
+}
+
+def viewKeyValue(id) {
+    return(id ? state.viewKeys?.get(id)?.key : null)
+}
+
+// key for the links the app generates for its own pages and tiles
+def systemViewKey(id) {
+    return(requireViewKeys ? viewKeyValue(id) : null)
+}
+
+def viewKeyOptions(fullOnly = false) {
+    return(state.viewKeys?.findAll { id, viewKey -> !viewKey.system && (!fullOnly || viewKey.full) }?.collectEntries { id, viewKey -> [ (id): viewKey.name ] } ?: [:])
+}
+
+// Shows whose key goes into the links of one section, and returns that key.  It only changes what is displayed, not who has
+// access.  The member command section only offers full access keys, since those are the only ones that can send commands.
+def linkViewKeyPicker(setting, fullOnly) {
+    if (!requireViewKeys) {
+        return(null)
+    }
+    def options = viewKeyOptions(fullOnly)
+    if (!options) {
+        paragraph(styleFormat('redText', "Add a view key${fullOnly ? ' with full access' : ''} in 'Configure Web Access' to display working links."))
+        return(null)
+    }
+    if (!options[settings[setting]]) {
+        app.updateSetting(setting, [value: options.keySet().first(), type: 'enum'])
+    }
+    input name: setting, type: 'enum', title: 'Show links for view key', options: options, submitOnChange: true
+    return(viewKeyValue(settings[setting]))
+}
+
+def displayViewKeys() {
+    // A name entered in the field below adds the key on the refresh it triggers.  A button can't do this reliably: Hubitat
+    // handles the click before the field hands over its value, which it only does when the field loses focus.
+    String message = (newViewKeyName?.trim() ? addViewKey(newViewKeyName, newViewKeyFull) : '')
+
+    String table = '<table style="width:100%"><tr><th align="left">View key</th><th align="left">Access</th></tr>'
+    state.viewKeys.each { id, viewKey ->
+        table += "<tr><td>${viewKey.name}</td><td>${viewKey.full ? 'Full - maps, region editing and member commands' : 'View - maps and member pages'}</td></tr>"
+    }
+    paragraph(table + '</table>')
+    state.viewKeys.each { id, viewKey ->
+        input name: "${VIEW_KEY_BUTTON_PREFIX}${id}", type: 'button', title: (viewKey.system ? "Regenerate '${viewKey.name}'" : "Revoke '${viewKey.name}'"), submitOnChange: true
+    }
+    if (message) {
+        paragraph(styleFormat('redText', message))
+    }
+    // the access level is chosen first, since entering the name adds the key straight away
+    input name: 'newViewKeyFull', type: 'bool', title: 'Full access for the next key added - region editing and member commands', defaultValue: false
+    input name: 'newViewKeyName', type: 'string', title: '<b>Add a view key:</b> enter who or what it is for, then press Enter or Tab', submitOnChange: true
+}
+
+// returns a message for the page if the key could not be added
+def addViewKey(name, full) {
+    def keyName = name?.trim()
+    // cleared either way, so a rejected name is not retried on every refresh
+    app.removeSetting('newViewKeyName')
+    if (state.viewKeys.values().find { it.name == keyName }) {
+        return("A view key named '${keyName}' already exists.")
+    }
+    def viewKeys = state.viewKeys
+    def id = generateViewKey().take(8)
+    viewKeys[id] = [ name: keyName, key: generateViewKey(), full: (full == true), system: false ]
+    state.viewKeys = viewKeys
+    app.updateSetting('newViewKeyFull', [value: false, type: 'bool'])
+    logDescriptionText("Added view key '${keyName}'.")
+    return('')
+}
+
+// system keys are regenerated, since the app's own pages and tiles depend on them; issued keys are removed
+def revokeViewKey(id) {
+    def viewKeys = state.viewKeys
+    def viewKey = viewKeys[id]
+    if (viewKey) {
+        if (viewKey.system) {
+            viewKey.key = generateViewKey()
+            logDescriptionText("Regenerated view key '${viewKey.name}'.")
+        } else {
+            viewKeys.remove(id)
+            [ 'linkViewKey', 'commandViewKey' ].each { setting ->
+                if (settings[setting] == id) {
+                    app.removeSetting(setting)
+                }
+            }
+            logDescriptionText("Revoked view key '${viewKey.name}'.")
+        }
+        state.viewKeys = viewKeys
+    }
+    return('')
+}
+
+// Hubitat delivers each header value as a list, and capitalizes only the first letter of the name.  Flattening takes
+// the first element of a list, or a lone value as-is.
+def requestHeaderValue(requestHeaders, name) {
+    def value = requestHeaders?.find { it.key?.toString()?.equalsIgnoreCase(name) }?.value
+    return([value].flatten()[0]?.toString())
+}
+
+// the web pages are only served through the cloud when that is the chosen way in; a proxy reaches the hub locally
+def cloudLinksDisabled() {
+    return((remoteAccess != 'cloud') || (blockCloudRequests == true))
+}
+
+def externalLinksEnabled() {
+    return((remoteAccess == 'external') && externalLinkBaseUrl?.trim())
+}
+
+// the remote access source, used by the links and the tiles; the link sections also list the local links, see displayLinkSources()
+def linkSource() {
+    if (externalLinksEnabled()) {
+        return(URL_SOURCE[2])
+    }
+    return(URL_SOURCE[cloudLinksDisabled() ? 1 : 0])
+}
+
+// maps embedded in the hub UI are always local, as the region add/edit/delete maps have always been.  They only load where
+// the hub's admin UI itself is reachable, and the proxy doesn't forward the region config page.
+def hubUiLinkSource() {
+    return(URL_SOURCE[1])
+}
+
+// the remote access source, plus local, which home dashboards and command integrations usually use
+def displayLinkSources() {
+    return([ linkSource(), URL_SOURCE[1] ].unique())
+}
+
+def linkSourceTitle(source) {
+    return([ (URL_SOURCE[0]): 'Cloud Links', (URL_SOURCE[1]): 'Local Links', (URL_SOURCE[2]): 'External Links' ][source])
 }
 
 def displayRegionsPendingDelete() {
@@ -1493,8 +1747,12 @@ String appButtonHandler(btn) {
             state.show.region = state.show.region ? false : true
             break
         default:
-            result = ''
-            logWarn("Unhandled button: $btn")
+            if (btn.startsWith(VIEW_KEY_BUTTON_PREFIX)) {
+                result = revokeViewKey(btn - VIEW_KEY_BUTTON_PREFIX)
+            } else {
+                result = ''
+                logWarn("Unhandled button: $btn")
+            }
             break
     }
 
@@ -1565,7 +1823,27 @@ def initialize(forceDefaults) {
     if (useLastGoogleFriendsMapMember == null) { app.updateSetting('useLastGoogleFriendsMapMember', [value: DEFAULT_useLastGoogleFriendsMapMember, type: 'bool']) }
     if (homeSSID == null) { app.updateSetting('homeSSID', [value: '', type: 'string']) }
     if (imperialUnits == null) { app.updateSetting('imperialUnits', [value: DEFAULT_imperialUnits, type: 'bool']) }
-    if (disableCloudLinks == null) { app.updateSetting('disableCloudLinks', [value: DEFAULT_disableCloudLinks, type: 'bool']) }
+    if (blockCloudRequests == null) { app.updateSetting('blockCloudRequests', [value: DEFAULT_blockCloudRequests, type: 'bool']) }
+    if (externalLinkOmitToken == null) { app.updateSetting('externalLinkOmitToken', [value: DEFAULT_externalLinkOmitToken, type: 'bool']) }
+    if (requireViewKeys == null) { app.updateSetting('requireViewKeys', [value: DEFAULT_requireViewKeys, type: 'bool']) }
+    initializeViewKeys()
+    // 1.9.11 replaced the mobile local/cloud URL toggle with a mobile URL choice that includes a reverse proxy
+    if (mobileUrlSource == null) {
+        app.updateSetting('mobileUrlSource', [value: (settings.mobileLocalUrlSource ? 'local' : DEFAULT_mobileUrlSource), type: 'enum'])
+        app.removeSetting('mobileLocalUrlSource')
+    }
+    if (mobileExternalOmitToken == null) { app.updateSetting('mobileExternalOmitToken', [value: DEFAULT_mobileExternalOmitToken, type: 'bool']) }
+    // 1.9.11 replaced 'Disable cloud links' and the local/cloud link toggle with a single remote access choice
+    if (remoteAccess == null) {
+        def migrated = DEFAULT_remoteAccess
+        if (settings.linkUrlSource == 'external') {
+            migrated = 'external'
+        } else if (settings.disableCloudLinks || blockCloudRequests) {
+            migrated = 'none'
+        }
+        app.updateSetting('remoteAccess', [value: migrated, type: 'enum'])
+        [ 'disableCloudLinks', 'linkUrlSource', 'localLinkUrlSource' ].each { app.removeSetting(it) }
+    }
     if (deviceNamePrefix == null) { app.updateSetting('deviceNamePrefix', [value: DEFAULT_CHILDPREFIX, type: 'string']) }
     if (forceDefaults || (imageCards == null)) { app.updateSetting('imageCards', [value: DEFAULT_imageCards, type: 'bool']) }
     if (forceDefaults || (highPowerMode == null)) { app.updateSetting('highPowerMode', [value: DEFAULT_highPowerMode, type: 'bool']) }
@@ -2054,6 +2332,11 @@ def nightlyMaintenance() {
 }
 
 def webhookEventHandler() {
+    if (isCloudRequestBlocked(request.HOST)) {
+        logWarn('Rejected a location report through the Hubitat cloud.  Point the mobile device at a local, VPN or reverse proxy URL, or disable "Block all Hubitat cloud requests" in "Installation and Configuration".')
+        return render(contentType: 'text/html', data: (new JsonBuilder([])), status: 403)
+    }
+
     // Get the user/device from the message header
     String sourceName     = request.headers.'X-limit-u'
     String sourceDeviceID = request.headers.'X-limit-d'
@@ -3360,23 +3643,27 @@ def regionMapLink(region) {
     // if we have an API key that is still has quota left
     APIKey = googleMapsAPIKey?.trim()
     if (APIKey && isMapAllowed(true)) {
-        return(getFullLocalApiServerUrl() + "/regionmap/${newRegionMap(region?.lat, region?.lon, region?.rad)}?access_token=${state.accessToken}")
+        return(attributeURL(URL_SOURCE[1], "regionmap/${newRegionMap(region?.lat, region?.lon, region?.rad)}", systemViewKey(HUB_VIEW_KEY)))
     } else {
         return("https://maps.google.com/?q=${region?.lat},${region?.lon}&z=17&output=embed&")
     }
 }
 
 def getMemberMapLink(memberName) {
-    return(getFullLocalApiServerUrl() + "/membermap/${memberName.toLowerCase()}?access_token=${state.accessToken}")
+    return(attributeURL(URL_SOURCE[1], "membermap/${memberName.toLowerCase()}", systemViewKey(HUB_VIEW_KEY)))
 }
 
 def generateRegionMap() {
+    if (!isViewKeyValid(params?.k, true)) {
+        return viewKeyRefused()
+    }
+
     // convert the string back to a map
     def region = evaluate((params.region).replaceAll('%20', ''))
 
-    String htmlData = 'Google Maps API Not Configured or Quota Exceeded or Cloud Web Links are Disabled'
+    String htmlData = 'Google Maps API Not Configured or Quota Exceeded or Remote Web Access is Disabled'
     APIKey = googleMapsAPIKey()
-    if (APIKey && isMapAllowed(true) && isCloudLinkEnabled(request.HOST)) {
+    if (isRemoteAccessAllowed(request.HOST, request.headers) && APIKey && isMapAllowed(true)) {
         htmlData = """
         <div style="width:100%;height:100%;margin:5px">
             <div id="map" style="width:100%;height:100%;"></div>
@@ -3439,9 +3726,13 @@ def generateRegionMap() {
 }
 
 def generateConfigMap() {
-    String htmlData = 'Google Maps API Not Configured or Quota Exceeded or Cloud Web Links are Disabled'
+    if (!isViewKeyValid(params?.k, true)) {
+        return viewKeyRefused()
+    }
+
+    String htmlData = 'Google Maps API Not Configured or Quota Exceeded or Remote Web Access is Disabled'
     APIKey = googleMapsAPIKey()
-    if (APIKey && isMapAllowed(true) && isCloudLinkEnabled(request.HOST)) {
+    if (isRemoteAccessAllowed(request.HOST, request.headers) && APIKey && isMapAllowed(true)) {
         htmlData = '''
         <html>
         <head>
@@ -3872,7 +4163,7 @@ def generateConfigMap() {
                             postData["action"] = action;
                             postData["payload"] = dataMap;
 
-                            fetch("${attributeURL(request.headers.Host.toString(), 'apidata')}", {
+                            fetch("${pageApiURL('apidata', request.headers, params?.k)}", {
                                 method: "POST",
                                 body: JSON.stringify(postData),
                                 headers: {
@@ -3951,53 +4242,65 @@ def generateConfigMap() {
 }
 
 def displayMemberMap() {
+    if (!isViewKeyValid(params?.k, false)) {
+        return viewKeyRefused()
+    }
+
     // find the member from the member name in the parameters - this is returned in lowercase
     member = state.members.find { it.name.toLowerCase() == params.member }
     String htmlData = 'Private Member'
 
-    if (isCloudLinkEnabled(request.HOST)) {
+    if (isRemoteAccessAllowed(request.HOST, request.headers)) {
         def deviceWrapper = getChildDevice(member.id)
         if (deviceWrapper) {
-            displayData = deviceWrapper.generateMember(request.headers.Host.toString())
+            displayData = deviceWrapper.generateMember(pageApiURL('../apidata', request.headers, params?.k))
             // only display if we could retrieve the data
             if (displayData) {
                 htmlData = displayData
             }
         }
     } else {
-        htmlData = 'Cloud web links are disabled.'
+        htmlData = 'Remote web access is disabled.'
     }
 
     return render(contentType: 'text/html', data: (insertOwnTracksFavicon() + htmlData))
 }
 
 def displayMemberPresence() {
+    if (!isViewKeyValid(params?.k, false)) {
+        return viewKeyRefused()
+    }
+
     // find the member from the member name in the parameters - this is returned in lowercase
     member = state.members.find { it.name.toLowerCase() == params.member }
     String htmlData = 'Member Not Configured'
 
-    if (isCloudLinkEnabled(request.HOST)) {
+    if (isRemoteAccessAllowed(request.HOST, request.headers)) {
         def deviceWrapper = getChildDevice(member.id)
         if (deviceWrapper) {
-            displayData = deviceWrapper.generatePresence(request.headers.Host.toString())
+            displayData = deviceWrapper.generatePresence(pageApiURL('../apidata', request.headers, params?.k))
             // only display if we could retrieve the data
             if (displayData) {
                 htmlData = displayData
             }
         }
     } else {
-        htmlData = 'Cloud web links are disabled.'
+        htmlData = 'Remote web access is disabled.'
     }
 
     return render(contentType: 'text/html', data: (insertOwnTracksFavicon() + htmlData))
 }
 
 def displayMemberPastLocations() {
+    if (!isViewKeyValid(params?.k, false)) {
+        return viewKeyRefused()
+    }
+
     // find the member from the member name in the parameters - this is returned in lowercase
     member = state.members.find { it.name.toLowerCase() == params.member }
     String htmlData = 'OwnTracks Recorder Not Configured or Private Member'
 
-    if (isCloudLinkEnabled(request.HOST)) {
+    if (isRemoteAccessAllowed(request.HOST, request.headers)) {
         def deviceWrapper = getChildDevice(member.id)
         if (deviceWrapper) {
             displayData = deviceWrapper.generatePastLocations()
@@ -4007,16 +4310,25 @@ def displayMemberPastLocations() {
             }
         }
     } else {
-        htmlData = 'Cloud web links are disabled.'
+        htmlData = 'Remote web access is disabled.'
     }
 
     return render(contentType: 'text/html', data: (insertOwnTracksFavicon() + htmlData))
 }
 
 def processAPIData() {
+    // the map pages are blocked by the same setting, so this closes the data behind them
+    if (!isRemoteAccessAllowed(request.HOST, request.headers)) {
+        return render(contentType: 'text/html', data: (new JsonBuilder([])), status: 403)
+    }
+
     // process incoming data
     def response = []
     def data = parseJson(request.body)
+    // viewing the map only reads member data and saves its zoom and followed member; anything else edits regions or uses geocode quota
+    if (!isViewKeyValid(params?.k, (data.action in FULL_ACCESS_API_ACTIONS))) {
+        return render(contentType: 'text/html', data: (new JsonBuilder([])), status: 403)
+    }
     if (data.zoom) {
         state.googleMapsZoom = data.zoom
     }
@@ -4119,6 +4431,13 @@ def processAPIData() {
 }
 
 def processMemberAPICommand() {
+    if (!isRemoteAccessAllowed(request.HOST, request.headers)) {
+        return render(contentType: 'text/html', data: (new JsonBuilder('Remote web access is disabled.')), status: 403)
+    }
+    if (!isViewKeyValid(params?.k, true)) {
+        return viewKeyRefused()
+    }
+
     try {
         member = state.members.find { it.name.toLowerCase() == params.member.toLowerCase() }
         def deviceWrapper = getChildDevice(member?.id)
@@ -4147,9 +4466,13 @@ def insertOwnTracksFavicon() {
 }
 
 def generateGoogleFriendsMap() {
-    String htmlData = 'Google Maps API Not Configured or Quota Exceeded or Cloud Web Links are Disabled'
+    if (!isViewKeyValid(params?.k, false)) {
+        return viewKeyRefused()
+    }
+
+    String htmlData = 'Google Maps API Not Configured or Quota Exceeded or Remote Web Access is Disabled'
     APIKey = googleMapsAPIKey()
-    if (APIKey && isMapAllowed(true) && isCloudLinkEnabled(request.HOST)) {
+    if (isRemoteAccessAllowed(request.HOST, request.headers) && APIKey && isMapAllowed(true)) {
         htmlData = """
         <html>
         <head>
@@ -4943,7 +5266,7 @@ def generateGoogleFriendsMap() {
 
                         async function sendDataToHub(postData) {
                             try {
-                                const response = await fetch(`${attributeURL(request.headers.Host.toString(), 'apidata')}`, {
+                                const response = await fetch(`${pageApiURL('apidata', request.headers, params?.k)}`, {
                                     method: "POST",
                                     body: JSON.stringify(postData),
                                     headers: {
@@ -5264,6 +5587,10 @@ def recorderURLType() {
 }
 
 def generateRecorderFriendsLocation() {
+    if (!isViewKeyValid(params?.k, false)) {
+        return viewKeyRefused()
+    }
+
     String htmlData = 'OwnTracks Recorder Not Configured'
     if (getRecorderURL()) {
         publicMembers = enabledAndNotHiddenMembers()
@@ -5301,17 +5628,9 @@ def insertThumbnailObject(memberName, size, embed) {
 def displayTile(recorderUrl, tileSource) {
     String htmlData = ''
 
-    // set the local/cloud base URL as required
-    if (recorderUrl) {
-        urlSource = recorderURLType()
-    } else {
-        if (disableCloudLinks == true) {
-            urlSource = URL_SOURCE[1]
-        } else {
-            urlSource = URL_SOURCE[0]
-        }
-    }
-    urlPath = attributeURL(urlSource, tileSource)
+    // tiles follow remote access, except that a non-https recorder always stays local to avoid mixed content
+    urlSource = ((recorderUrl && (recorderURLType() == URL_SOURCE[1])) ? URL_SOURCE[1] : linkSource())
+    urlPath = attributeURL(urlSource, tileSource, systemViewKey(TILE_VIEW_KEY))
 
     // create the embedded tile frame
     htmlData += '<div style="width:100%;height:100%">'
@@ -5377,13 +5696,26 @@ def generateMemberDeviceStatus() {
     return(['members' : memberLocations])
 }
 
-def isCloudLinkEnabled(requestURL) {
-    if ((requestURL == HUBITAT_CLOUD_URL) && (disableCloudLinks == true)) {
-        logWarn("Cloud links are disabled.  Open the Hubitat OwnTracks app, and enable in 'Dashboard Web Links'.")
-        return(false)
-    } else {
-        return(true)
+// Remote access is the single way in from outside the home network: the cloud, a reverse proxy, or neither.  Requests made
+// directly on the home network are always served.  A proxy is recognised by the forwarding headers it adds; a client that
+// sends one itself only gets itself refused.
+def isRemoteAccessAllowed(requestHost, requestHeaders) {
+    String via = ''
+    if (requestHost == HUBITAT_CLOUD_URL) {
+        via = 'cloud'
+    } else if (requestHeaderValue(requestHeaders, 'X-Forwarded-For') || requestHeaderValue(requestHeaders, 'X-Forwarded-Host')) {
+        via = 'external'
     }
+
+    def allowed = ((via == '') || ((via == 'cloud') && !cloudLinksDisabled()) || ((via == 'external') && (remoteAccess == 'external')))
+    if (!allowed) {
+        logWarn("Refused a web request through the ${(via == 'cloud') ? 'Hubitat cloud' : 'reverse proxy'}.  'Remote access' in 'Configure Web Access' is '${REMOTE_ACCESS_OPTIONS[remoteAccess]}'${blockCloudRequests ? ", and 'Block all Hubitat cloud requests' is on in 'Installation and Configuration'" : ''}.")
+    }
+    return(allowed)
+}
+
+def isCloudRequestBlocked(requestURL) {
+    return((requestURL == HUBITAT_CLOUD_URL) && (blockCloudRequests == true))
 }
 
 def resetLogging() {
@@ -5452,15 +5784,22 @@ mappings {
 }
 
 private regionUpdate() {
+    if (!isRemoteAccessAllowed(request.HOST, request.headers)) {
+        return render(contentType: 'text/html', data: 'Remote web access is disabled.', status: 403)
+    }
     logWarn "Received 'regionUpdate' ${params.region}"
 }
 
 private webhookGetHandler() {
-    if (isCloudLinkEnabled(request.HOST)) {
+    if (!isViewKeyValid(params?.k, false)) {
+        return viewKeyRefused()
+    }
+
+    if (isRemoteAccessAllowed(request.HOST, request.headers)) {
         logDescriptionText('Web request for member device status.')
         payload = new JsonBuilder(generateMemberDeviceStatus())
     } else {
-        logDescriptionText('Cloud web links are disabled.')
+        logDescriptionText('Remote web access is disabled.')
         payload = []
     }
 

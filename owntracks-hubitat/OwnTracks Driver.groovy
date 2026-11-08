@@ -152,12 +152,13 @@
  *  1.9.0      2026-03-04      - Increase revision to match new app APIs.
  *  1.9.1      2026-03-15      - Trigger missed transition events if the locations events do not match.
  *  1.9.2      2026-10-02      - Formatting cleanup.
+ *  1.9.3      2026-11-07      - Member map and presence pages use the relative data URL supplied by the app.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return '1.9.2' }
+def driverVersion() { return '1.9.3' }
 
 @Field static final Map MONITORING_MODE = [ 0: 'Unknown', 1: 'Significant', 2: 'Move' ]
 @Field static final Map BATTERY_STATUS = [ 0: 'Unknown', 1: 'Unplugged', 2: 'Charging', 3: 'Full' ]
@@ -654,7 +655,7 @@ def generatePresenceTile() {
     sendEvent(name: 'PresenceTile', value: parent.displayTile(false, "memberpresence/${state.memberName.toLowerCase()}"), displayed: true)
 }
 
-def generateMember(urlSource) {
+def generateMember(apiDataURL) {
     String htmlData = ''
     if (device.currentValue('location') != DEFAULT_privateLocation) {
         long sinceTimeMilliSeconds = device.currentValue('sinceTime')
@@ -702,7 +703,7 @@ def generateMember(urlSource) {
                     ${(device.currentValue('dataConnection') != null) ? "<td width=25%>${device.currentValue('dataConnection')}</td>" : ''}
                 </tr>
             </table>
-            ${generateScriptData(urlSource)}
+            ${generateScriptData(apiDataURL)}
         </div>"""
     }
 
@@ -783,7 +784,7 @@ def generatePastLocations() {
     return (htmlData)
 }
 
-def generatePresence(urlSource) {
+def generatePresence(apiDataURL) {
     long sinceTimeMilliSeconds = device.currentValue('sinceTime')
     sinceDate = new SimpleDateFormat('E h:mm a').format(new Date(sinceTimeMilliSeconds * 1000))
 
@@ -802,13 +803,13 @@ def generatePresence(urlSource) {
                 <td valign='center'>${sinceDate}</td>
             </tr>
         </table>
-        ${generateScriptData(urlSource)}
+        ${generateScriptData(apiDataURL)}
     </div>"""
 
     return (htmlData)
 }
 
-def generateScriptData(urlSource) {
+def generateScriptData(apiDataURL) {
     String htmlData = """
     <script>
         lastUpdate = sessionStorage.getItem('lastReportTime') || 0;
@@ -821,7 +822,7 @@ def generateScriptData(urlSource) {
         };
 
         function sendDataToHub(postData) {
-            fetch("${parent.attributeURL(urlSource, 'apidata')}", {
+            fetch("${apiDataURL}", {
                 method: "POST",
                 body: JSON.stringify(postData),
                 headers: {
