@@ -153,12 +153,13 @@
  *  1.9.1      2026-03-15      - Trigger missed transition events if the locations events do not match.
  *  1.9.2      2026-10-02      - Formatting cleanup.
  *  1.9.3      2026-11-07      - Member map and presence pages use the relative data URL supplied by the app.
+ *  1.9.4      2026-11-20      - Added a 'place' attribute for the business or place name at the member location, used as the location when not in a region.
  **/
 
 import java.text.SimpleDateFormat
 import groovy.transform.Field
 
-def driverVersion() { return '1.9.3' }
+def driverVersion() { return '1.9.4' }
 
 @Field static final Map MONITORING_MODE = [ 0: 'Unknown', 1: 'Significant', 2: 'Move' ]
 @Field static final Map BATTERY_STATUS = [ 0: 'Unknown', 1: 'Unplugged', 2: 'Charging', 3: 'Full' ]
@@ -236,6 +237,7 @@ metadata {
         attribute  'SSID', 'string'
         attribute  'address', 'string'
         attribute  'streetAddress', 'string'
+        attribute  'place', 'string'
         attribute  'dataConnection', 'enum', [ 'WiFi', 'Mobile' ]
         attribute  'batteryStatus', 'enum', [ 'Unknown', 'Unplugged', 'Charging', 'Full' ]
         attribute  'triggerSource', 'enum', [ 'Ping', 'Region', 'Report Location', 'Manual', 'Beacon', 'Timer', 'Monitoring', 'Location' ]
@@ -338,6 +340,7 @@ def deletePrivateExtendedAttributes() {
     device.deleteCurrentState('locationPermissions')
     device.deleteCurrentState('address')
     device.deleteCurrentState('streetAddress')
+    device.deleteCurrentState('place')
 }
 
 def updateAttributes(data) {
@@ -355,9 +358,11 @@ def updateAttributes(data) {
         if (data?.address) {
             sendEvent(name: 'address', value: data.address)
             sendEvent(name: 'streetAddress', value: data.streetAddress)
+            if (data?.place) { sendEvent(name: 'place', value: data.place) } else { device.deleteCurrentState('place') }
         } else {
             if (locationType)  { device.deleteCurrentState('address') }
             if (locationType)  { device.deleteCurrentState('streetAddress') }
+            if (locationType)  { device.deleteCurrentState('place') }
         }
 
         // can be updated all the time
@@ -429,7 +434,7 @@ def getCurrentLocation(data) {
             currentLocation = data.desc
         } else {
             // default to display the street address if it was reported (or the default lat,lon if no geocodeing was sent from the app)
-            currentLocation = data.streetAddress
+            currentLocation = data.place ?: data.streetAddress
             // if we are in a region stored in the app
             if (data.inregions) {
                 locationList = ''

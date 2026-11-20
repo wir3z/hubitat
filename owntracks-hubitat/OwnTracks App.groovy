@@ -186,13 +186,14 @@
  *  1.9.9      2026-10-02      - Added toggle to display cloud vs local URLs for links.  Fixed street address parsing that stopped separating places from the street address in 1.8.29.  Trim whitespace around the mobile Username and Device ID.
  *  1.9.10     2026-10-25      - Forward only the OwnTracks and User-Agent headers to the recorder and secondary hub.
  *  1.9.11     2026-11-07      - Added a remote access choice (Hubitat cloud, external reverse proxy or local only) that replaces 'Disable cloud links', optional revocable view keys for web links, and a setting to block all cloud requests.  Web pages, map data and member commands are refused through the cloud or a reverse proxy unless it is the chosen remote access.  Map pages use relative URLs.
+ *  1.9.12     2026-11-20      - Business and place names from the reverse geocode are no longer added as regions, which created false arrived/departed events.  The place name is shown in the member location, tiles and map history.
 */
 
 import groovy.transform.Field
 import groovy.json.JsonBuilder
 import java.text.SimpleDateFormat
 
-def appVersion() { return '1.9.11' }
+def appVersion() { return '1.9.12' }
 
 @Field static final Map BATTERY_STATUS = [ '0': 'Unknown', '1': 'Unplugged', '2': 'Charging', '3': 'Full' ]
 @Field static final Map DATA_CONNECTION = [ 'w': 'WiFi', 'm': 'Mobile', 'o': 'Offline'  ]
@@ -2702,7 +2703,7 @@ def updateMemberAttributes(headers, data, member) {
     // only save history on valid location types (ignore region and manual types)
     if (validLocationType(data.t)) {
         // first create the new member location so that the getHistoryMarker can clean up repeating events as necessary
-        def memberLocation = [ 'lat': member.latitude, 'lng': member.longitude, 'acc': member.accuracy, 'cog': member.bearing, 'spd': member.speed, 'odo': member.odo, 'tst': member.timeStamp, 'bat': member.battery, 'bs': member.bs, 'loc': data.streetAddress, 'mkr': getHistoryMarker(member) ]
+        def memberLocation = [ 'lat': member.latitude, 'lng': member.longitude, 'acc': member.accuracy, 'cog': member.bearing, 'spd': member.speed, 'odo': member.odo, 'tst': member.timeStamp, 'bat': member.battery, 'bs': member.bs, 'loc': (data.place ?: data.streetAddress), 'mkr': getHistoryMarker(member) ]
         try {
             // if the history buffer is full
             if (member.history.size == memberHistoryLength.toInteger()) {
@@ -2786,8 +2787,8 @@ def addStreetAddressAndRegions(data) {
         // lat, lon
         // if the first digit of the first entry is not a number, but the second is, then we were returned a place, street adress
         if (!((addressList[0])[0])?.isNumber() && (((addressList[1])[0])?.isNumber() || (addressList.size() > 4))) {
-            // save the place to the region list if we don't already have a region defined
-            if (!data.inregions) { addRegionToInregions(addressList[0], data) }
+            // keep the place out of inregions, otherwise the driver treats it as a geofence and generates false transitions
+            data.place = addressList[0]
             data.streetAddress = addressList[1]
             // remove the place from the address
             data.address = data.address.substring(data.address.indexOf(',') + 1)?.trim()
@@ -5676,6 +5677,7 @@ def generateMemberDeviceStatus() {
                 'location' :            "${deviceWrapper?.currentValue('location')}",
                 'lon' :                 "${deviceWrapper?.currentValue('lon')}",
                 'monitoringMode' :      "${deviceWrapper?.currentValue('monitoringMode')}",
+                'place' :               "${deviceWrapper?.currentValue('place')}",
                 'presence' :            "${deviceWrapper?.currentValue('presence')}",
                 'since' :               "${deviceWrapper?.currentValue('since')}",
                 'sinceTime' :           "${deviceWrapper?.currentValue('sinceTime')}",
